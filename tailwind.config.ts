@@ -14,8 +14,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        display: ['"Space Grotesk"', 'sans-serif'],
-        body: ['"Space Grotesk"', 'sans-serif'],
+        display: ['"Outfit"', 'sans-serif'],
+        body: ['"Outfit"', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'monospace'],
       },
       colors: {
@@ -62,8 +62,11 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
-        "chat-own": "hsl(var(--chat-bubble-own))",
-        "chat-other": "hsl(var(--chat-bubble-other))",
+        "neon-purple": "hsl(var(--neon-purple))",
+        "neon-pink": "hsl(var(--neon-pink))",
+        "neon-blue": "hsl(var(--neon-blue))",
+        "bubble-user": "hsl(var(--bubble-user))",
+        "bubble-ai": "hsl(var(--bubble-ai))",
         online: "hsl(var(--online))",
       },
       borderRadius: {
@@ -80,15 +83,10 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
-        "pulse-glow": {
-          "0%, 100%": { opacity: "0.4" },
-          "50%": { opacity: "1" },
-        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "pulse-glow": "pulse-glow 2s ease-in-out infinite",
       },
     },
   },
