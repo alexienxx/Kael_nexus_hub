@@ -91,3 +91,6 @@ export default {
         "pulse-glow": "pulse-glow 2s ease-in-out infinite",
       },
     },
+  },
+  plugins: [require("tailwindcss-animate")],
+} satisfies Config;
