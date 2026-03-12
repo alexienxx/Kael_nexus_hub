@@ -121,7 +121,7 @@ const KaelChat = () => {
         className="absolute inset-0 bg-cover bg-center"
         style={{ backgroundImage: `url(${chatBg})` }}
       />
-      <div className="absolute inset-0 bg-gradient-to-b from-background/40 via-background/70 to-background/95" />
+      <div className="absolute inset-0 bg-gradient-to-b from-background/20 via-background/40 to-background/70" />
 
       {/* Header */}
       <header className="glass-strong relative z-10 flex items-center justify-between px-4 py-3">
