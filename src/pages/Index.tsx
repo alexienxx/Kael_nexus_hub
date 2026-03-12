@@ -1,7 +1,5 @@
-import KaelChat from "@/components/KaelChat";
+import Chat from "./Chat";
 
-const Index = () => {
-  return <KaelChat />;
-};
+const Index = () => <Chat />;
 
 export default Index;
