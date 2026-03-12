@@ -54,6 +54,10 @@
     --bubble-ai: 270 20% 15%;
     --online: 145 65% 50%;
   }
+
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
 }
 
 @layer base {
