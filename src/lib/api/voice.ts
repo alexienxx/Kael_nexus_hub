@@ -1,33 +1,27 @@
 import { apiRequest, apiFetchAudio, apiUpload } from "./client";
 import type { CallSession, TranscriptEntry } from "@/types";
 
-/** Send a voice note (audio blob) */
-export async function sendVoiceNote(audioBlob: Blob) {
-  const formData = new FormData();
-  formData.append("audio", audioBlob, "voice-note.webm");
-  return apiUpload<{ transcription?: string; reply?: { text: string; audioUrl?: string } }>(
-    "/voice/send",
-    formData
-  );
-}
-
 /** Request TTS playback audio for a text message */
 export async function requestTTS(text: string): Promise<Blob> {
   return apiFetchAudio(`/voice/tts?text=${encodeURIComponent(text)}`);
 }
 
 /** Initiate a voice call */
-export async function initiateCall() {
-  return apiRequest<{ session: CallSession }>("/call/initiate", {
+export async function initiateCall(sessionId: string) {
+  return apiRequest<{
+    call_id: string;
+    state: string;
+  }>("/calls/start", {
     method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
   });
 }
 
 /** End an active call */
-export async function endCall(sessionId: string) {
-  return apiRequest("/call/end", {
+export async function endCall(callId: string, sessionId: string) {
+  return apiRequest("/calls/end", {
     method: "POST",
-    body: JSON.stringify({ sessionId }),
+    body: JSON.stringify({ call_id: callId, session_id: sessionId }),
   });
 }
 

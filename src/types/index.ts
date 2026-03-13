@@ -12,6 +12,11 @@ export interface ChatMessage {
   feedback?: "like" | "dislike" | null;
   isProcessingImage?: boolean;
   isGenerating?: boolean;
+  // Backend-specific fields
+  backend_turn_id?: string;
+  latency?: number;
+  meta?: Record<string, unknown>;
+  emotional_state?: string;
 }
 
 export interface Conversation {
