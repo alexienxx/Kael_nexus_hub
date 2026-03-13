@@ -77,6 +77,25 @@ const Settings = () => {
     );
   }
 
+  if (section === "updates") {
+    return (
+      <div className="flex h-full flex-col">
+        <KaelHeader
+          title="Aggiornamenti"
+          showStatus={false}
+          rightContent={
+            <button onClick={() => setSection("main")} className="text-sm text-neon-purple">
+              ← Indietro
+            </button>
+          }
+        />
+        <div className="flex-1 overflow-y-auto">
+          <UpdateSettings />
+        </div>
+      </div>
+    );
+  }
+
   const menuItems = [
     { id: "profile" as const, icon: User, label: "Profilo Kael", desc: "Avatar e identità" },
     { id: "theme" as const, icon: Palette, label: "Personalizzazione", desc: "Colori, bolle, sfondo, blur" },
