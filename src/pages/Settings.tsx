@@ -7,13 +7,15 @@ import {
   Sliders,
   ChevronRight,
   RotateCcw,
+  Download,
 } from "lucide-react";
 import KaelHeader from "@/components/layout/KaelHeader";
 import ThemeCustomizer from "@/components/settings/ThemeCustomizer";
 import BackendConfig from "@/components/settings/BackendConfig";
 import ProfileEditor from "@/components/settings/ProfileEditor";
+import UpdateSettings from "@/components/settings/UpdateSettings";
 
-type SettingsSection = "main" | "theme" | "backend" | "profile";
+type SettingsSection = "main" | "theme" | "backend" | "profile" | "updates";
 
 const Settings = () => {
   const [section, setSection] = useState<SettingsSection>("main");
