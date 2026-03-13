@@ -100,6 +100,7 @@ const Settings = () => {
     { id: "profile" as const, icon: User, label: "Profilo Kael", desc: "Avatar e identità" },
     { id: "theme" as const, icon: Palette, label: "Personalizzazione", desc: "Colori, bolle, sfondo, blur" },
     { id: "backend" as const, icon: Globe, label: "Connessione Backend", desc: "URL, API key, stato" },
+    { id: "updates" as const, icon: Download, label: "Aggiornamenti", desc: "Versione, update remoti" },
   ];
 
   return (

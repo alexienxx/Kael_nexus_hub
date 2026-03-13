@@ -105,13 +105,13 @@ export async function downloadApk(
   }
 
   const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const chunks: ArrayBuffer[] = [];
   let received = 0;
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(value);
+    chunks.push(value.buffer as ArrayBuffer);
     received += value.length;
     if (total > 0) {
       onProgress?.(Math.round((received / total) * 100));

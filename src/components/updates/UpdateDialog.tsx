@@ -122,10 +122,10 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
 
         {/* Success state */}
         {downloadState === "success" && (
-          <div className="flex items-center gap-2 rounded-lg bg-green-500/10 px-3 py-2">
-            <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
+          <div className="flex items-center gap-2 rounded-lg bg-primary/10 px-3 py-2">
+            <CheckCircle className="h-4 w-4 text-primary shrink-0" />
             <div>
-              <p className="text-xs text-green-400 font-medium">Download completato!</p>
+              <p className="text-xs text-primary font-medium">Download completato!</p>
               <p className="text-[10px] text-muted-foreground">
                 Apri il file scaricato per installare l'aggiornamento.
               </p>

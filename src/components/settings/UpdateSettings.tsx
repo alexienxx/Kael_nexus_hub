@@ -60,8 +60,8 @@ const UpdateSettings = () => {
 
         {/* Last check result */}
         {result && !result.updateAvailable && (
-          <div className="rounded-lg bg-green-500/10 px-3 py-2">
-            <p className="text-xs text-green-400">✓ L'app è aggiornata</p>
+          <div className="rounded-lg bg-primary/10 px-3 py-2">
+            <p className="text-xs text-primary">✓ L'app è aggiornata</p>
           </div>
         )}
 
