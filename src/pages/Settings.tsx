@@ -7,13 +7,15 @@ import {
   Sliders,
   ChevronRight,
   RotateCcw,
+  Download,
 } from "lucide-react";
 import KaelHeader from "@/components/layout/KaelHeader";
 import ThemeCustomizer from "@/components/settings/ThemeCustomizer";
 import BackendConfig from "@/components/settings/BackendConfig";
 import ProfileEditor from "@/components/settings/ProfileEditor";
+import UpdateSettings from "@/components/settings/UpdateSettings";
 
-type SettingsSection = "main" | "theme" | "backend" | "profile";
+type SettingsSection = "main" | "theme" | "backend" | "profile" | "updates";
 
 const Settings = () => {
   const [section, setSection] = useState<SettingsSection>("main");
@@ -75,10 +77,30 @@ const Settings = () => {
     );
   }
 
+  if (section === "updates") {
+    return (
+      <div className="flex h-full flex-col">
+        <KaelHeader
+          title="Aggiornamenti"
+          showStatus={false}
+          rightContent={
+            <button onClick={() => setSection("main")} className="text-sm text-neon-purple">
+              ← Indietro
+            </button>
+          }
+        />
+        <div className="flex-1 overflow-y-auto">
+          <UpdateSettings />
+        </div>
+      </div>
+    );
+  }
+
   const menuItems = [
     { id: "profile" as const, icon: User, label: "Profilo Kael", desc: "Avatar e identità" },
     { id: "theme" as const, icon: Palette, label: "Personalizzazione", desc: "Colori, bolle, sfondo, blur" },
     { id: "backend" as const, icon: Globe, label: "Connessione Backend", desc: "URL, API key, stato" },
+    { id: "updates" as const, icon: Download, label: "Aggiornamenti", desc: "Versione, update remoti" },
   ];
 
   return (
