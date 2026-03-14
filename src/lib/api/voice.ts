@@ -1,15 +1,24 @@
 import { apiRequest, apiFetchAudio, apiUpload } from "./client";
 import type { CallSession, TranscriptEntry } from "@/types";
 
-/** Send a voice note (audio blob) */
-export async function sendVoiceNote(audioBlob: Blob) {
-  const formData = new FormData();
-  formData.append("audio", audioBlob, "voice-note.webm");
-  return apiUpload<{ transcription?: string; reply?: { text: string; audioUrl?: string } }>(
-    "/voice/send",
-    formData
-  );
-}
+/**
+ * VOICE & CALL API SERVICE LAYER
+ *
+ * VERIFIED ENDPOINTS:
+ * - POST /mobile/call/start
+ * - POST /mobile/call/end
+ * - GET /voice/tts
+ *
+ * PENDING BACKEND VERIFICATION:
+ * - GET /mobile/call/active
+ * - WS /mobile/ws/call
+ * - GET /call/transcript
+ * - POST /call/answer
+ * - POST /call/dismiss
+ *
+ * These endpoints reflect the expected contracts but may require
+ * adjustment once backend implementation is confirmed.
+ */
 
 /** Request TTS playback audio for a text message */
 export async function requestTTS(text: string): Promise<Blob> {
@@ -17,19 +26,44 @@ export async function requestTTS(text: string): Promise<Blob> {
 }
 
 /** Initiate a voice call */
-export async function initiateCall() {
-  return apiRequest<{ session: CallSession }>("/call/initiate", {
+export async function initiateCall(sessionId: string) {
+  return apiRequest<{
+    call_id: string;
+    state: string;
+  }>("/mobile/call/start", {
     method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
   });
 }
 
 /** End an active call */
-export async function endCall(sessionId: string) {
-  return apiRequest("/call/end", {
+export async function endCall(callId: string, sessionId: string) {
+  return apiRequest("/mobile/call/end", {
     method: "POST",
-    body: JSON.stringify({ sessionId }),
+    body: JSON.stringify({ call_id: callId, session_id: sessionId }),
   });
 }
+
+/** Get active call status (pending backend verification) */
+export async function getActiveCall(sessionId: string) {
+  return apiRequest<{ call: CallSession | null }>(
+    `/mobile/call/active?session_id=${sessionId}`
+  );
+}
+
+/**
+ * WebSocket endpoint for real-time call transcription updates
+ * Endpoint: ws://{baseUrl}/mobile/ws/call?session_id={sessionId}&call_id={callId}
+ *
+ * This is a WebSocket connection and requires separate handling.
+ * Use native WebSocket API to connect:
+ *
+ * const ws = new WebSocket(`ws://${baseUrl}/mobile/ws/call?session_id=${sessionId}&call_id=${callId}`);
+ * ws.onmessage = (event) => {
+ *   const update = JSON.parse(event.data);
+ *   // Handle transcript update
+ * };
+ */
 
 /** Get call transcript updates */
 export async function getCallTranscript(sessionId: string) {

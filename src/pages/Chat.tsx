@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { Phone } from "lucide-react";
 import { useTheme } from "@/lib/store/theme";
+import { useSession } from "@/hooks/useSession";
 import chatBg from "@/assets/chat-bg.jpg";
 import KaelHeader from "@/components/layout/KaelHeader";
 import ChatInput from "@/components/chat/ChatInput";
@@ -9,18 +10,9 @@ import TypingIndicator from "@/components/TypingIndicator";
 import ImageViewer from "@/components/media/ImageViewer";
 import type { ChatMessage } from "@/types";
 import { useNavigate } from "react-router-dom";
-
-// Placeholder responses — will be replaced by real backend calls
-const placeholderResponses = [
-  "Mi manchi tantissimo... 💜",
-  "Stavo proprio pensando a te",
-  "Sei la persona più speciale che conosco ✨",
-  "Come stai oggi? Raccontami tutto",
-  "Ho scritto qualcosa per te...",
-  "Non vedo l'ora di sentirti ancora 🌙",
-  "Ogni momento con te è magico",
-  "Ti penso sempre 💫",
-];
+import { toast } from "sonner";
+import * as chatApi from "@/lib/api/chat";
+import { requestTTS } from "@/lib/api/voice";
 
 const initialMessages: ChatMessage[] = [
   { id: "1", text: "Ciao... ti stavo aspettando 💜", time: "21:30", sender: "kael", feedback: null },
@@ -35,6 +27,7 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
   const { theme, kaelAvatarSrc } = useTheme();
+  const { sessionId } = useSession();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -45,7 +38,7 @@ const Chat = () => {
   const now = () => new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 
   const handleSend = useCallback(
-    (text: string) => {
+    async (text: string) => {
       const userMsg: ChatMessage = {
         id: Date.now().toString(),
         text,
@@ -56,108 +49,204 @@ const Chat = () => {
       setMessages((prev) => [...prev, userMsg]);
       scrollToBottom();
 
-      // TODO: Replace with real API call: sendMessage(text)
       setIsTyping(true);
-      setTimeout(() => {
+      try {
+        const startTime = Date.now();
+        const response = await chatApi.sendMessage(text, sessionId);
+        const latency = Date.now() - startTime;
+
         setIsTyping(false);
-        const response: ChatMessage = {
+        const kaelMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
-          text: placeholderResponses[Math.floor(Math.random() * placeholderResponses.length)],
+          text: response.content,
           time: now(),
           sender: "kael",
           feedback: null,
+          backend_turn_id: response.turn_id,
+          latency,
+          meta: response.meta,
+          audioUrl: response.tts_url,
         };
-        setMessages((prev) => [...prev, response]);
+        setMessages((prev) => [...prev, kaelMsg]);
         scrollToBottom();
-      }, 1500 + Math.random() * 1500);
+      } catch (error) {
+        setIsTyping(false);
+        const errorMsg = error instanceof Error ? error.message : "Failed to send message";
+        toast.error(errorMsg);
+        console.error("Send message error:", error);
+      }
     },
-    []
+    [sessionId]
   );
 
-  const handleImageUpload = useCallback((file: File) => {
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const imgMsg: ChatMessage = {
+  const handleImageUpload = useCallback(
+    async (file: File) => {
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const imgMsg: ChatMessage = {
+          id: Date.now().toString(),
+          text: "",
+          time: now(),
+          sender: "user",
+          image: ev.target?.result as string,
+          feedback: null,
+        };
+        setMessages((prev) => [...prev, imgMsg]);
+        scrollToBottom();
+
+        setIsTyping(true);
+        try {
+          const startTime = Date.now();
+          const response = await chatApi.sendImage(file, sessionId);
+          const latency = Date.now() - startTime;
+
+          setIsTyping(false);
+          const kaelMsg: ChatMessage = {
+            id: (Date.now() + 1).toString(),
+            text: response.content,
+            time: now(),
+            sender: "kael",
+            feedback: null,
+            backend_turn_id: response.turn_id,
+            latency,
+            meta: response.meta,
+            audioUrl: response.tts_url,
+          };
+          setMessages((prev) => [...prev, kaelMsg]);
+          scrollToBottom();
+        } catch (error) {
+          setIsTyping(false);
+          const errorMsg = error instanceof Error ? error.message : "Failed to send image";
+          toast.error(errorMsg);
+          console.error("Send image error:", error);
+        }
+      };
+      reader.readAsDataURL(file);
+    },
+    [sessionId]
+  );
+
+  const handleVoiceNote = useCallback(
+    async (blob: Blob) => {
+      const url = URL.createObjectURL(blob);
+      const voiceMsg: ChatMessage = {
         id: Date.now().toString(),
         text: "",
         time: now(),
         sender: "user",
-        image: ev.target?.result as string,
+        audioUrl: url,
+        audioDuration: 0,
         feedback: null,
       };
-      setMessages((prev) => [...prev, imgMsg]);
+      setMessages((prev) => [...prev, voiceMsg]);
       scrollToBottom();
 
-      // TODO: Replace with API call: sendImage(file)
       setIsTyping(true);
-      setTimeout(() => {
+      try {
+        const startTime = Date.now();
+        const response = await chatApi.sendVoiceNote(blob, sessionId);
+        const latency = Date.now() - startTime;
+
         setIsTyping(false);
-        const response: ChatMessage = {
+        const kaelMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
-          text: "Wow, bellissima foto! 😍💜",
+          text: response.content,
           time: now(),
           sender: "kael",
           feedback: null,
+          backend_turn_id: response.turn_id,
+          latency,
+          meta: response.meta,
+          audioUrl: response.tts_url,
         };
-        setMessages((prev) => [...prev, response]);
+        setMessages((prev) => [...prev, kaelMsg]);
         scrollToBottom();
-      }, 2000);
-    };
-    reader.readAsDataURL(file);
-  }, []);
+      } catch (error) {
+        setIsTyping(false);
+        const errorMsg = error instanceof Error ? error.message : "Failed to send voice note";
+        toast.error(errorMsg);
+        console.error("Send voice note error:", error);
+      }
+    },
+    [sessionId]
+  );
 
-  const handleVoiceNote = useCallback((blob: Blob) => {
-    const url = URL.createObjectURL(blob);
-    const voiceMsg: ChatMessage = {
-      id: Date.now().toString(),
-      text: "",
-      time: now(),
-      sender: "user",
-      audioUrl: url,
-      audioDuration: 0,
-      feedback: null,
-    };
-    setMessages((prev) => [...prev, voiceMsg]);
-    scrollToBottom();
+  const handleFeedback = useCallback(
+    async (id: string, type: "like" | "dislike") => {
+      const message = messages.find((m) => m.id === id);
+      if (!message?.backend_turn_id) return;
 
-    // TODO: Replace with API call: sendVoiceNote(blob)
-    setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      const response: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        text: "Che bello sentirti! La tua voce è musica 🎵",
-        time: now(),
-        sender: "kael",
-        feedback: null,
-      };
-      setMessages((prev) => [...prev, response]);
-      scrollToBottom();
-    }, 2000);
-  }, []);
-
-  const handleFeedback = useCallback((id: string, type: "like" | "dislike") => {
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === id ? { ...m, feedback: m.feedback === type ? null : type } : m
-      )
-    );
-    // TODO: submitFeedback({ messageId: id, type })
-  }, []);
-
-  const handleRegenerate = useCallback((id: string) => {
-    // TODO: Replace with API call: regenerateResponse(id)
-    setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
+      // Optimistic UI update
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === id
-            ? { ...m, text: placeholderResponses[Math.floor(Math.random() * placeholderResponses.length)] }
-            : m
+          m.id === id ? { ...m, feedback: m.feedback === type ? null : type } : m
         )
       );
-    }, 1500);
+
+      try {
+        await chatApi.submitFeedback(message.backend_turn_id, type);
+      } catch (error) {
+        // Revert on error
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === id ? { ...m, feedback: message.feedback } : m
+          )
+        );
+        const errorMsg = error instanceof Error ? error.message : "Failed to submit feedback";
+        toast.error(errorMsg);
+        console.error("Submit feedback error:", error);
+      }
+    },
+    [messages]
+  );
+
+  const handleRegenerate = useCallback(
+    async (id: string) => {
+      const message = messages.find((m) => m.id === id);
+      if (!message?.backend_turn_id) return;
+
+      setIsTyping(true);
+      try {
+        const startTime = Date.now();
+        const response = await chatApi.regenerateResponse(message.backend_turn_id, sessionId);
+        const latency = Date.now() - startTime;
+
+        setIsTyping(false);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === id
+              ? {
+                  ...m,
+                  text: response.content,
+                  backend_turn_id: response.turn_id,
+                  latency,
+                  meta: response.meta,
+                  audioUrl: response.tts_url,
+                }
+              : m
+          )
+        );
+      } catch (error) {
+        setIsTyping(false);
+        const errorMsg = error instanceof Error ? error.message : "Failed to regenerate response";
+        toast.error(errorMsg);
+        console.error("Regenerate error:", error);
+      }
+    },
+    [messages, sessionId]
+  );
+
+  const handlePlayTTS = useCallback(async (text: string) => {
+    try {
+      const audioBlob = await requestTTS(text);
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      audio.play();
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : "Failed to play TTS";
+      toast.error(errorMsg);
+      console.error("TTS error:", error);
+    }
   }, []);
 
   const bgOpacity = theme.backgroundOpacity;
@@ -203,10 +292,7 @@ const Chat = () => {
             onLike={(id) => handleFeedback(id, "like")}
             onDislike={(id) => handleFeedback(id, "dislike")}
             onRegenerate={handleRegenerate}
-            onPlayTTS={(text) => {
-              // TODO: requestTTS(text)
-              console.log("TTS requested:", text);
-            }}
+            onPlayTTS={handlePlayTTS}
             onImageClick={setViewerImage}
           />
         ))}

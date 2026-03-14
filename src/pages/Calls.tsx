@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Phone,
   PhoneOff,
@@ -7,29 +7,80 @@ import {
   Volume2,
 } from "lucide-react";
 import { useTheme } from "@/lib/store/theme";
+import { useSession } from "@/hooks/useSession";
 import KaelHeader from "@/components/layout/KaelHeader";
 import type { CallState, TranscriptEntry } from "@/types";
+import { initiateCall, endCall } from "@/lib/api/voice";
+import { toast } from "sonner";
 
 const Calls = () => {
   const [callState, setCallState] = useState<CallState>("idle");
   const [isMuted, setIsMuted] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [callDuration, setCallDuration] = useState(0);
+  const [callId, setCallId] = useState<string | null>(null);
   const { kaelAvatarSrc } = useTheme();
+  const { sessionId } = useSession();
 
-  const handleStartCall = () => {
-    // TODO: Replace with API call: initiateCall()
+  // Call duration timer
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (callState === "active") {
+      interval = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    } else {
+      if (interval) clearInterval(interval);
+      if (callState === "idle") setCallDuration(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [callState]);
+
+  const handleStartCall = async () => {
     setCallState("ringing");
-    setTimeout(() => setCallState("active"), 2000);
+    try {
+      const response = await initiateCall(sessionId);
+      setCallId(response.call_id);
+
+      // Simulate connection delay, then transition to active
+      setTimeout(() => {
+        setCallState("active");
+      }, 2000);
+    } catch (error) {
+      setCallState("idle");
+      const errorMsg = error instanceof Error ? error.message : "Failed to start call";
+      toast.error(errorMsg);
+      console.error("Start call error:", error);
+    }
   };
 
-  const handleEndCall = () => {
-    // TODO: Replace with API call: endCall(sessionId)
-    setCallState("ended");
-    setTimeout(() => {
+  const handleEndCall = async () => {
+    if (!callId) {
       setCallState("idle");
-      setTranscript([]);
-    }, 1500);
+      return;
+    }
+
+    setCallState("ended");
+    try {
+      await endCall(callId, sessionId);
+      setTimeout(() => {
+        setCallState("idle");
+        setTranscript([]);
+        setCallId(null);
+      }, 1500);
+    } catch (error) {
+      // Still end the call locally even if backend fails
+      setTimeout(() => {
+        setCallState("idle");
+        setTranscript([]);
+        setCallId(null);
+      }, 1500);
+      const errorMsg = error instanceof Error ? error.message : "Failed to end call";
+      toast.error(errorMsg);
+      console.error("End call error:", error);
+    }
   };
 
   const formatDuration = (s: number) => {

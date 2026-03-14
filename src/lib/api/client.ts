@@ -4,6 +4,7 @@
  */
 
 const STORAGE_KEY = "kael-backend-config";
+const DEFAULT_TIMEOUT = 30000; // 30 seconds
 
 export interface ApiConfig {
   baseUrl: string;
@@ -14,7 +15,9 @@ export function getApiConfig(): ApiConfig {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) return JSON.parse(stored);
-  } catch {}
+  } catch (error) {
+    // Ignore parsing errors
+  }
   return { baseUrl: "", apiKey: "" };
 }
 
@@ -22,9 +25,20 @@ export function setApiConfig(config: ApiConfig) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
 }
 
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public statusText: string,
+    public body: string
+  ) {
+    super(`API error ${status}: ${statusText}`);
+    this.name = "ApiError";
+  }
+}
+
 export async function apiRequest<T = any>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit & { timeout?: number } = {}
 ): Promise<T> {
   const config = getApiConfig();
   if (!config.baseUrl) {
@@ -32,6 +46,11 @@ export async function apiRequest<T = any>(
   }
 
   const url = `${config.baseUrl.replace(/\/$/, "")}${path}`;
+  const timeout = options.timeout ?? DEFAULT_TIMEOUT;
+
+  // Create AbortController for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -39,19 +58,40 @@ export async function apiRequest<T = any>(
     ...(options.headers as Record<string, string> || {}),
   };
 
-  const res = await fetch(url, { ...options, headers });
+  try {
+    const res = await fetch(url, {
+      ...options,
+      headers,
+      signal: options.signal || controller.signal,
+    });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`API error ${res.status}: ${body}`);
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new ApiError(res.status, res.statusText, body);
+    }
+
+    return res.json();
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Request timeout - backend not responding");
+    }
+
+    if (!navigator.onLine) {
+      throw new Error("No internet connection");
+    }
+
+    throw error;
   }
-
-  return res.json();
 }
 
 export async function apiUpload<T = any>(
   path: string,
-  formData: FormData
+  formData: FormData,
+  options: { timeout?: number } = {}
 ): Promise<T> {
   const config = getApiConfig();
   if (!config.baseUrl) {
@@ -59,19 +99,41 @@ export async function apiUpload<T = any>(
   }
 
   const url = `${config.baseUrl.replace(/\/$/, "")}${path}`;
+  const timeout = options.timeout ?? DEFAULT_TIMEOUT * 2; // 60 seconds for uploads
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
-    body: formData,
-  });
+  // Create AbortController for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`Upload error ${res.status}: ${body}`);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+      body: formData,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new ApiError(res.status, res.statusText, body);
+    }
+
+    return res.json();
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Upload timeout - file too large or connection slow");
+    }
+
+    if (!navigator.onLine) {
+      throw new Error("No internet connection");
+    }
+
+    throw error;
   }
-
-  return res.json();
 }
 
 export async function apiFetchAudio(path: string): Promise<Blob> {
@@ -84,11 +146,10 @@ export async function apiFetchAudio(path: string): Promise<Blob> {
     headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
   });
 
-  if (!res.ok) throw new Error(`Audio fetch error ${res.status}`);
+  if (!res.ok) throw new ApiError(res.status, res.statusText, "");
   return res.blob();
 }
 
-/** Check if backend is reachable */
 export async function checkHealth(): Promise<boolean> {
   try {
     const config = getApiConfig();
@@ -99,7 +160,8 @@ export async function checkHealth(): Promise<boolean> {
       signal: AbortSignal.timeout(5000),
     });
     return res.ok;
-  } catch {
+  } catch (error) {
+    // Connection error or timeout
     return false;
   }
 }
