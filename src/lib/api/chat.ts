@@ -1,6 +1,24 @@
 import { apiRequest, apiUpload } from "./client";
 import type { ChatMessage, FeedbackPayload } from "@/types";
 
+/**
+ * CHAT API SERVICE LAYER
+ *
+ * NOTE: The following endpoints are assumed based on frontend needs
+ * and require verification with the actual Kael_refactor_ultimate backend:
+ *
+ * - POST /chat
+ * - POST /chat/regenerate
+ * - POST /feedback
+ * - POST /chat/image
+ * - POST /chat/voice
+ * - GET /chat/history
+ * - GET /chat/pending
+ *
+ * These endpoints may need alignment if the backend contracts differ.
+ * Current implementations reflect best-guess contracts pending backend verification.
+ */
+
 export interface ChatResponse {
   turn_id: string;
   content: string;
@@ -78,11 +96,7 @@ export async function getPendingMessages(sessionId: string) {
   );
 }
 
-/** Request TTS audio for a text message */
-export async function requestTTS(text: string): Promise<string> {
-  const response = await apiRequest<{ audio_url: string }>("/tts", {
-    method: "POST",
-    body: JSON.stringify({ text }),
-  });
-  return response.audio_url;
-}
+/**
+ * NOTE: For TTS functionality, use requestTTS from @/lib/api/voice
+ * That function uses GET /voice/tts and returns audio Blob directly.
+ */
