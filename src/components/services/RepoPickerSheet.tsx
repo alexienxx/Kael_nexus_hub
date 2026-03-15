@@ -12,6 +12,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import type { GitHubRepo, GitHubActionMode } from "@/types";
 import { getActionModeLabel } from "@/lib/api/githubAgentic";
 
+/**
+ * Repository picker for GitHub agentic actions.
+ *
+ * IMPORTANT RULES:
+ * - Self-repo classification comes ONLY from backend via repo.is_self_repo field
+ * - NO local heuristics or client-side repo reasoning
+ * - UI is ONLY a selector/display layer for backend-provided data
+ * - Self-repo modes are disabled based on backend's is_self_repo flag
+ */
+
 interface RepoPickerSheetProps {
   isOpen: boolean;
   onClose: () => void;
