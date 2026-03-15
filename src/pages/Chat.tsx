@@ -1,13 +1,16 @@
 import { useState, useRef, useCallback } from "react";
-import { Phone } from "lucide-react";
+import { Phone, Plus } from "lucide-react";
 import { useTheme } from "@/lib/store/theme";
 import { useSession } from "@/hooks/useSession";
+import { useAgenticActions } from "@/hooks/useAgenticActions";
 import chatBg from "@/assets/chat-bg.jpg";
 import KaelHeader from "@/components/layout/KaelHeader";
 import ChatInput from "@/components/chat/ChatInput";
 import MessageBubble from "@/components/chat/MessageBubble";
 import TypingIndicator from "@/components/TypingIndicator";
 import ImageViewer from "@/components/media/ImageViewer";
+import ServicesSheet from "@/components/services/ServicesSheet";
+import ServiceActionChips from "@/components/services/ServiceActionChips";
 import type { ChatMessage } from "@/types";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -26,8 +29,10 @@ const Chat = () => {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [isTyping, setIsTyping] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
+  const [showServicesSheet, setShowServicesSheet] = useState(false);
   const { theme, kaelAvatarSrc } = useTheme();
   const { sessionId } = useSession();
+  const { activeContext, clearContext } = useAgenticActions();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -274,17 +279,30 @@ const Chat = () => {
         title="Kael"
         subtitle="AI Companion"
         rightContent={
-          <button
-            onClick={() => navigate("/calls")}
-            className="glass flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:text-neon-purple"
-          >
-            <Phone size={16} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowServicesSheet(true)}
+              className="glass flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:text-neon-pink"
+              aria-label="Open services"
+            >
+              <Plus size={16} />
+            </button>
+            <button
+              onClick={() => navigate("/calls")}
+              className="glass flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:text-neon-purple"
+              aria-label="Start call"
+            >
+              <Phone size={16} />
+            </button>
+          </div>
         }
       />
 
       {/* Messages */}
       <div className="relative z-10 flex-1 overflow-y-auto px-4 py-4 space-y-3">
+        {/* Service Context Chips */}
+        <ServiceActionChips context={activeContext} onRemove={clearContext} />
+
         {messages.map((msg) => (
           <MessageBubble
             key={msg.id}
@@ -317,6 +335,9 @@ const Chat = () => {
       {viewerImage && (
         <ImageViewer src={viewerImage} onClose={() => setViewerImage(null)} />
       )}
+
+      {/* Services Sheet */}
+      <ServicesSheet isOpen={showServicesSheet} onClose={() => setShowServicesSheet(false)} />
     </div>
   );
 };

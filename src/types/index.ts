@@ -114,3 +114,53 @@ export interface BackendConfig {
   baseUrl: string;
   apiKey: string;
 }
+
+// ===== Services Hub =====
+export type ServiceProvider = "github" | "notion" | "drive" | "slack" | "calendar";
+export type ConnectionState = "connected" | "not_connected" | "pending";
+
+export interface Service {
+  id: string;
+  provider: ServiceProvider;
+  display_name: string;
+  icon: string;
+  connection_status: ConnectionState;
+  account_label?: string;
+  capabilities?: string[];
+  scopes?: string[];
+}
+
+export type GitHubActionMode =
+  | "browse"
+  | "repo_scan"
+  | "pr_review"
+  | "issue_review"
+  | "self_repo_scan"
+  | "self_repo_diagnostics_correlation"
+  | "issue_draft";
+
+export interface AgenticServiceAction {
+  service_id: string;
+  action: string;
+  target: string;
+  mode: GitHubActionMode;
+  correlate_with_diagnostics?: boolean;
+  draft_issue?: boolean;
+}
+
+export interface ServiceContextChip {
+  provider: ServiceProvider;
+  target_label: string;
+  mode_label: string;
+  self_repo: boolean;
+}
+
+export interface GitHubRepo {
+  id: string;
+  name: string;
+  full_name: string;
+  owner: string;
+  is_self_repo: boolean;
+  url: string;
+  description?: string;
+}
