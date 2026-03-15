@@ -180,7 +180,7 @@ export interface AgenticServiceAction {
 export interface ServiceContextChip {
   provider: ServiceProvider;
   target_label: string;
-  mode_label: string;
+  mode_label: GitHubActionMode;
   self_repo: boolean;
 }
 

@@ -42,9 +42,9 @@ export interface GitHubActionResponse {
   status: "pending" | "processing" | "completed" | "failed";
   result?: {
     summary?: string;
-    findings?: any[];
+    findings?: unknown[];
     recommendations?: string[];
-    insights?: any;
+    insights?: unknown;
   };
   error?: string;
 }

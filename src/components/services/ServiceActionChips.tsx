@@ -24,7 +24,7 @@ const ServiceActionChips = ({ context, onRemove }: ServiceActionChipsProps) => {
 
         {/* Mode Label */}
         <Badge variant="outline" className="text-xs bg-background/50 border-neon-pink/30">
-          {getActionModeLabel(context.mode_label as any)}
+          {getActionModeLabel(context.mode_label)}
         </Badge>
 
         {/* Self-repo indicator */}
