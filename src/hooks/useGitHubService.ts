@@ -6,6 +6,12 @@ import type { GitHubRepo, GitHubActionMode, AgenticServiceAction } from "@/types
 /**
  * Hook for managing GitHub service operations.
  * Handles repo fetching and agentic action execution.
+ *
+ * GRACEFUL DEGRADATION: If backend endpoints are not yet implemented,
+ * returns empty repo lists and error state without breaking the UI.
+ *
+ * IMPORTANT: Self-repo classification MUST come from backend via is_self_repo field.
+ * This hook does NOT perform any local repo reasoning.
  */
 export function useGitHubService() {
   const { sessionId } = useSession();
@@ -13,6 +19,7 @@ export function useGitHubService() {
   const [selfRepos, setSelfRepos] = useState<GitHubRepo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isBackendAvailable, setIsBackendAvailable] = useState(true);
 
   const fetchRepos = useCallback(async () => {
     try {
@@ -21,10 +28,15 @@ export function useGitHubService() {
       const response = await githubApi.getGitHubRepos(sessionId);
       setRepos(response.repos);
       setSelfRepos(response.self_repos);
+      setIsBackendAvailable(true);
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : "Failed to load GitHub repos";
       setError(errorMsg);
-      console.error("Fetch GitHub repos error:", err);
+      setIsBackendAvailable(false);
+      // Fail gracefully: set empty lists, don't throw
+      setRepos([]);
+      setSelfRepos([]);
+      console.warn("GitHub services backend not available:", err);
     } finally {
       setIsLoading(false);
     }
@@ -32,6 +44,9 @@ export function useGitHubService() {
 
   const getRepoDetails = useCallback(
     async (owner: string, repo: string) => {
+      if (!isBackendAvailable) {
+        throw new Error("GitHub services backend is not available");
+      }
       try {
         return await githubApi.getGitHubRepoDetails(owner, repo, sessionId);
       } catch (err) {
@@ -40,11 +55,14 @@ export function useGitHubService() {
         throw new Error(errorMsg);
       }
     },
-    [sessionId]
+    [sessionId, isBackendAvailable]
   );
 
   const executeAction = useCallback(
     async (action: AgenticServiceAction) => {
+      if (!isBackendAvailable) {
+        throw new Error("GitHub services backend is not available");
+      }
       try {
         return await githubApi.executeGitHubAction(action, sessionId);
       } catch (err) {
@@ -53,7 +71,7 @@ export function useGitHubService() {
         throw new Error(errorMsg);
       }
     },
-    [sessionId]
+    [sessionId, isBackendAvailable]
   );
 
   return {
@@ -61,6 +79,7 @@ export function useGitHubService() {
     selfRepos,
     isLoading,
     error,
+    isBackendAvailable,
     fetchRepos,
     getRepoDetails,
     executeAction,

@@ -116,9 +116,27 @@ export interface BackendConfig {
 }
 
 // ===== Services Hub =====
+/**
+ * Services Hub Type Definitions
+ *
+ * ⚠️ CRITICAL BACKEND DEPENDENCY:
+ * These types define the contract between frontend and backend for the Services hub.
+ * Backend endpoints (/services/*, /services/github/*) are NOT yet fully implemented.
+ *
+ * IMPORTANT RULES:
+ * 1. Connection status MUST come from backend - NO frontend mocking
+ * 2. Self-repo classification (is_self_repo) MUST come from backend
+ * 3. NO local repo reasoning or heuristics in the UI
+ * 4. UI is ONLY a selector/context layer for backend-provided data
+ * 5. MUST fail gracefully when backend endpoints are unavailable
+ */
+
 export type ServiceProvider = "github" | "notion" | "drive" | "slack" | "calendar";
 export type ConnectionState = "connected" | "not_connected" | "pending";
 
+/**
+ * Service definition - MUST be provided by backend
+ */
 export interface Service {
   id: string;
   provider: ServiceProvider;
@@ -130,6 +148,10 @@ export interface Service {
   scopes?: string[];
 }
 
+/**
+ * GitHub action modes for repo-aware operations
+ * Self-repo modes (self_repo_*) require is_self_repo=true from backend
+ */
 export type GitHubActionMode =
   | "browse"
   | "repo_scan"
@@ -139,6 +161,9 @@ export type GitHubActionMode =
   | "self_repo_diagnostics_correlation"
   | "issue_draft";
 
+/**
+ * Agentic service action request sent to backend
+ */
 export interface AgenticServiceAction {
   service_id: string;
   action: string;
@@ -148,6 +173,10 @@ export interface AgenticServiceAction {
   draft_issue?: boolean;
 }
 
+/**
+ * Context chip displayed in chat UI
+ * Populated from backend-provided repo data
+ */
 export interface ServiceContextChip {
   provider: ServiceProvider;
   target_label: string;
@@ -155,12 +184,16 @@ export interface ServiceContextChip {
   self_repo: boolean;
 }
 
+/**
+ * GitHub repository data provided by backend
+ * CRITICAL: is_self_repo MUST be determined by backend, NOT by frontend
+ */
 export interface GitHubRepo {
   id: string;
   name: string;
   full_name: string;
   owner: string;
-  is_self_repo: boolean;
+  is_self_repo: boolean; // Backend-determined, NOT frontend heuristic
   url: string;
   description?: string;
 }

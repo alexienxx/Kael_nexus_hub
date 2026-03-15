@@ -5,15 +5,22 @@ import type { GitHubRepo, GitHubActionMode, AgenticServiceAction } from "@/types
  * GITHUB AGENTIC API SERVICE LAYER
  *
  * Handles GitHub-specific agentic operations for repo-aware functionality.
- * This delegates actual reasoning and analysis to the backend.
+ * This delegates ALL reasoning and analysis to the backend.
  *
- * NOTE: These endpoints are assumed based on the Services hub requirements
- * and should align with the backend repo-awareness system being built.
+ * ⚠️ CRITICAL: These endpoints are NOT yet implemented in the backend.
+ * This API layer is a contract definition that REQUIRES backend completion before use.
+ * DO NOT treat /services/github/* endpoints as stable until backend is verified.
  *
- * Expected endpoints:
- * - GET /services/github/repos - List accessible GitHub repos
- * - GET /services/github/repos/:owner/:repo - Get repo details
+ * Expected endpoints (PENDING BACKEND IMPLEMENTATION):
+ * - GET /services/github/repos - List accessible GitHub repos with is_self_repo flag
+ * - GET /services/github/repos/:owner/:repo - Get repo details with backend analysis
  * - POST /services/github/actions - Execute agentic GitHub action
+ *
+ * IMPORTANT RULES:
+ * - The UI MUST NOT perform any local repo reasoning or self-repo classification
+ * - Self-repo determination MUST come from backend via is_self_repo field
+ * - All repo analysis MUST be delegated to backend
+ * - UI is ONLY a selector/context layer
  */
 
 export interface GitHubReposResponse {

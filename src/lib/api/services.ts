@@ -7,14 +7,18 @@ import type { Service } from "@/types";
  * Handles generic service operations for the Services hub.
  * This provides a backend contract for managing third-party service integrations.
  *
- * NOTE: These endpoints are assumed based on the Services hub requirements
- * and require verification with the actual backend implementation.
+ * ⚠️ CRITICAL: These endpoints are NOT yet implemented in the backend.
+ * This API layer is a contract definition that REQUIRES backend completion before use.
+ * DO NOT treat these endpoints as stable until backend implementation is verified.
  *
- * Expected endpoints:
+ * Expected endpoints (PENDING BACKEND IMPLEMENTATION):
  * - GET /services - List available services and their connection status
  * - GET /services/:serviceId - Get details of a specific service
  * - POST /services/:serviceId/connect - Connect a service
  * - POST /services/:serviceId/disconnect - Disconnect a service
+ *
+ * The UI MUST fail gracefully if these endpoints are unavailable.
+ * The UI MUST NOT fake service connection states or break chat functionality.
  */
 
 export interface ServicesResponse {
