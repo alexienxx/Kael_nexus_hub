@@ -119,13 +119,24 @@ export interface BackendConfig {
 /**
  * Services Hub Type Definitions
  *
- * ⚠️ CRITICAL BACKEND DEPENDENCY:
- * These types define the contract between frontend and backend for the Services hub.
- * Backend endpoints (/services/*, /services/github/*) are NOT yet fully implemented.
+ * ⚠️ IMPORTANT: Services Hub has TWO distinct integration surfaces:
+ *
+ * 1. GENERIC SERVICE OPERATIONS (NOT YET IMPLEMENTED):
+ *    - Service listing, connection/disconnection
+ *    - OAuth flows for third-party services
+ *    - Endpoints: /services/*, /services/:id/connect, etc.
+ *    - Status: PENDING BACKEND IMPLEMENTATION
+ *
+ * 2. REPO-AWARENESS OPERATIONS (ACTUAL BACKEND CONTRACT):
+ *    ✅ GitHub repo-aware operations
+ *    ✅ Self-repo analysis and diagnostics correlation
+ *    ✅ Issue drafting based on analysis
+ *    - Endpoints: /agentic/repo/status, /agentic/repo/analyze, /agentic/repo/self_audit, /agentic/repo/draft_issue
+ *    - Status: ALIGNED WITH BACKEND IMPLEMENTATION
  *
  * IMPORTANT RULES:
- * 1. Connection status MUST come from backend - NO frontend mocking
- * 2. Self-repo classification (is_self_repo) MUST come from backend
+ * 1. Connection status for generic services MUST come from backend - NO frontend mocking
+ * 2. Self-repo classification (is_self_repo) MUST come from backend repo-awareness endpoints
  * 3. NO local repo reasoning or heuristics in the UI
  * 4. UI is ONLY a selector/context layer for backend-provided data
  * 5. MUST fail gracefully when backend endpoints are unavailable
