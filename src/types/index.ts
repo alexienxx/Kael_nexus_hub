@@ -114,3 +114,97 @@ export interface BackendConfig {
   baseUrl: string;
   apiKey: string;
 }
+
+// ===== Services Hub =====
+/**
+ * Services Hub Type Definitions
+ *
+ * ⚠️ IMPORTANT: Services Hub has TWO distinct integration surfaces:
+ *
+ * 1. GENERIC SERVICE OPERATIONS (NOT YET IMPLEMENTED):
+ *    - Service listing, connection/disconnection
+ *    - OAuth flows for third-party services
+ *    - Endpoints: /services/*, /services/:id/connect, etc.
+ *    - Status: PENDING BACKEND IMPLEMENTATION
+ *
+ * 2. REPO-AWARENESS OPERATIONS (ACTUAL BACKEND CONTRACT):
+ *    ✅ GitHub repo-aware operations
+ *    ✅ Self-repo analysis and diagnostics correlation
+ *    ✅ Issue drafting based on analysis
+ *    - Endpoints: /agentic/repo/status, /agentic/repo/analyze, /agentic/repo/self_audit, /agentic/repo/draft_issue
+ *    - Status: ALIGNED WITH BACKEND IMPLEMENTATION
+ *
+ * IMPORTANT RULES:
+ * 1. Connection status for generic services MUST come from backend - NO frontend mocking
+ * 2. Self-repo classification (is_self_repo) MUST come from backend repo-awareness endpoints
+ * 3. NO local repo reasoning or heuristics in the UI
+ * 4. UI is ONLY a selector/context layer for backend-provided data
+ * 5. MUST fail gracefully when backend endpoints are unavailable
+ */
+
+export type ServiceProvider = "github" | "notion" | "drive" | "slack" | "calendar";
+export type ConnectionState = "connected" | "not_connected" | "pending";
+
+/**
+ * Service definition - MUST be provided by backend
+ */
+export interface Service {
+  id: string;
+  provider: ServiceProvider;
+  display_name: string;
+  icon: string;
+  connection_status: ConnectionState;
+  account_label?: string;
+  capabilities?: string[];
+  scopes?: string[];
+}
+
+/**
+ * GitHub action modes for repo-aware operations
+ * Self-repo modes (self_repo_*) require is_self_repo=true from backend
+ */
+export type GitHubActionMode =
+  | "browse"
+  | "repo_scan"
+  | "pr_review"
+  | "issue_review"
+  | "self_repo_scan"
+  | "self_repo_diagnostics_correlation"
+  | "issue_draft";
+
+/**
+ * Agentic service action request sent to backend
+ */
+export interface AgenticServiceAction {
+  service_id: string;
+  action: string;
+  target: string;
+  mode: GitHubActionMode;
+  correlate_with_diagnostics?: boolean;
+  draft_issue?: boolean;
+}
+
+/**
+ * Context chip displayed in chat UI
+ * Populated from backend-provided repo data
+ */
+export interface ServiceContextChip {
+  provider: ServiceProvider;
+  target_label: string;
+  mode_label: GitHubActionMode;
+  self_repo: boolean;
+}
+
+/**
+ * GitHub repository data provided by backend
+ * CRITICAL: is_self_repo MUST be determined by backend, NOT by frontend
+ */
+export interface GitHubRepo {
+  id: string;
+  name: string;
+  full_name: string;
+  owner: string;
+  is_self_repo: boolean; // Backend-determined, NOT frontend heuristic
+  url: string;
+  description?: string;
+}
