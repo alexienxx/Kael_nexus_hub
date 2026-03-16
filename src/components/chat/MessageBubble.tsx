@@ -2,6 +2,7 @@ import { useTheme } from "@/lib/store/theme";
 import MessageActions from "./MessageActions";
 import AudioMessage from "./AudioMessage";
 import ImageMessage from "./ImageMessage";
+import AssistantMarkdown from "./AssistantMarkdown";
 import type { ChatMessage } from "@/types";
 
 interface MessageBubbleProps {
@@ -142,7 +143,11 @@ const MessageBubble = ({
           )}
 
           {message.text && (
-            <p className="text-sm leading-relaxed text-foreground">{message.text}</p>
+            isUser ? (
+              <p className="text-sm leading-relaxed text-foreground">{message.text}</p>
+            ) : (
+              <AssistantMarkdown content={message.text} />
+            )
           )}
 
           <div className={`mt-1 flex items-center gap-1 ${isUser ? "justify-end" : ""}`}>
