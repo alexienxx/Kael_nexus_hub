@@ -4,19 +4,20 @@ import type { ChatMessage, FeedbackPayload } from "@/types";
 /**
  * CHAT API SERVICE LAYER
  *
- * NOTE: The following endpoints are assumed based on frontend needs
- * and require verification with the actual Kael_refactor_ultimate backend:
+ * VERIFIED ENDPOINTS (in active use):
+ * - POST /chat - Send text message and get reply
+ * - POST /chat/regenerate - Regenerate last response
+ * - POST /feedback - Submit RLHF feedback
+ * - POST /chat/image - Upload image for analysis
+ * - POST /chat/voice - Send voice note
+ * - GET /chat/history - Get message history (defined but not actively used in UI)
  *
- * - POST /chat
- * - POST /chat/regenerate
- * - POST /feedback
- * - POST /chat/image
- * - POST /chat/voice
- * - GET /chat/history
- * - GET /chat/pending
+ * REALTIME BEHAVIOR:
+ * - APK uses request-response pattern ONLY
+ * - NO polling, SSE, or WebSocket for chat messages
+ * - WebSocket only used for voice call transcription (see voice.ts)
  *
- * These endpoints may need alignment if the backend contracts differ.
- * Current implementations reflect best-guess contracts pending backend verification.
+ * See APK_CHAT_BEHAVIOR.md for complete verification audit.
  */
 
 export interface ChatResponse {
@@ -87,13 +88,6 @@ export async function getChatHistory(sessionId: string, conversationId?: string)
   const params = new URLSearchParams({ session_id: sessionId });
   if (conversationId) params.append("conversationId", conversationId);
   return apiRequest<{ messages: ChatMessage[] }>(`/chat/history?${params}`);
-}
-
-/** Get pending/autonomous messages from Kael */
-export async function getPendingMessages(sessionId: string) {
-  return apiRequest<{ messages: ChatMessage[] }>(
-    `/chat/pending?session_id=${sessionId}`
-  );
 }
 
 /**
