@@ -3,7 +3,7 @@ export interface ChatMessage {
   id: string;
   text: string;
   time: string;
-  sender: "user" | "kael";
+  sender: "user" | "kael" | "external_agent";
   image?: string;
   audioUrl?: string;
   audioDuration?: number;
@@ -12,6 +12,10 @@ export interface ChatMessage {
   feedback?: "like" | "dislike" | null;
   isProcessingImage?: boolean;
   isGenerating?: boolean;
+  // External agent metadata (when sender === "external_agent")
+  agent_id?: string;
+  agent_name?: string;
+  agent_avatar?: string;
   // Backend-specific fields
   backend_turn_id?: string;
   latency?: number;

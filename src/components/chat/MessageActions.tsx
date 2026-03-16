@@ -10,7 +10,8 @@ interface MessageActionsProps {
 }
 
 const MessageActions = ({ message, onLike, onDislike, onRegenerate, onPlayTTS }: MessageActionsProps) => {
-  if (message.sender !== "kael") return null;
+  // Show actions for Kael and external agent messages, but not for user messages
+  if (message.sender === "user") return null;
 
   return (
     <div className="mt-1 flex items-center gap-1.5 opacity-0 transition-opacity group-hover:opacity-100">

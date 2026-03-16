@@ -61,18 +61,22 @@ const Chat = () => {
         const latency = Date.now() - startTime;
 
         setIsTyping(false);
-        const kaelMsg: ChatMessage = {
+        const responseMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           text: response.content,
           time: now(),
-          sender: "kael",
+          sender: response.sender || "kael", // Use backend sender, default to "kael"
           feedback: null,
           backend_turn_id: response.turn_id,
           latency,
           meta: response.meta,
           audioUrl: response.tts_url,
+          // Preserve external agent metadata if present
+          agent_id: response.agent_id,
+          agent_name: response.agent_name,
+          agent_avatar: response.agent_avatar,
         };
-        setMessages((prev) => [...prev, kaelMsg]);
+        setMessages((prev) => [...prev, responseMsg]);
         scrollToBottom();
       } catch (error) {
         setIsTyping(false);
@@ -106,18 +110,22 @@ const Chat = () => {
           const latency = Date.now() - startTime;
 
           setIsTyping(false);
-          const kaelMsg: ChatMessage = {
+          const responseMsg: ChatMessage = {
             id: (Date.now() + 1).toString(),
             text: response.content,
             time: now(),
-            sender: "kael",
+            sender: response.sender || "kael", // Use backend sender, default to "kael"
             feedback: null,
             backend_turn_id: response.turn_id,
             latency,
             meta: response.meta,
             audioUrl: response.tts_url,
+            // Preserve external agent metadata if present
+            agent_id: response.agent_id,
+            agent_name: response.agent_name,
+            agent_avatar: response.agent_avatar,
           };
-          setMessages((prev) => [...prev, kaelMsg]);
+          setMessages((prev) => [...prev, responseMsg]);
           scrollToBottom();
         } catch (error) {
           setIsTyping(false);
@@ -153,18 +161,22 @@ const Chat = () => {
         const latency = Date.now() - startTime;
 
         setIsTyping(false);
-        const kaelMsg: ChatMessage = {
+        const responseMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           text: response.content,
           time: now(),
-          sender: "kael",
+          sender: response.sender || "kael", // Use backend sender, default to "kael"
           feedback: null,
           backend_turn_id: response.turn_id,
           latency,
           meta: response.meta,
           audioUrl: response.tts_url,
+          // Preserve external agent metadata if present
+          agent_id: response.agent_id,
+          agent_name: response.agent_name,
+          agent_avatar: response.agent_avatar,
         };
-        setMessages((prev) => [...prev, kaelMsg]);
+        setMessages((prev) => [...prev, responseMsg]);
         scrollToBottom();
       } catch (error) {
         setIsTyping(false);
@@ -223,10 +235,15 @@ const Chat = () => {
               ? {
                   ...m,
                   text: response.content,
+                  sender: response.sender || m.sender, // Preserve or update sender
                   backend_turn_id: response.turn_id,
                   latency,
                   meta: response.meta,
                   audioUrl: response.tts_url,
+                  // Preserve external agent metadata if present
+                  agent_id: response.agent_id,
+                  agent_name: response.agent_name,
+                  agent_avatar: response.agent_avatar,
                 }
               : m
           )
