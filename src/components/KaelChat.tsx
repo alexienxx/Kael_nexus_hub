@@ -8,8 +8,11 @@ interface Message {
   id: string;
   text: string;
   time: string;
-  sender: "user" | "kael";
+  sender: "user" | "kael" | "external_agent";
   image?: string;
+  agent_id?: string;
+  agent_name?: string;
+  agent_avatar?: string;
 }
 
 const kaelResponses = [

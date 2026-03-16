@@ -5,7 +5,7 @@ import { useTheme } from "@/lib/store/theme";
 interface AudioMessageProps {
   src: string;
   duration?: number;
-  sender: "user" | "kael";
+  sender: "user" | "kael" | "external_agent";
 }
 
 const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {

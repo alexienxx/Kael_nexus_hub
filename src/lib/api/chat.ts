@@ -25,6 +25,11 @@ export interface ChatResponse {
   content: string;
   meta?: Record<string, unknown>;
   tts_url?: string;
+  // Sender information for multi-agent conversations
+  sender?: "user" | "kael" | "external_agent";
+  agent_id?: string;
+  agent_name?: string;
+  agent_avatar?: string;
 }
 
 export interface VoiceResponse extends ChatResponse {

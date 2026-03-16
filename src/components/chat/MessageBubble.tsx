@@ -23,6 +23,22 @@ const MessageBubble = ({
 }: MessageBubbleProps) => {
   const { theme, kaelAvatarSrc } = useTheme();
   const isUser = message.sender === "user";
+  const isExternalAgent = message.sender === "external_agent";
+  const isKael = message.sender === "kael";
+
+  // Get display name and avatar for the sender
+  const getSenderInfo = () => {
+    if (isUser) return { name: null, avatar: null };
+    if (isExternalAgent) {
+      return {
+        name: message.agent_name || "External Agent",
+        avatar: message.agent_avatar || null,
+      };
+    }
+    return { name: "Kael", avatar: kaelAvatarSrc };
+  };
+
+  const senderInfo = getSenderInfo();
 
   const bubbleStyle = {
     borderRadius: isUser
@@ -31,15 +47,22 @@ const MessageBubble = ({
   };
 
   const userBubbleBg = `hsl(${theme.bubbleColorHue} 60% 45% / 0.7)`;
+  // External agent gets neon-blue styling as specified in requirements
+  const externalAgentBg = "rgba(0, 180, 255, 0.15)";
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} group`}>
-      {!isUser && (
+      {!isUser && senderInfo.avatar && (
         <img
-          src={kaelAvatarSrc}
-          alt="Kael"
+          src={senderInfo.avatar}
+          alt={senderInfo.name || "Avatar"}
           className="mr-2 h-8 w-8 shrink-0 self-end rounded-full object-cover"
         />
+      )}
+      {!isUser && !senderInfo.avatar && (
+        <div className="mr-2 h-8 w-8 shrink-0 self-end rounded-full bg-neon-blue/30 flex items-center justify-center text-xs font-bold text-neon-blue">
+          {(senderInfo.name || "A").charAt(0).toUpperCase()}
+        </div>
       )}
       <div className="max-w-[75%] flex flex-col">
         <div
@@ -49,11 +72,14 @@ const MessageBubble = ({
           style={{
             ...bubbleStyle,
             ...(isUser ? { background: userBubbleBg } : {}),
+            ...(isExternalAgent ? { background: externalAgentBg } : {}),
           }}
         >
-          {!isUser && (
-            <p className="mb-0.5 text-[11px] font-semibold text-neon-purple neon-text-subtle">
-              Kael
+          {!isUser && senderInfo.name && (
+            <p className={`mb-0.5 text-[11px] font-semibold ${
+              isExternalAgent ? "text-neon-blue" : "text-neon-purple"
+            } neon-text-subtle`}>
+              {senderInfo.name}
             </p>
           )}
 
