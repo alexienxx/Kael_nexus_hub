@@ -1,6 +1,18 @@
 import { apiRequest } from "./client";
 import type { MediaItem } from "@/types";
 
+/**
+ * MEDIA API SERVICE LAYER
+ *
+ * Endpoints:
+ * - GET /media/gallery — shared media gallery (photos, videos, audio)
+ * - POST /media/video/request — request avatar video from Kael
+ * - GET /media/video/status — check avatar video generation status
+ * - GET /media/generated — get generated images
+ *
+ * ⚠️ NO /spotify/* endpoints here — see spotify.ts for Spotify contract
+ */
+
 /** Get shared media gallery */
 export async function getMediaGallery(type?: "image" | "video" | "audio") {
   const query = type ? `?type=${type}` : "";
@@ -25,24 +37,4 @@ export async function checkVideoStatus(videoId: string) {
 /** Get generated images */
 export async function getGeneratedImages() {
   return apiRequest<{ items: MediaItem[] }>("/media/generated");
-}
-
-/** Get Spotify now-playing / suggestions */
-export async function getSpotifyContext() {
-  return apiRequest<{
-    nowPlaying?: { title: string; artist: string; albumArt?: string; spotifyUrl?: string };
-    suggestions?: Array<{ title: string; artist: string; albumArt?: string; spotifyUrl?: string }>;
-  }>("/spotify/context");
-}
-
-/** Send current Spotify track to Kael for context */
-export async function shareNowPlaying(trackData: {
-  title: string;
-  artist: string;
-  spotifyUrl?: string;
-}) {
-  return apiRequest("/spotify/share", {
-    method: "POST",
-    body: JSON.stringify(trackData),
-  });
 }
