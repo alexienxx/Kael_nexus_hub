@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import type { ChatMessage, ChatResponse } from "@/types";
+import type { ChatMessage } from "@/types";
+import type { ChatResponse } from "@/lib/api/chat";
 
 describe("External Agent Support", () => {
   it("should accept external_agent as a valid sender type", () => {
@@ -59,20 +60,8 @@ describe("External Agent Support", () => {
 
   it("should support mixed conversation with all sender types", () => {
     const messages: ChatMessage[] = [
-      {
-        id: "1",
-        text: "User message",
-        time: "10:00",
-        sender: "user",
-        feedback: null,
-      },
-      {
-        id: "2",
-        text: "Kael response",
-        time: "10:01",
-        sender: "kael",
-        feedback: null,
-      },
+      { id: "1", text: "User message", time: "10:00", sender: "user", feedback: null },
+      { id: "2", text: "Kael response", time: "10:01", sender: "kael", feedback: null },
       {
         id: "3",
         text: "External agent response",
@@ -88,5 +77,17 @@ describe("External Agent Support", () => {
     expect(messages[1].sender).toBe("kael");
     expect(messages[2].sender).toBe("external_agent");
     expect(messages[2].agent_name).toBe("GitHub Agent");
+  });
+
+  it("should define ChatResponse with sender field", () => {
+    const response: ChatResponse = {
+      turn_id: "t-1",
+      content: "Hello",
+      sender: "external_agent",
+      agent_id: "agent-1",
+      agent_name: "Test Agent",
+    };
+
+    expect(response.sender).toBe("external_agent");
   });
 });
