@@ -19,7 +19,7 @@ const BottomNav = () => {
           to={to}
           end={to === "/"}
           className={({ isActive }) =>
-            `flex flex-col items-center gap-0.5 rounded-xl px-3 py-1.5 text-[10px] transition-all ${
+            `flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[9px] transition-all ${
               isActive
                 ? "text-neon-purple scale-105"
                 : "text-muted-foreground hover:text-foreground"
