@@ -1,10 +1,11 @@
 import { NavLink as RouterNavLink } from "react-router-dom";
-import { MessageCircle, Phone, ImageIcon, Heart, Settings } from "lucide-react";
+import { MessageCircle, Phone, ImageIcon, Heart, FolderKanban, Settings } from "lucide-react";
 
 const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
   { to: "/calls", icon: Phone, label: "Calls" },
   { to: "/media", icon: ImageIcon, label: "Media" },
+  { to: "/workspace", icon: FolderKanban, label: "Workspace" },
   { to: "/memories", icon: Heart, label: "Memories" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
