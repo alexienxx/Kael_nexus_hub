@@ -11,6 +11,7 @@ import Media from "@/pages/Media";
 import Workspace from "@/pages/Workspace";
 import Memories from "@/pages/Memories";
 import Settings from "@/pages/Settings";
+import SpotifyCallback from "@/pages/SpotifyCallback";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ const App = () => (
               <Route path="/memories" element={<Memories />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
+            <Route path="/spotify-callback" element={<SpotifyCallback />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
