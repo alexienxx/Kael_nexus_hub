@@ -1,6 +1,6 @@
 import { NavLink as RouterNavLink } from "react-router-dom";
 import { MessageCircle, Phone, ImageIcon, Heart, FolderKanban, Settings } from "lucide-react";
-
+import NetharionButton from "@/components/common/NetharionButton";
 const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
   { to: "/calls", icon: Phone, label: "Calls" },
