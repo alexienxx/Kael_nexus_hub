@@ -1,6 +1,6 @@
 import { NavLink as RouterNavLink } from "react-router-dom";
 import { MessageCircle, Phone, ImageIcon, Heart, FolderKanban, Settings } from "lucide-react";
-
+import NetharionButton from "@/components/common/NetharionButton";
 const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
   { to: "/calls", icon: Phone, label: "Calls" },
@@ -13,6 +13,9 @@ const navItems = [
 const BottomNav = () => {
   return (
     <nav className="glass-strong relative z-20 flex items-center justify-around px-1 py-1.5 safe-bottom">
+      <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30">
+        <NetharionButton />
+      </div>
       {navItems.map(({ to, icon: Icon, label }) => (
         <RouterNavLink
           key={to}
