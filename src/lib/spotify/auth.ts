@@ -35,7 +35,7 @@ export interface SpotifyTokens {
 // ─── Client ID management ───────────────────────────────
 
 export function getSpotifyClientId(): string {
-  return localStorage.getItem(CLIENT_ID_KEY) || "";
+  return localStorage.getItem(CLIENT_ID_KEY) || DEFAULT_CLIENT_ID;
 }
 
 export function setSpotifyClientId(id: string) {
