@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: 'Kael Companion',
   webDir: 'dist',
   server: {
+    url: 'https://0a6f887f-df8f-4066-86ec-c6471cdc96bc.lovableproject.com?forceHideBadge=true',
     cleartext: true,
   },
 };
