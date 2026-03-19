@@ -23,6 +23,7 @@ const SCOPES = [
 const STORAGE_KEY = "kael-spotify-auth";
 const VERIFIER_KEY = "kael-spotify-verifier";
 const CLIENT_ID_KEY = "kael-spotify-client-id";
+const DEFAULT_CLIENT_ID = "79f9fb81523a4aaab30b919b91b84421";
 
 export interface SpotifyTokens {
   access_token: string;
