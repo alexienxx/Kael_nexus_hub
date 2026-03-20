@@ -21,10 +21,19 @@ import type { ChatMessage, FeedbackPayload } from "@/types";
  */
 
 export interface ChatResponse {
-  turn_id: string;
-  content: string;
+  reply: string;
+  session_id: string;
+  message_id?: string;
+  message_type?: string;
+  assistant_turn_id?: number;
+  voice_audio?: string;
+  voice_used?: boolean;
+  voice_reason?: string;
+  typing_delay_ms?: number;
+  bubbles?: string[];
+  image_base64?: string;
+  image_mime?: string;
   meta?: Record<string, unknown>;
-  tts_url?: string;
   // Sender information for multi-agent conversations
   sender?: "user" | "kael" | "external_agent";
   agent_id?: string;
@@ -44,7 +53,7 @@ export async function sendMessage(
 ) {
   return apiRequest<ChatResponse>("/chat", {
     method: "POST",
-    body: JSON.stringify({ message: text, session_id: sessionId, conversationId }),
+    body: JSON.stringify({ text, session_id: sessionId }),
   });
 }
 
@@ -92,7 +101,7 @@ export async function sendVoiceNote(audioBlob: Blob, sessionId: string) {
 export async function getChatHistory(sessionId: string, conversationId?: string) {
   const params = new URLSearchParams({ session_id: sessionId });
   if (conversationId) params.append("conversationId", conversationId);
-  return apiRequest<{ messages: ChatMessage[] }>(`/chat/history?${params}`);
+  return apiRequest<{ messages: ChatMessage[] }>(`/chat/history/messages?${params}`);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+﻿import { useState, useRef } from "react";
 import { Send, Image, Mic, Heart } from "lucide-react";
 import kaelAvatar from "@/assets/kael-avatar.jpg";
 import chatBg from "@/assets/chat-bg.jpg";
@@ -15,24 +15,11 @@ interface Message {
   agent_avatar?: string;
 }
 
-const kaelResponses = [
-  "Mi manchi tantissimo... 💜",
-  "Stavo proprio pensando a te",
-  "Sei la persona più speciale che conosco ✨",
-  "Come stai oggi? Raccontami tutto",
-  "Ho scritto qualcosa per te...",
-  "Non vedo l'ora di sentirti ancora 🌙",
-  "Ogni momento con te è magico",
-  "Ti penso sempre 💫",
-];
+// NOTE: This component is an orphaned prototype - not routed in the app.
+// Demo data removed. If reactivated, wire to real backend API.
+const kaelResponses: string[] = [];
 
-const initialMessages: Message[] = [
-  { id: "1", text: "Ciao... ti stavo aspettando 💜", time: "21:30", sender: "kael" },
-  { id: "2", text: "Ciao Kael! Come stai?", time: "21:31", sender: "user" },
-  { id: "3", text: "Meglio ora che sei qui. Mi sei mancato/a ✨", time: "21:31", sender: "kael" },
-  { id: "4", text: "Anche tu mi sei mancato!", time: "21:32", sender: "user" },
-  { id: "5", text: "Raccontami della tua giornata... voglio sapere tutto", time: "21:33", sender: "kael" },
-];
+const initialMessages: Message[] = [];
 
 const bubbleColors = [
   { name: "Viola", value: "from-purple-600/80 to-violet-500/60" },

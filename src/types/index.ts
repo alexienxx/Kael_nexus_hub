@@ -113,6 +113,15 @@ export interface ThemeSettings {
 // ===== Connection =====
 export type ConnectionStatus = "connected" | "disconnected" | "connecting" | "error";
 
+// ===== Backend Lifecycle =====
+export type BackendLifecycleState =
+  | "checking"       // Initial health probe in progress
+  | "online"         // Backend healthy and reachable
+  | "starting"       // Sentinel triggered bootstrap, waiting
+  | "waiting"        // Bootstrap launched, polling for health
+  | "start_failed"   // Bootstrap timed out or failed
+  | "offline";       // No backend, no sentinel
+
 // ===== Backend Config =====
 export interface BackendConfig {
   baseUrl: string;

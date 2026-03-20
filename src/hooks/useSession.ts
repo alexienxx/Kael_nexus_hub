@@ -3,33 +3,34 @@ import { useEffect, useState } from "react";
 const STORAGE_KEY = "kael_session_id";
 
 /**
- * Generate a UUID v4
+ * Canonical session ID for the Kael mobile client.
+ * All chat history, memory, and backend state uses this ID.
  */
-function generateUUID(): string {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+const CANONICAL_SESSION_ID = "mobile_kael";
+
+/**
+ * Detect if a stored session looks like an old random UUID (not canonical).
+ */
+function isRandomUUID(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 }
 
 /**
  * Hook for persistent session management.
- * Generates a session_id on first load and persists it in localStorage.
- * The session_id is used for backend continuity (memory, recall, emotional state).
+ * Uses the canonical session_id "mobile_kael" for backend continuity.
+ * Migrates old random UUIDs to the canonical ID automatically.
  */
 export function useSession() {
   const [sessionId, setSessionId] = useState<string>(() => {
-    // Try to load existing session from localStorage
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      return stored;
+
+    // Migration: if stored session is a random UUID, replace with canonical
+    if (!stored || isRandomUUID(stored)) {
+      localStorage.setItem(STORAGE_KEY, CANONICAL_SESSION_ID);
+      return CANONICAL_SESSION_ID;
     }
 
-    // Generate new session ID if none exists
-    const newId = generateUUID();
-    localStorage.setItem(STORAGE_KEY, newId);
-    return newId;
+    return stored;
   });
 
   // Ensure session ID is always in sync with localStorage

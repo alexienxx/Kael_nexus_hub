@@ -1,18 +1,30 @@
 /**
  * Remote update service for sideloaded APK distribution.
- * Checks a remote manifest (JSON file or backend endpoint) for new versions.
+ * Checks the Kael backend's /app/update-check endpoint for new versions.
+ *
+ * WiFi in-app update is the canonical delivery path.
+ * The manifest URL defaults to {backendBaseUrl}/app/update-check.
+ * The APK download URL defaults to {backendBaseUrl}/app/download.
  */
 
 import { APP_VERSION, APP_VERSION_CODE } from "@/lib/constants";
+import { getApiConfig } from "@/lib/api/client";
 
 export interface UpdateManifest {
   app_name: string;
   latest_version: string;
+  version_name: string;
   version_code: number;
   apk_url: string;
+  download_url: string;
+  apk_filename: string;
+  apk_sha256: string;
+  apk_size_bytes: number;
+  release_notes: string;
   changelog: string[];
   force_update: boolean;
   published_at: string;
+  release_date: string;
 }
 
 export interface UpdateCheckResult {
@@ -23,27 +35,62 @@ export interface UpdateCheckResult {
 }
 
 const UPDATE_MANIFEST_URL_KEY = "kael-update-manifest-url";
-const DEFAULT_MANIFEST_URL = "";
 
-/** Get the configured manifest URL */
+/**
+ * Get the manifest URL. Priority:
+ * 1. User-configured override in localStorage
+ * 2. Backend baseUrl + /app/update-check (canonical WiFi path)
+ */
 export function getManifestUrl(): string {
   try {
-    return localStorage.getItem(UPDATE_MANIFEST_URL_KEY) || DEFAULT_MANIFEST_URL;
-  } catch {
-    return DEFAULT_MANIFEST_URL;
+    const stored = localStorage.getItem(UPDATE_MANIFEST_URL_KEY);
+    if (stored && stored.trim()) return stored;
+  } catch { /* ignore */ }
+  // Canonical: use backend baseUrl from config
+  const config = getApiConfig();
+  if (config.baseUrl) {
+    return `${config.baseUrl.replace(/\/$/, "")}/app/update-check`;
   }
+  return "";
 }
 
-/** Set the manifest URL */
+/**
+ * Get the APK download URL from the manifest (versioned) or fallback to /app/download.
+ * Prefer calling getVersionedDownloadUrl(manifest) if you already have the manifest.
+ */
+export function getApkDownloadUrl(): string {
+  const config = getApiConfig();
+  if (config.baseUrl) {
+    return `${config.baseUrl.replace(/\/$/, "")}/app/download`;
+  }
+  return "";
+}
+
+/**
+ * Get the versioned download URL from a manifest response.
+ * Falls back to /app/download if manifest doesn't include download_url.
+ */
+export function getVersionedDownloadUrl(manifest: UpdateManifest | null): string {
+  if (manifest?.download_url) return manifest.download_url;
+  if (manifest?.apk_url) return manifest.apk_url;
+  return getApkDownloadUrl();
+}
+
+/** Set the manifest URL (user override from Settings) */
 export function setManifestUrl(url: string) {
   localStorage.setItem(UPDATE_MANIFEST_URL_KEY, url);
+}
+
+/** Clear the manifest URL override (revert to backend default) */
+export function clearManifestUrl() {
+  localStorage.removeItem(UPDATE_MANIFEST_URL_KEY);
 }
 
 /** Fetch the remote update manifest */
 export async function fetchUpdateManifest(): Promise<UpdateManifest> {
   const url = getManifestUrl();
   if (!url) {
-    throw new Error("Update manifest URL not configured. Go to Settings → Updates.");
+    throw new Error("Backend URL non configurato. Vai in Impostazioni.");
   }
 
   const res = await fetch(url, {
@@ -53,10 +100,20 @@ export async function fetchUpdateManifest(): Promise<UpdateManifest> {
   });
 
   if (!res.ok) {
-    throw new Error(`Failed to fetch update manifest: ${res.status}`);
+    throw new Error(`Manifest non disponibile: ${res.status}`);
   }
 
-  return res.json();
+  const data = await res.json();
+  // Normalize backend manifest fields to match our interface
+  return {
+    ...data,
+    latest_version: data.latest_version || data.version_name || "",
+    // Prefer versioned download_url from server; fallback to static /app/download
+    apk_url: data.download_url || data.apk_url || getApkDownloadUrl(),
+    changelog: data.changelog || (data.release_notes ? [data.release_notes] : []),
+    force_update: data.force_update ?? false,
+    published_at: data.published_at || data.release_date || "",
+  };
 }
 
 /** Compare version codes to determine if update is available */
@@ -81,17 +138,29 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
 }
 
 /**
+ * Silent boot check — returns result without throwing.
+ * Used for automatic update check on app startup (after delay).
+ */
+export async function checkForUpdatesSilent(): Promise<UpdateCheckResult | null> {
+  try {
+    return await checkForUpdates();
+  } catch {
+    // Silent on boot: no toast, no error — just return null
+    return null;
+  }
+}
+
+/**
  * Download APK from URL with progress tracking.
- * In a Capacitor/native context this would save to device storage
- * and trigger the Android install intent.
- * In web context, it triggers a browser download.
+ * In a Capacitor WebView context, this triggers a browser-style download
+ * which Android will handle via the system download manager / install intent.
  */
 export async function downloadApk(
   apkUrl: string,
   onProgress?: (percent: number) => void
 ): Promise<void> {
   const res = await fetch(apkUrl);
-  if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+  if (!res.ok) throw new Error(`Download fallito: ${res.status}`);
 
   const contentLength = res.headers.get("Content-Length");
   const total = contentLength ? parseInt(contentLength, 10) : 0;
@@ -99,7 +168,7 @@ export async function downloadApk(
   if (!res.body) {
     // Fallback: simple download
     const blob = await res.blob();
-    triggerBrowserDownload(blob, getFilenameFromUrl(apkUrl));
+    triggerBrowserDownload(blob, "kael-companion.apk");
     onProgress?.(100);
     return;
   }
@@ -119,7 +188,7 @@ export async function downloadApk(
   }
 
   const blob = new Blob(chunks, { type: "application/vnd.android.package-archive" });
-  triggerBrowserDownload(blob, getFilenameFromUrl(apkUrl));
+  triggerBrowserDownload(blob, "kael-companion.apk");
   onProgress?.(100);
 }
 
@@ -132,13 +201,4 @@ function triggerBrowserDownload(blob: Blob, filename: string) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-
-function getFilenameFromUrl(url: string): string {
-  try {
-    const path = new URL(url).pathname;
-    return path.split("/").pop() || "kael-companion.apk";
-  } catch {
-    return "kael-companion.apk";
-  }
 }
