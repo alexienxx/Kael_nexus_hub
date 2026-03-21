@@ -3,6 +3,9 @@ import MessageActions from "./MessageActions";
 import AudioMessage from "./AudioMessage";
 import ImageMessage from "./ImageMessage";
 import AssistantMarkdown from "./AssistantMarkdown";
+import PlaylistCard from "./PlaylistCard";
+import TrackCard from "@/components/media/TrackCard";
+import SpotifyIcon from "@/components/common/SpotifyIcon";
 import type { ChatMessage } from "@/types";
 import type { WallpaperDisplaySettings, BubbleWallpaperStyle } from "@/types/wallpaper";
 
