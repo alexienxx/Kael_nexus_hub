@@ -8,6 +8,16 @@
 ## [Unreleased] — 2026-03-21
 
 ### 🆕 Added
+- **Freccia indietro nelle pagine secondarie**: Tutte le pagine (Media, Workspace, Memories, Settings) ora hanno un pulsante ← nell'header per tornare alla Chat
+  - Prop `showBack` aggiunta a `KaelHeader`
+  - Navigazione via `useNavigate("/")`
+
+- **Supporto Landscape Mode**: L'app funziona correttamente in orientamento orizzontale senza interruzioni
+  - Safe areas laterali (`safe-left`, `safe-right`) per notch/punch-hole in landscape
+  - Header e bottom nav compatti in landscape con altezza ridotta (`max-height: 500px`)
+  - Viewport meta con `maximum-scale=1.0` per evitare zoom accidentali durante la rotazione
+  - La rotazione del telefono NON interrompe invio/ricezione messaggi (stato React preservato)
+  - Nessun remount dei componenti durante il cambio orientamento
 - **Icona Spotify nella bottom nav**: Bottone dedicato che apre l'app Spotify sul dispositivo via deep link (`spotify://`), con fallback al browser web
   - Su Android/Capacitor: tenta deep link nativo, fallback dopo 1.5s
   - Su web: apre `open.spotify.com` in nuova tab

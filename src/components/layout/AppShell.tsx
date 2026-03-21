@@ -3,7 +3,7 @@ import BottomNav from "./BottomNav";
 
 const AppShell = () => {
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-background safe-left safe-right">
       <div className="flex-1 overflow-hidden">
         <Outlet />
       </div>

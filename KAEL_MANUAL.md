@@ -16,6 +16,13 @@
 - **Mobile**: Capacitor (Android APK sideloaded, live-reload via `server.url`)
 - **App ID**: `app.lovable.kael.companion`
 
+### Landscape Mode
+- **Supporto completo**: L'app funziona in landscape senza interruzioni
+- **Safe areas**: `safe-left` / `safe-right` applicati all'AppShell per gestire notch e punch-hole laterali
+- **Layout compatto**: Quando `max-height ≤ 500px` (landscape su telefono), header e nav si riducono in altezza
+- **Nessuna interruzione**: La rotazione del telefono NON causa remount dei componenti React — invio/ricezione messaggi, riproduzione audio, e tutte le operazioni proseguono senza interruzione
+- **Viewport**: `maximum-scale=1.0, user-scalable=no` previene zoom accidentali durante rotazione
+
 ### Struttura File Principali
 ```
 src/
@@ -79,6 +86,9 @@ Pulsante fluttuante posizionato centralmente sopra la bottom nav.
   - **Long-press sull'avatar** → Apre la galleria del dispositivo per cambiare la foto di Kael
   - La foto viene salvata in `localStorage` come data URI nel theme store (`kaelAvatar`)
   - Toast di conferma: "Foto di Kael aggiornata ✨"
+- **Freccia indietro** (`showBack` prop): Presente su tutte le pagine secondarie (Media, Workspace, Memories, Settings). Naviga a `/` (Chat).
+  - Icona: `ChevronLeft` da lucide-react
+  - Animazione: hover bg + scale su pressione
 - **Status dot**: Pallino colorato sotto l'avatar
   - 🟢 Verde = backend online
   - 🔴 Rosso = offline / errore
