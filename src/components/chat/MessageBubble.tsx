@@ -71,6 +71,15 @@ function getBubbleWallpaperCSS(
   return base;
 }
 
+const downloadFile = (url: string, filename: string) => {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
 const MessageBubble = ({
   message,
   onLike,
@@ -78,6 +87,7 @@ const MessageBubble = ({
   onRegenerate,
   onPlayTTS,
   onImageClick,
+  onEditMessage,
   wallpaperStyle = null,
 }: MessageBubbleProps) => {
   const { theme, kaelAvatarSrc } = useTheme();
