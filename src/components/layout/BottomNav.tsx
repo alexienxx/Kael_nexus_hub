@@ -12,6 +12,24 @@ const navItems = [
 ];
 
 const BottomNav = () => {
+  const handleSpotifyPress = () => {
+    // Try deep link first (opens Spotify app on Android/iOS), fallback to web
+    const spotifyDeepLink = "spotify://";
+    const spotifyWeb = "https://open.spotify.com";
+
+    // On mobile (Capacitor), try the deep link
+    const isCapacitor = !!(window as any).Capacitor;
+    if (isCapacitor) {
+      window.location.href = spotifyDeepLink;
+      // Fallback after short delay if deep link didn't work
+      setTimeout(() => {
+        window.open(spotifyWeb, "_blank");
+      }, 1500);
+    } else {
+      window.open(spotifyWeb, "_blank");
+    }
+  };
+
   return (
     <nav className="glass-strong relative z-20 flex items-center justify-around px-1 py-1.5 safe-bottom">
       <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30">
