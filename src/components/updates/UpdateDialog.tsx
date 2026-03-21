@@ -30,7 +30,7 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
 
   if (!manifest) return null;
 
-  const canDismiss = !forceUpdate && !manifest.force_update;
+  const isForcedAndNotDone = (forceUpdate || manifest.force_update) && downloadState !== "success";
 
   const handleDownload = async () => {
     setDownloadState("downloading");
@@ -47,7 +47,6 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
   };
 
   const handleClose = () => {
-    if (!canDismiss && downloadState !== "success") return;
     setDownloadState("idle");
     setProgress(0);
     onOpenChange(false);
