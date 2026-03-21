@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Phone, Plus } from "lucide-react";
+import { Phone } from "lucide-react";
 import { useTheme } from "@/lib/store/theme";
 import { useSession } from "@/hooks/useSession";
 import { useAgenticActions } from "@/hooks/useAgenticActions";
