@@ -318,6 +318,43 @@ Server leggero sempre attivo che può svegliare il backend principale.
 
 ---
 
+## 🤖 EXTERNAL AGENT CHAT (`/external-agent`)
+
+### Panoramica
+Chat dedicata per comunicare con agenti AI esterni (OpenAI GPT, Anthropic Claude, Google Gemini) usando la propria API key.
+
+### Architettura
+- **Pagina**: `src/pages/ExternalAgentChat.tsx`
+- **Config lib**: `src/lib/externalAgent.ts` — gestione config, modelli, invio messaggi
+- **Edge Function proxy**: `supabase/functions/external-agent-proxy/index.ts` — proxy server-side per evitare CORS e proteggere le API key
+- **Settings**: `src/components/settings/ExternalAgentSettings.tsx` — selezione modello + API key
+
+### Provider Supportati
+| Provider | Modelli | API Endpoint (proxied) |
+|----------|---------|----------------------|
+| OpenAI | GPT-4o, GPT-4o Mini, GPT-4 Turbo, o1 Preview, o1 Mini | `api.openai.com/v1/chat/completions` |
+| Anthropic | Sonnet 4, Sonnet 3.5, Opus 3, Haiku 3 | `api.anthropic.com/v1/messages` |
+| Google | Gemini 2.5 Pro, 2.5 Flash, 2.0 Flash | `generativelanguage.googleapis.com` |
+
+### UI delle Bolle
+- **Colore diverso per provider**: Verde acqua (OpenAI), Arancione (Anthropic), Blu (Google)
+- **Label modello**: Testo piccolo bianco (`text-[9px]`) in alto dentro la bolla dell'assistente, formato: `"Provider · Modello"` (es. "OpenAI · GPT-4o")
+- **Bordo colorato**: Le bolle dell'agente hanno un bordo del colore del provider
+
+### Configurazione (Settings → Agente Esterno)
+- **API Key**: Input password per la chiave del provider selezionato
+- **Selezione modello**: Lista raggruppata per provider con indicatore attivo
+- **Persistenza**: `localStorage` key `kael_external_agent_config`
+- **Formato**: `{ apiKey: string, modelId: string }`
+
+### Flusso Messaggio
+1. Utente invia testo → aggiunto alla cronologia locale
+2. Cronologia completa inviata a edge function `external-agent-proxy`
+3. Edge function formatta la richiesta per il provider selezionato
+4. Risposta convertita in formato unificato → bolla con label modello
+
+---
+
 ## 🔑 SESSION MANAGEMENT
 
 - **Session ID canonico**: `mobile_kael` (fisso, non random)
