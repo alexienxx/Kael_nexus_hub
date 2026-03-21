@@ -185,28 +185,19 @@ const MessageBubble = ({
           )}
 
           {message.trackCard && (
-            <div className="mb-2 flex items-center gap-3 rounded-lg bg-background/30 p-2">
-              {message.trackCard.albumArt && (
-                <img
-                  src={message.trackCard.albumArt}
-                  alt={message.trackCard.title}
-                  className="h-12 w-12 rounded-md object-cover"
-                />
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="truncate text-sm font-medium">{message.trackCard.title}</p>
-                <p className="truncate text-xs text-muted-foreground">{message.trackCard.artist}</p>
-              </div>
-              {message.trackCard.spotifyUrl && (
-                <a
-                  href={message.trackCard.spotifyUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="shrink-0 text-xs text-green-400 hover:underline"
-                >
-                  Apri
-                </a>
-              )}
+            <div className="mb-2">
+              <TrackCard
+                title={message.trackCard.title}
+                artist={message.trackCard.artist}
+                albumArt={message.trackCard.albumArt}
+                spotifyUrl={message.trackCard.spotifyUrl}
+              />
+            </div>
+          )}
+
+          {message.playlistCard && (
+            <div className="mb-2">
+              <PlaylistCard playlist={message.playlistCard} />
             </div>
           )}
 

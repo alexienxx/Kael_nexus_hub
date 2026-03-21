@@ -9,6 +9,7 @@ export interface ChatMessage {
   audioDuration?: number;
   videoUrl?: string;
   trackCard?: TrackCard;
+  playlistCard?: PlaylistCard;
   feedback?: "like" | "dislike" | null;
   isProcessingImage?: boolean;
   isGenerating?: boolean;
