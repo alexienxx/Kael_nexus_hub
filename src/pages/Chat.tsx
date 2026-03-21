@@ -391,6 +391,16 @@ const Chat = () => {
     }
   }, []);
 
+  const handleEditMessage = useCallback(
+    (id: string, currentText: string) => {
+      // Remove the message and pre-fill the input by sending a custom event
+      setMessages((prev) => prev.filter((m) => m.id !== id));
+      // Dispatch event so ChatInput can pick up the text
+      window.dispatchEvent(new CustomEvent("kael-edit-message", { detail: { text: currentText } }));
+    },
+    []
+  );
+
   // Bubble wallpaper style props
   const bubbleWallpaperStyle = wallpaper?.displaySettings ?? null;
 
@@ -451,6 +461,7 @@ const Chat = () => {
             onRegenerate={handleRegenerate}
             onPlayTTS={handlePlayTTS}
             onImageClick={setViewerImage}
+            onEditMessage={handleEditMessage}
             wallpaperStyle={bubbleWallpaperStyle}
           />
         ))}

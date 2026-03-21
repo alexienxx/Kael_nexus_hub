@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, Download } from "lucide-react";
 import { useTheme } from "@/lib/store/theme";
 
 interface AudioMessageProps {
@@ -58,6 +58,15 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
     const height = Math.random() * 60 + 40; // 40-100%
     return { height, filled };
   });
+
+  const handleDownload = () => {
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = `kael-audio-${Date.now()}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
 
   return (
     <div className="flex items-center gap-2 py-1">
@@ -118,6 +127,14 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
       <span className="text-[10px] text-muted-foreground shrink-0">
         {formatTime(currentTime || duration || 0)}
       </span>
+
+      <button
+        onClick={handleDownload}
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all hover:scale-110 hover:text-neon-blue"
+        title="Scarica audio"
+      >
+        <Download size={12} />
+      </button>
     </div>
   );
 };

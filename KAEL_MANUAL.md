@@ -111,6 +111,16 @@ Pulsante fluttuante posizionato centralmente sopra la bottom nav.
 - **Wallpaper-aware styling**: Le bolle possono adattarsi allo sfondo (glass/gradient/tinted/solid)
 - **Stop propagation**: I bubble bloccano l'evento long-press per non triggerare il wallpaper menu
 
+### Long-Press sui Bubble (`BubbleContextMenu`)
+- **Long-press su bubble utente**: Mostra menu contestuale con "Modifica messaggio"
+  - Il messaggio viene rimosso dalla chat e il testo viene ripopolato nell'input
+  - L'utente può correggere e re-inviare
+- **Long-press su immagini di Kael**: Mostra "Scarica immagine" → download diretto
+- **Long-press su audio di Kael**: Mostra "Scarica audio" → download diretto
+- **Pulsante download nei vocali**: Ogni messaggio audio ha un'icona ⬇️ per il download diretto
+- **Componente**: `src/components/chat/BubbleContextMenu.tsx`
+- **Posizionamento**: Menu contestuale posizionato al punto di pressione, con clamping ai bordi viewport
+
 ### Chat Input (`ChatInput`)
 - **Icona foto** (🖼️): Apre mini-menu con:
   - "Foto dalla galleria" → `<input accept="image/*">` senza capture

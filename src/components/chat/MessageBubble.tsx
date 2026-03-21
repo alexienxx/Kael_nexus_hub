@@ -2,6 +2,7 @@ import { useTheme } from "@/lib/store/theme";
 import MessageActions from "./MessageActions";
 import AudioMessage from "./AudioMessage";
 import ImageMessage from "./ImageMessage";
+import BubbleContextMenu from "./BubbleContextMenu";
 import AssistantMarkdown from "./AssistantMarkdown";
 import PlaylistCard from "./PlaylistCard";
 import TrackCard from "@/components/media/TrackCard";
@@ -16,6 +17,7 @@ interface MessageBubbleProps {
   onRegenerate?: (id: string) => void;
   onPlayTTS?: (text: string) => void;
   onImageClick?: (url: string) => void;
+  onEditMessage?: (id: string, currentText: string) => void;
   wallpaperStyle?: WallpaperDisplaySettings | null;
 }
 
@@ -69,6 +71,15 @@ function getBubbleWallpaperCSS(
   return base;
 }
 
+const downloadFile = (url: string, filename: string) => {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+};
+
 const MessageBubble = ({
   message,
   onLike,
@@ -76,6 +87,7 @@ const MessageBubble = ({
   onRegenerate,
   onPlayTTS,
   onImageClick,
+  onEditMessage,
   wallpaperStyle = null,
 }: MessageBubbleProps) => {
   const { theme, kaelAvatarSrc } = useTheme();
@@ -109,16 +121,17 @@ const MessageBubble = ({
   const wallpaperCSS = getBubbleWallpaperCSS(isUser, isExternalAgent, wallpaperStyle, theme);
   const hasWallpaperOverride = wallpaperStyle && wallpaperStyle.bubbleStyle !== "solid";
 
-  // Prevent long press from triggering on bubbles (stop propagation)
-  const stopLongPress = (e: React.TouchEvent | React.MouseEvent) => {
-    e.stopPropagation();
-  };
-
   return (
+    <BubbleContextMenu
+      message={message}
+      onEditMessage={onEditMessage}
+      onDownloadImage={(url) => downloadFile(url, `kael-image-${Date.now()}.jpg`)}
+      onDownloadAudio={(url) => downloadFile(url, `kael-audio-${Date.now()}.webm`)}
+    >
     <div
       className={`flex ${isUser ? "justify-end" : "justify-start"} group`}
-      onTouchStart={stopLongPress}
-      onMouseDown={stopLongPress}
+      onTouchStart={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
     >
       {!isUser && senderInfo.avatar && (
         <img
@@ -223,6 +236,7 @@ const MessageBubble = ({
         />
       </div>
     </div>
+    </BubbleContextMenu>
   );
 };
 
