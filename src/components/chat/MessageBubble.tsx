@@ -121,16 +121,17 @@ const MessageBubble = ({
   const wallpaperCSS = getBubbleWallpaperCSS(isUser, isExternalAgent, wallpaperStyle, theme);
   const hasWallpaperOverride = wallpaperStyle && wallpaperStyle.bubbleStyle !== "solid";
 
-  // Prevent long press from triggering on bubbles (stop propagation)
-  const stopLongPress = (e: React.TouchEvent | React.MouseEvent) => {
-    e.stopPropagation();
-  };
-
   return (
+    <BubbleContextMenu
+      message={message}
+      onEditMessage={onEditMessage}
+      onDownloadImage={(url) => downloadFile(url, `kael-image-${Date.now()}.jpg`)}
+      onDownloadAudio={(url) => downloadFile(url, `kael-audio-${Date.now()}.webm`)}
+    >
     <div
       className={`flex ${isUser ? "justify-end" : "justify-start"} group`}
-      onTouchStart={stopLongPress}
-      onMouseDown={stopLongPress}
+      onTouchStart={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
     >
       {!isUser && senderInfo.avatar && (
         <img
