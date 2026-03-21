@@ -307,9 +307,96 @@ Server leggero sempre attivo che può svegliare il backend principale.
 
 ## 🎵 SPOTIFY INTEGRATION
 
-- OAuth flow con callback a `/spotify-callback`
-- Componenti: SpotifyNowPlaying, SpotifyLibrary, SpotifyMusicTab, SpotifyTrackItem
-- API: `lib/api/spotify.ts` + `lib/spotify/auth.ts`
+### Architettura
+L'integrazione Spotify opera su due livelli:
+1. **Client-side (PKCE OAuth)**: L'utente autorizza l'app via OAuth PKCE. Token gestiti localmente (`kael-spotify-auth`). Usato per playback control e navigazione libreria.
+2. **Backend (Kael)**: Il backend gestisce suggerimenti musicali, creazione playlist, e invio spontaneo di brani/playlist in chat.
+
+### Bottom Nav — Bottone Spotify
+- **Icona**: SVG Spotify custom (`SpotifyIcon`)
+- **Comportamento su Android (Capacitor)**: Tenta deep link `spotify://`, fallback `open.spotify.com` dopo 1.5s
+- **Comportamento su web**: Apre `open.spotify.com` in nuova tab
+- **Non è una route**: È un launcher esterno, non naviga internamente
+
+### Condivisione Musicale in Chat
+Kael può inviare due tipi di card musicali nei messaggi:
+
+#### TrackCard (brano singolo)
+- **Componente**: `src/components/media/TrackCard.tsx`
+- **Campi**: `title`, `artist`, `albumArt?`, `spotifyUrl?`, `personalMessage?`
+- **Messaggio personale**: Testo italic sopra la card (es. "Questa mi ricorda quella sera")
+- **Deep link**: Su Android apre `spotify://track/{id}`, fallback web
+- **In ChatMessage**: `message.trackCard`
+
+#### PlaylistCard (playlist)
+- **Componente**: `src/components/chat/PlaylistCard.tsx`
+- **Campi**: `name`, `description?`, `coverArt?`, `trackCount?`, `spotifyUrl?`, `createdByKael?`
+- **Badge "Creata da Kael"**: Mostrato quando `createdByKael === true`
+- **Deep link**: Su Android apre `spotify://playlist/{id}`, fallback web
+- **In ChatMessage**: `message.playlistCard`
+
+### Backend API Endpoints (Spotify)
+| Endpoint | Metodo | Descrizione | File |
+|----------|--------|-------------|------|
+| `/spotify/context` | GET | Now playing + suggerimenti | `api/spotify.ts` |
+| `/spotify/state` | GET | Stato connessione Spotify | `api/spotify.ts` |
+| `/spotify/state` | POST | Aggiorna stato Spotify | `api/spotify.ts` |
+| `/spotify/state` | DELETE | Reset stato Spotify | `api/spotify.ts` |
+| `/spotify/playlist/create` | POST | Kael crea playlist per l'utente | `api/spotify.ts` |
+| `/spotify/suggestions` | GET | Suggerimenti musicali di Kael | `api/spotify.ts` |
+
+### Tipi API
+```typescript
+// Richiesta creazione playlist
+interface KaelPlaylistRequest {
+  name: string;
+  description?: string;
+  trackUris?: string[];
+  mood?: string;
+  context?: string;
+}
+
+// Risposta creazione playlist
+interface KaelPlaylistResponse {
+  playlistId: string;
+  playlistUrl: string;
+  name: string;
+  trackCount: number;
+}
+
+// Suggerimento musicale (brano o playlist)
+interface KaelMusicSuggestion {
+  type: "track" | "playlist";
+  track?: SpotifyTrack;
+  playlist?: PlaylistCardData;
+  message?: string; // messaggio personale di Kael
+}
+```
+
+### OAuth PKCE (Client-side)
+- **Client ID**: `79f9fb81523a4aaab30b919b91b84421`
+- **Callback**: `/spotify-callback`
+- **Scopes**: playback state, library read, playlist read/write, recently played, top read
+- **Token storage**: `localStorage` key `kael-spotify-auth`
+- **File**: `src/lib/spotify/auth.ts`
+
+### Spotify Web API (Client-side)
+- **File**: `src/lib/spotify/api.ts`
+- Playback control (play/pause/skip/volume/shuffle)
+- Library (saved tracks, playlists, recently played)
+- Playlist management (create, add tracks)
+- Search tracks
+
+### Componenti UI
+| Componente | File | Uso |
+|------------|------|-----|
+| SpotifyNowPlaying | `spotify/SpotifyNowPlaying.tsx` | Widget now playing |
+| SpotifyLibrary | `spotify/SpotifyLibrary.tsx` | Libreria brani/playlist |
+| SpotifyMusicTab | `spotify/SpotifyMusicTab.tsx` | Tab musica nella pagina Media |
+| SpotifyTrackItem | `spotify/SpotifyTrackItem.tsx` | Riga brano nella libreria |
+| TrackCard | `media/TrackCard.tsx` | Card brano in chat/media |
+| PlaylistCard | `chat/PlaylistCard.tsx` | Card playlist in chat |
+| SpotifyIcon | `common/SpotifyIcon.tsx` | Icona SVG Spotify |
 
 ---
 

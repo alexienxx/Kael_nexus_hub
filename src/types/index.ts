@@ -9,6 +9,7 @@ export interface ChatMessage {
   audioDuration?: number;
   videoUrl?: string;
   trackCard?: TrackCard;
+  playlistCard?: PlaylistCard;
   feedback?: "like" | "dislike" | null;
   isProcessingImage?: boolean;
   isGenerating?: boolean;
@@ -71,6 +72,15 @@ export interface TrackCard {
   albumArt?: string;
   spotifyUrl?: string;
   previewUrl?: string;
+}
+
+export interface PlaylistCard {
+  name: string;
+  description?: string;
+  coverArt?: string;
+  trackCount?: number;
+  spotifyUrl?: string;
+  createdByKael?: boolean;
 }
 
 // ===== Memories =====

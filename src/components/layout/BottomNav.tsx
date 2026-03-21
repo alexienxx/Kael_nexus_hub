@@ -1,6 +1,7 @@
 import { NavLink as RouterNavLink } from "react-router-dom";
 import { MessageCircle, Paperclip, Heart, FolderKanban, Settings } from "lucide-react";
 import NetharionButton from "@/components/common/NetharionButton";
+import SpotifyIcon from "@/components/common/SpotifyIcon";
 
 const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
@@ -11,6 +12,24 @@ const navItems = [
 ];
 
 const BottomNav = () => {
+  const handleSpotifyPress = () => {
+    // Try deep link first (opens Spotify app on Android/iOS), fallback to web
+    const spotifyDeepLink = "spotify://";
+    const spotifyWeb = "https://open.spotify.com";
+
+    // On mobile (Capacitor), try the deep link
+    const isCapacitor = !!(window as any).Capacitor;
+    if (isCapacitor) {
+      window.location.href = spotifyDeepLink;
+      // Fallback after short delay if deep link didn't work
+      setTimeout(() => {
+        window.open(spotifyWeb, "_blank");
+      }, 1500);
+    } else {
+      window.open(spotifyWeb, "_blank");
+    }
+  };
+
   return (
     <nav className="glass-strong relative z-20 flex items-center justify-around px-1 py-1.5 safe-bottom">
       <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30">
@@ -37,6 +56,16 @@ const BottomNav = () => {
           )}
         </RouterNavLink>
       ))}
+
+      {/* Spotify quick-launch button */}
+      <button
+        onClick={handleSpotifyPress}
+        className="flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[9px] text-muted-foreground transition-all hover:text-green-400 active:scale-95"
+        aria-label="Apri Spotify"
+      >
+        <SpotifyIcon size={20} />
+        <span className="font-normal">Spotify</span>
+      </button>
     </nav>
   );
 };
