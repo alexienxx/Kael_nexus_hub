@@ -1,6 +1,7 @@
 import { NavLink as RouterNavLink } from "react-router-dom";
 import { MessageCircle, Paperclip, Heart, FolderKanban, Settings } from "lucide-react";
 import NetharionButton from "@/components/common/NetharionButton";
+import SpotifyIcon from "@/components/common/SpotifyIcon";
 
 const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
