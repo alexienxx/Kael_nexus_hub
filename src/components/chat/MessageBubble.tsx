@@ -236,6 +236,7 @@ const MessageBubble = ({
         />
       </div>
     </div>
+    </BubbleContextMenu>
   );
 };
 
