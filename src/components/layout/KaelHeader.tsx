@@ -70,6 +70,15 @@ const KaelHeader = ({
   return (
     <header className="glass-strong relative z-10 flex items-center justify-between px-4 py-3">
       <div className="flex items-center gap-3">
+        {showBack && (
+          <button
+            onClick={() => navigate("/")}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-all hover:text-foreground hover:bg-muted/30 active:scale-90"
+            aria-label="Torna alla chat"
+          >
+            <ChevronLeft size={22} />
+          </button>
+        )}
         <div className="relative" {...avatarLongPress}>
           <img
             src={kaelAvatarSrc}
