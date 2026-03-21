@@ -194,6 +194,21 @@ export async function checkHealth(): Promise<boolean> {
  *
  * Call once on app boot — results are cached in localStorage.
  */
+/**
+ * Invalidate cached backend URL so next request re-probes.
+ */
+export function invalidateBackendCache(): void {
+  // Force re-probe on next request by clearing stored URL
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      // Keep apiKey but reset baseUrl to default so probe runs again
+      setApiConfig({ ...parsed, baseUrl: DEFAULT_BASE_URL });
+    }
+  } catch {}
+}
+
 export async function probeAndResolveBackend(): Promise<string | null> {
   const config = getApiConfig();
 

@@ -55,8 +55,9 @@ export async function probeSentinel(): Promise<string | null> {
     if (fulfilled && fulfilled.status === "fulfilled") return fulfilled.value;
     return null;
   } catch {
-    return null;
+    // fallback already handled above
   }
+  return null;
 }
 
 /**

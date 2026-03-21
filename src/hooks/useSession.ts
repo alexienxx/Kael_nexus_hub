@@ -46,7 +46,7 @@ export function useSession() {
    */
   const clearSession = () => {
     localStorage.removeItem(STORAGE_KEY);
-    const newId = generateUUID();
+    const newId = crypto.randomUUID();
     setSessionId(newId);
     localStorage.setItem(STORAGE_KEY, newId);
   };

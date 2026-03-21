@@ -298,7 +298,7 @@ const Chat = () => {
                   ...m,
                   text: response.reply,
                   sender: response.sender || m.sender, // Preserve or update sender
-                  backend_turn_id: response.assistant_turn_id,
+                  backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
                   latency,
                   meta: response.meta,
                   audioUrl: response.voice_audio,
