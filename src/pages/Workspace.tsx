@@ -20,7 +20,7 @@ const Workspace = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <KaelHeader title="Workspace" subtitle="Progetti, obiettivi e riflessioni" showStatus={false} />
+      <KaelHeader title="Workspace" subtitle="Progetti, obiettivi e riflessioni" showStatus={false} showBack />
 
       {/* Tabs */}
       <div className="relative z-10 flex gap-1 px-4 py-2">
