@@ -485,9 +485,6 @@ const Chat = () => {
         <ImageViewer src={viewerImage} onClose={() => setViewerImage(null)} />
       )}
 
-      {/* Services Sheet */}
-      <ServicesSheet isOpen={showServicesSheet} onClose={() => setShowServicesSheet(false)} />
-
       {/* Wallpaper Action Sheet */}
       <WallpaperActionSheet
         open={showWallpaperActions}
