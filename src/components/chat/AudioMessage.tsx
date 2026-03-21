@@ -59,6 +59,15 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
     return { height, filled };
   });
 
+  const handleDownload = () => {
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = `kael-audio-${Date.now()}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   return (
     <div className="flex items-center gap-2 py-1">
       <button
