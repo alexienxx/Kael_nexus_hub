@@ -8,7 +8,24 @@
 ## [Unreleased] — 2026-03-21
 
 ### 🆕 Added
-- **Sistema wallpaper per-conversazione**: Long-press sullo sfondo della chat per personalizzare lo sfondo con immagine dalla galleria
+- **Icona Spotify nella bottom nav**: Bottone dedicato che apre l'app Spotify sul dispositivo via deep link (`spotify://`), con fallback al browser web
+  - Su Android/Capacitor: tenta deep link nativo, fallback dopo 1.5s
+  - Su web: apre `open.spotify.com` in nuova tab
+
+- **Condivisione musicale in chat**: Kael può inviare brani e playlist come card ricche nei messaggi
+  - `TrackCard` rinnovato: icona Spotify SVG, deep link nativo, messaggio personale opzionale
+  - Nuovo `PlaylistCard`: card dedicata per playlist con cover art, conteggio brani, badge "Creata da Kael"
+  - Entrambi i componenti supportano deep link Spotify nativo su Android
+
+- **API Spotify estesa per Kael**:
+  - `POST /spotify/playlist/create` — Kael crea playlist sull'account Spotify dell'utente
+  - `GET /spotify/suggestions` — Suggerimenti musicali di Kael (brani + playlist)
+  - Tipi: `KaelPlaylistRequest`, `KaelPlaylistResponse`, `KaelMusicSuggestion`
+
+- **Tipo `PlaylistCard`** aggiunto a `types/index.ts` e `ChatMessage.playlistCard`
+- **Componente `SpotifyIcon`** — icona SVG Spotify riutilizzabile
+
+
   - Anteprima con controlli visivi (fit, posizione, blur, overlay, dimness)
   - 3 modalità Kael: solo sfondo / condividi una volta / contesto visivo persistente
   - Impostazioni display dedicate (stile bolle: solido/vetro/gradiente/tinta)
