@@ -8,6 +8,12 @@
 ## [Unreleased] — 2026-03-21
 
 ### 🆕 Added
+- **Long-press su bubble utente → "Modifica messaggio"**: Il messaggio viene rimosso e il testo viene ripopolato nell'input per la correzione e il re-invio
+- **Long-press su immagini di Kael → "Scarica immagine"**: Download diretto dell'immagine dal menu contestuale
+- **Long-press su audio di Kael → "Scarica audio"**: Download diretto dell'audio dal menu contestuale
+- **Pulsante download nei vocali**: Icona ⬇️ aggiunta direttamente nel banner audio di ogni messaggio vocale
+- **Componente `BubbleContextMenu`**: Menu contestuale nativo per long-press sui bubble con azioni contestuali
+
 - **Freccia indietro nelle pagine secondarie**: Tutte le pagine (Media, Workspace, Memories, Settings) ora hanno un pulsante ← nell'header per tornare alla Chat
   - Prop `showBack` aggiunta a `KaelHeader`
   - Navigazione via `useNavigate("/")`
