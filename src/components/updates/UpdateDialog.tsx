@@ -53,11 +53,11 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
   };
 
   return (
-    <Dialog open={open} onOpenChange={canDismiss ? onOpenChange : undefined}>
+    <Dialog open={open} onOpenChange={isForcedAndNotDone ? undefined : handleClose}>
       <DialogContent
         className="glass border-border/30 max-w-sm mx-auto rounded-2xl"
-        onPointerDownOutside={canDismiss ? undefined : (e) => e.preventDefault()}
-        onEscapeKeyDown={canDismiss ? undefined : (e) => e.preventDefault()}
+        onPointerDownOutside={isForcedAndNotDone ? (e) => e.preventDefault() : undefined}
+        onEscapeKeyDown={isForcedAndNotDone ? (e) => e.preventDefault() : undefined}
       >
         <DialogHeader className="text-center space-y-3">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15">
@@ -71,7 +71,6 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
           </DialogDescription>
         </DialogHeader>
 
-        {/* Version comparison */}
         <div className="flex items-center justify-center gap-3 py-2">
           <div className="text-center">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Attuale</p>
@@ -84,7 +83,6 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
           </div>
         </div>
 
-        {/* Changelog */}
         {manifest.changelog.length > 0 && (
           <div className="rounded-xl bg-secondary/50 p-3 max-h-32 overflow-y-auto">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Novità</p>
@@ -99,7 +97,6 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
           </div>
         )}
 
-        {/* Force update warning */}
         {manifest.force_update && (
           <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2">
             <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
@@ -109,7 +106,6 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
           </div>
         )}
 
-        {/* Download progress */}
         {downloadState === "downloading" && (
           <div className="space-y-2">
             <Progress value={progress} className="h-2" />
@@ -119,7 +115,6 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
           </div>
         )}
 
-        {/* Success state */}
         {downloadState === "success" && (
           <div className="flex items-center gap-2 rounded-lg bg-primary/10 px-3 py-2">
             <CheckCircle className="h-4 w-4 text-primary shrink-0" />
@@ -132,7 +127,6 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
           </div>
         )}
 
-        {/* Error state */}
         {downloadState === "error" && (
           <div className="flex items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2">
             <AlertTriangle className="h-4 w-4 text-destructive shrink-0" />
@@ -142,10 +136,17 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
 
         <DialogFooter className="flex-col gap-2 sm:flex-col">
           {downloadState === "idle" && (
-            <Button onClick={handleDownload} className="w-full gap-2">
-              <Download className="h-4 w-4" />
-              Scarica e installa
-            </Button>
+            <>
+              <Button onClick={handleDownload} className="w-full gap-2">
+                <Download className="h-4 w-4" />
+                Installa ora
+              </Button>
+              {!isForcedAndNotDone && (
+                <Button variant="ghost" onClick={handleClose} className="w-full text-muted-foreground text-xs">
+                  Installa dopo
+                </Button>
+              )}
+            </>
           )}
 
           {downloadState === "error" && (
@@ -159,12 +160,6 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
             <Button onClick={handleClose} className="w-full gap-2">
               <CheckCircle className="h-4 w-4" />
               Chiudi
-            </Button>
-          )}
-
-          {canDismiss && downloadState === "idle" && (
-            <Button variant="ghost" onClick={handleClose} className="w-full text-muted-foreground text-xs">
-              Più tardi
             </Button>
           )}
         </DialogFooter>
