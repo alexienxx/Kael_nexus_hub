@@ -50,7 +50,10 @@ export async function probeSentinel(): Promise<string | null> {
     });
 
   try {
-    return await Promise.any(KNOWN_SENTINEL_URLS.map(probeOne));
+    const results = await Promise.allSettled(KNOWN_SENTINEL_URLS.map(probeOne));
+    const fulfilled = results.find((r) => r.status === "fulfilled");
+    if (fulfilled && fulfilled.status === "fulfilled") return fulfilled.value;
+    return null;
   } catch {
     return null;
   }
