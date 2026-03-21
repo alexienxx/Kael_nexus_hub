@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Send, Image, Mic, Square, Camera } from "lucide-react";
+import { Send, Image, Mic, Square, Camera, Paperclip, X } from "lucide-react";
 
 interface ChatInputProps {
   onSend: (text: string) => void;
@@ -11,7 +11,9 @@ interface ChatInputProps {
 const ChatInput = ({ onSend, onImageUpload, onVoiceNote, disabled }: ChatInputProps) => {
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showMediaMenu, setShowMediaMenu] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
@@ -25,6 +27,7 @@ const ChatInput = ({ onSend, onImageUpload, onVoiceNote, disabled }: ChatInputPr
     const file = e.target.files?.[0];
     if (file) onImageUpload(file);
     e.target.value = "";
+    setShowMediaMenu(false);
   };
 
   const toggleRecording = async () => {
@@ -59,15 +62,50 @@ const ChatInput = ({ onSend, onImageUpload, onVoiceNote, disabled }: ChatInputPr
 
   return (
     <div className="glass-strong relative z-10 px-4 py-3">
+      {/* Media menu popup */}
+      {showMediaMenu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setShowMediaMenu(false)} />
+          <div className="absolute bottom-full left-3 mb-2 z-50 glass-strong rounded-2xl p-2 min-w-[180px] shadow-xl shadow-black/30 animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <button
+              onClick={() => { photoInputRef.current?.click(); }}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-foreground/5 active:bg-foreground/10"
+            >
+              <Image size={18} className="text-neon-purple" />
+              <span>Foto dalla galleria</span>
+            </button>
+            <button
+              onClick={() => { cameraInputRef.current?.click(); }}
+              className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-foreground/5 active:bg-foreground/10"
+            >
+              <Camera size={18} className="text-neon-blue" />
+              <span>Scatta foto</span>
+            </button>
+          </div>
+        </>
+      )}
+
       <div className="flex items-center gap-2">
+        {/* Photo/camera button with mini-menu */}
         <button
-          onClick={() => fileInputRef.current?.click()}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all hover:text-neon-purple hover:scale-110"
+          onClick={() => setShowMediaMenu(!showMediaMenu)}
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all hover:scale-110 ${
+            showMediaMenu ? "text-neon-purple" : "text-muted-foreground hover:text-neon-purple"
+          }`}
         >
-          <Image size={20} />
+          {showMediaMenu ? <X size={20} /> : <Image size={20} />}
         </button>
+
+        {/* Hidden file inputs */}
         <input
-          ref={fileInputRef}
+          ref={photoInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        <input
+          ref={cameraInputRef}
           type="file"
           accept="image/*"
           capture="environment"
