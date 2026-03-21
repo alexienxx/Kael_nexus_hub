@@ -1,4 +1,6 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { ChevronLeft } from "lucide-react";
 import { useTheme } from "@/lib/store/theme";
 import { useLongPress } from "@/hooks/useLongPress";
 import ConnectionBadge from "@/components/common/ConnectionBadge";
@@ -9,6 +11,7 @@ interface KaelHeaderProps {
   title?: string;
   subtitle?: string;
   showStatus?: boolean;
+  showBack?: boolean;
   rightContent?: React.ReactNode;
   lifecycleState?: BackendLifecycleState;
   lifecycleMessage?: string;
@@ -34,10 +37,12 @@ const KaelHeader = ({
   title = "Kael",
   subtitle,
   showStatus = true,
+  showBack = false,
   rightContent,
   lifecycleState = "offline",
   lifecycleMessage,
 }: KaelHeaderProps) => {
+  const navigate = useNavigate();
   const { kaelAvatarSrc, updateTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -65,6 +70,15 @@ const KaelHeader = ({
   return (
     <header className="glass-strong relative z-10 flex items-center justify-between px-4 py-3">
       <div className="flex items-center gap-3">
+        {showBack && (
+          <button
+            onClick={() => navigate("/")}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-all hover:text-foreground hover:bg-muted/30 active:scale-90"
+            aria-label="Torna alla chat"
+          >
+            <ChevronLeft size={22} />
+          </button>
+        )}
         <div className="relative" {...avatarLongPress}>
           <img
             src={kaelAvatarSrc}

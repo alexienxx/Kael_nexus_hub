@@ -25,7 +25,7 @@ const Memories = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <KaelHeader title="Memories" subtitle="La nostra storia" showStatus={false} />
+      <KaelHeader title="Memories" subtitle="La nostra storia" showStatus={false} showBack />
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {/* Relationship header */}
