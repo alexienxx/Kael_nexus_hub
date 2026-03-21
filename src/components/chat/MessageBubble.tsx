@@ -2,6 +2,7 @@ import { useTheme } from "@/lib/store/theme";
 import MessageActions from "./MessageActions";
 import AudioMessage from "./AudioMessage";
 import ImageMessage from "./ImageMessage";
+import BubbleContextMenu from "./BubbleContextMenu";
 import AssistantMarkdown from "./AssistantMarkdown";
 import PlaylistCard from "./PlaylistCard";
 import TrackCard from "@/components/media/TrackCard";
