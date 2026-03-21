@@ -4,6 +4,8 @@ import { useTheme } from "@/lib/store/theme";
 import { useSession } from "@/hooks/useSession";
 import { useAgenticActions } from "@/hooks/useAgenticActions";
 import { useBackendLifecycle } from "@/hooks/useBackendLifecycle";
+import { useChatWallpaper } from "@/hooks/useChatWallpaper";
+import { useLongPress } from "@/hooks/useLongPress";
 import chatBg from "@/assets/chat-bg.jpg";
 import KaelHeader from "@/components/layout/KaelHeader";
 import ChatInput from "@/components/chat/ChatInput";
@@ -12,12 +14,21 @@ import TypingIndicator from "@/components/TypingIndicator";
 import ImageViewer from "@/components/media/ImageViewer";
 import ServicesSheet from "@/components/services/ServicesSheet";
 import ServiceActionChips from "@/components/services/ServiceActionChips";
+import WallpaperLayer from "@/components/wallpaper/WallpaperLayer";
+import WallpaperActionSheet from "@/components/wallpaper/WallpaperActionSheet";
+import WallpaperPreviewSheet from "@/components/wallpaper/WallpaperPreviewSheet";
+import WallpaperKaelModeSheet from "@/components/wallpaper/WallpaperKaelModeSheet";
+import WallpaperDisplaySettingsSheet from "@/components/wallpaper/WallpaperDisplaySettingsSheet";
 import type { ChatMessage } from "@/types";
+import type { WallpaperDisplaySettings, WallpaperKaelMode } from "@/types/wallpaper";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import * as chatApi from "@/lib/api/chat";
 import { requestTTS } from "@/lib/api/voice";
 import { getApiConfig, probeAndResolveBackend, invalidateBackendCache } from "@/lib/api/client";
+
+// Default conversation ID for the main Kael chat
+const DEFAULT_CONVERSATION_ID = "kael-main";
 
 const Chat = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -32,20 +43,94 @@ const Chat = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const historyLoadedRef = useRef(false);
+  const wallpaperFileRef = useRef<HTMLInputElement>(null);
+
+  // Wallpaper state
+  const {
+    wallpaper,
+    setWallpaper,
+    updateDisplaySettings,
+    removeWallpaper: removeWallpaperFromStore,
+    resetDisplaySettings,
+    hasWallpaper,
+  } = useChatWallpaper(DEFAULT_CONVERSATION_ID);
+
+  // Wallpaper UI flow states
+  const [showWallpaperActions, setShowWallpaperActions] = useState(false);
+  const [showWallpaperPreview, setShowWallpaperPreview] = useState(false);
+  const [showKaelModeSheet, setShowKaelModeSheet] = useState(false);
+  const [showDisplaySettings, setShowDisplaySettings] = useState(false);
+  const [pendingWallpaperUri, setPendingWallpaperUri] = useState<string | null>(null);
+  const [pendingDisplaySettings, setPendingDisplaySettings] = useState<Partial<WallpaperDisplaySettings> | null>(null);
+
+  // Long press on background
+  const longPressHandlers = useLongPress({
+    onLongPress: () => setShowWallpaperActions(true),
+    delay: 600,
+  });
+
+  // Wallpaper flow handlers
+  const handleChangeWallpaper = useCallback(() => {
+    wallpaperFileRef.current?.click();
+  }, []);
+
+  const handleWallpaperFileSelected = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const uri = ev.target?.result as string;
+      if (uri) {
+        setPendingWallpaperUri(uri);
+        setShowWallpaperPreview(true);
+      }
+    };
+    reader.onerror = () => {
+      toast.error("Impossibile leggere l'immagine");
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  }, []);
+
+  const handlePreviewConfirm = useCallback((settings: Partial<WallpaperDisplaySettings>) => {
+    setPendingDisplaySettings(settings);
+    setShowWallpaperPreview(false);
+    // Open Kael mode selection
+    setShowKaelModeSheet(true);
+  }, []);
+
+  const handleKaelModeSelected = useCallback((mode: WallpaperKaelMode) => {
+    if (!pendingWallpaperUri) return;
+    setWallpaper(pendingWallpaperUri, mode, pendingDisplaySettings ?? undefined);
+    setPendingWallpaperUri(null);
+    setPendingDisplaySettings(null);
+
+    // Show appropriate toast
+    const modeMessages: Record<WallpaperKaelMode, string> = {
+      wallpaper_only: "Sfondo aggiornato ✨",
+      share_once: "Sfondo condiviso con Kael 📸",
+      persistent_context: "Contesto visivo attivo aggiornato 👁️",
+    };
+    toast.success(modeMessages[mode]);
+  }, [pendingWallpaperUri, pendingDisplaySettings, setWallpaper]);
+
+  const handleRemoveWallpaper = useCallback(() => {
+    removeWallpaperFromStore();
+    toast.success("Sfondo rimosso");
+  }, [removeWallpaperFromStore]);
 
   // Load real chat history from backend once lifecycle reaches "online"
   useEffect(() => {
     if (lifecycleState !== "online" || historyLoadedRef.current) {
-      // Not yet online — keep showing loading (or skip if already loaded)
       if (lifecycleState !== "online" && lifecycleState !== "checking") {
-        setHistoryLoading(false); // don't show spinner when clearly offline/starting
+        setHistoryLoading(false);
       }
       return;
     }
     historyLoadedRef.current = true;
     let cancelled = false;
     (async () => {
-      // Backend is online — lifecycle already resolved the URL
       const config = getApiConfig();
       if (!config.baseUrl) {
         setHistoryLoading(false);
@@ -72,7 +157,7 @@ const Chat = () => {
           );
         }
       } catch (err) {
-        console.warn("[Chat] History load failed (backend may be offline):", err);
+        console.warn("[Chat] History load failed:", err);
       } finally {
         if (!cancelled) setHistoryLoading(false);
       }
@@ -86,10 +171,9 @@ const Chat = () => {
     }, instant ? 30 : 100);
   };
 
-  // Auto-scroll to bottom when history finishes loading
   useEffect(() => {
     if (!historyLoading && messages.length > 0) {
-      scrollToBottom(true); // instant scroll on initial load
+      scrollToBottom(true);
     }
   }, [historyLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -118,13 +202,12 @@ const Chat = () => {
           id: (Date.now() + 1).toString(),
           text: response.reply,
           time: now(),
-          sender: response.sender || "kael", // Use backend sender, default to "kael"
+          sender: response.sender || "kael",
           feedback: null,
           backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
           latency,
           meta: response.meta,
           audioUrl: response.voice_audio,
-          // Preserve external agent metadata if present
           agent_id: response.agent_id,
           agent_name: response.agent_name,
           agent_avatar: response.agent_avatar,
@@ -135,18 +218,8 @@ const Chat = () => {
         setIsTyping(false);
         const errorMsg = error instanceof Error ? error.message : "Failed to send message";
         toast.error(errorMsg);
-        console.error("Send message error:", error);
-
-        // Backend may have gone away — invalidate cache and re-probe in background.
-        // Next send will use the freshly-resolved URL (or show backend-unresolved).
         invalidateBackendCache();
-        probeAndResolveBackend().then((url) => {
-          if (url) {
-            console.log("[Chat] Re-probe found live backend:", url);
-          } else {
-            console.warn("[Chat] Re-probe failed — all backends unreachable");
-          }
-        });
+        probeAndResolveBackend().catch(() => {});
       }
     },
     [sessionId]
@@ -178,7 +251,7 @@ const Chat = () => {
             id: (Date.now() + 1).toString(),
             text: response.reply,
             time: now(),
-            sender: response.sender || "kael", // Use backend sender, default to "kael"
+            sender: response.sender || "kael",
             feedback: null,
             backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
             latency,
@@ -192,9 +265,7 @@ const Chat = () => {
           scrollToBottom();
         } catch (error) {
           setIsTyping(false);
-          const errorMsg = error instanceof Error ? error.message : "Failed to send image";
-          toast.error(errorMsg);
-          console.error("Send image error:", error);
+          toast.error(error instanceof Error ? error.message : "Failed to send image");
         }
       };
       reader.readAsDataURL(file);
@@ -228,7 +299,7 @@ const Chat = () => {
           id: (Date.now() + 1).toString(),
           text: response.reply,
           time: now(),
-          sender: response.sender || "kael", // Use backend sender, default to "kael"
+          sender: response.sender || "kael",
           feedback: null,
           backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
           latency,
@@ -242,9 +313,7 @@ const Chat = () => {
         scrollToBottom();
       } catch (error) {
         setIsTyping(false);
-        const errorMsg = error instanceof Error ? error.message : "Failed to send voice note";
-        toast.error(errorMsg);
-        console.error("Send voice note error:", error);
+        toast.error(error instanceof Error ? error.message : "Failed to send voice note");
       }
     },
     [sessionId]
@@ -255,7 +324,6 @@ const Chat = () => {
       const message = messages.find((m) => m.id === id);
       if (!message?.backend_turn_id) return;
 
-      // Optimistic UI update
       setMessages((prev) =>
         prev.map((m) =>
           m.id === id ? { ...m, feedback: m.feedback === type ? null : type } : m
@@ -265,15 +333,10 @@ const Chat = () => {
       try {
         await chatApi.submitFeedback(message.backend_turn_id, type);
       } catch (error) {
-        // Revert on error
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === id ? { ...m, feedback: message.feedback } : m
-          )
+          prev.map((m) => m.id === id ? { ...m, feedback: message.feedback } : m)
         );
-        const errorMsg = error instanceof Error ? error.message : "Failed to submit feedback";
-        toast.error(errorMsg);
-        console.error("Submit feedback error:", error);
+        toast.error(error instanceof Error ? error.message : "Failed to submit feedback");
       }
     },
     [messages]
@@ -297,12 +360,11 @@ const Chat = () => {
               ? {
                   ...m,
                   text: response.reply,
-                  sender: response.sender || m.sender, // Preserve or update sender
+                  sender: response.sender || m.sender,
                   backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
                   latency,
                   meta: response.meta,
                   audioUrl: response.voice_audio,
-                  // Preserve external agent metadata if present
                   agent_id: response.agent_id,
                   agent_name: response.agent_name,
                   agent_avatar: response.agent_avatar,
@@ -312,9 +374,7 @@ const Chat = () => {
         );
       } catch (error) {
         setIsTyping(false);
-        const errorMsg = error instanceof Error ? error.message : "Failed to regenerate response";
-        toast.error(errorMsg);
-        console.error("Regenerate error:", error);
+        toast.error(error instanceof Error ? error.message : "Failed to regenerate response");
       }
     },
     [messages, sessionId]
@@ -327,30 +387,20 @@ const Chat = () => {
       const audio = new Audio(audioUrl);
       audio.play();
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Failed to play TTS";
-      toast.error(errorMsg);
-      console.error("TTS error:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to play TTS");
     }
   }, []);
 
-  const bgOpacity = theme.backgroundOpacity;
+  // Bubble wallpaper style props
+  const bubbleWallpaperStyle = wallpaper?.displaySettings ?? null;
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
-      {/* Background */}
-      <div
-        className="absolute inset-0 bg-cover bg-center"
-        style={{
-          backgroundImage: theme.backgroundImage
-            ? `url(${theme.backgroundImage})`
-            : `url(${chatBg})`,
-        }}
-      />
-      <div
-        className="absolute inset-0"
-        style={{
-          background: `linear-gradient(to bottom, hsl(var(--background) / ${bgOpacity * 0.5}), hsl(var(--background) / ${bgOpacity}), hsl(var(--background) / ${bgOpacity * 1.5}))`,
-        }}
+      {/* Wallpaper Layer — dedicated subsystem, separate from message images */}
+      <WallpaperLayer
+        wallpaper={wallpaper}
+        fallbackBg={theme.backgroundImage || chatBg}
+        themeOpacity={theme.backgroundOpacity}
       />
 
       {/* Header */}
@@ -378,12 +428,14 @@ const Chat = () => {
         }
       />
 
-      {/* Messages */}
-      <div className="relative z-10 flex-1 overflow-y-auto px-4 py-4 space-y-3">
-        {/* Service Context Chips */}
+      {/* Messages — long press on background triggers wallpaper menu */}
+      <div
+        className="relative z-10 flex-1 overflow-y-auto px-4 py-4 space-y-3"
+        {...longPressHandlers}
+        style={{ touchAction: "pan-y" }}
+      >
         <ServiceActionChips context={activeContext} onRemove={clearContext} />
 
-        {/* Loading state */}
         {historyLoading && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full opacity-60">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-neon-purple border-t-transparent mb-3" />
@@ -391,11 +443,11 @@ const Chat = () => {
           </div>
         )}
 
-        {/* Empty state — no history, backend connected or not */}
         {!historyLoading && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full opacity-60 text-center px-8">
             <img src={kaelAvatarSrc} alt="Kael" className="h-16 w-16 rounded-full object-cover mb-4 opacity-70" />
             <p className="text-sm text-muted-foreground">Scrivi un messaggio per iniziare.</p>
+            <p className="text-[10px] text-muted-foreground/50 mt-2">Tieni premuto sullo sfondo per personalizzarlo</p>
           </div>
         )}
 
@@ -408,6 +460,7 @@ const Chat = () => {
             onRegenerate={handleRegenerate}
             onPlayTTS={handlePlayTTS}
             onImageClick={setViewerImage}
+            wallpaperStyle={bubbleWallpaperStyle}
           />
         ))}
 
@@ -427,6 +480,15 @@ const Chat = () => {
         onVoiceNote={handleVoiceNote}
       />
 
+      {/* Hidden wallpaper file input */}
+      <input
+        ref={wallpaperFileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleWallpaperFileSelected}
+      />
+
       {/* Fullscreen Image Viewer */}
       {viewerImage && (
         <ImageViewer src={viewerImage} onClose={() => setViewerImage(null)} />
@@ -434,6 +496,44 @@ const Chat = () => {
 
       {/* Services Sheet */}
       <ServicesSheet isOpen={showServicesSheet} onClose={() => setShowServicesSheet(false)} />
+
+      {/* Wallpaper Action Sheet */}
+      <WallpaperActionSheet
+        open={showWallpaperActions}
+        onClose={() => setShowWallpaperActions(false)}
+        hasWallpaper={hasWallpaper}
+        onChangeWallpaper={handleChangeWallpaper}
+        onRemoveWallpaper={handleRemoveWallpaper}
+        onOpenDisplaySettings={() => setShowDisplaySettings(true)}
+      />
+
+      {/* Wallpaper Preview */}
+      {pendingWallpaperUri && (
+        <WallpaperPreviewSheet
+          open={showWallpaperPreview}
+          onClose={() => { setShowWallpaperPreview(false); setPendingWallpaperUri(null); }}
+          imageUri={pendingWallpaperUri}
+          onConfirm={handlePreviewConfirm}
+        />
+      )}
+
+      {/* Kael Mode Selection */}
+      <WallpaperKaelModeSheet
+        open={showKaelModeSheet}
+        onClose={() => { setShowKaelModeSheet(false); setPendingWallpaperUri(null); }}
+        onSelect={handleKaelModeSelected}
+      />
+
+      {/* Display Settings */}
+      {wallpaper && (
+        <WallpaperDisplaySettingsSheet
+          open={showDisplaySettings}
+          onClose={() => setShowDisplaySettings(false)}
+          settings={wallpaper.displaySettings}
+          onUpdate={updateDisplaySettings}
+          onReset={resetDisplaySettings}
+        />
+      )}
     </div>
   );
 };
