@@ -12,7 +12,7 @@ import ChatInput from "@/components/chat/ChatInput";
 import MessageBubble from "@/components/chat/MessageBubble";
 import TypingIndicator from "@/components/TypingIndicator";
 import ImageViewer from "@/components/media/ImageViewer";
-import ServicesSheet from "@/components/services/ServicesSheet";
+
 import ServiceActionChips from "@/components/services/ServiceActionChips";
 import WallpaperLayer from "@/components/wallpaper/WallpaperLayer";
 import WallpaperActionSheet from "@/components/wallpaper/WallpaperActionSheet";
