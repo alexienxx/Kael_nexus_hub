@@ -409,22 +409,13 @@ const Chat = () => {
         lifecycleState={lifecycleState}
         lifecycleMessage={lifecycleMessage}
         rightContent={
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowServicesSheet(true)}
-              className="glass flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:text-neon-pink"
-              aria-label="Open services"
-            >
-              <Plus size={16} />
-            </button>
-            <button
+          <button
               onClick={() => navigate("/calls")}
               className="glass flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:text-neon-purple"
               aria-label="Start call"
             >
               <Phone size={16} />
             </button>
-          </div>
         }
       />
 
