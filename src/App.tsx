@@ -11,6 +11,7 @@ import Media from "@/pages/Media";
 import Workspace from "@/pages/Workspace";
 import Memories from "@/pages/Memories";
 import Settings from "@/pages/Settings";
+import ExternalAgentChat from "@/pages/ExternalAgentChat";
 import SpotifyCallback from "@/pages/SpotifyCallback";
 import NotFound from "@/pages/NotFound";
 import { useBootUpdateCheck } from "@/hooks/useBootUpdateCheck";
@@ -31,6 +32,7 @@ const AppRoutes = () => {
           <Route path="/media" element={<Media />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/memories" element={<Memories />} />
+          <Route path="/external-agent" element={<ExternalAgentChat />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
         <Route path="/spotify-callback" element={<SpotifyCallback />} />

@@ -8,6 +8,18 @@
 ## [Unreleased] — 2026-03-21
 
 ### 🆕 Added
+- **Chat con Agente Esterno**: Nuova pagina `/external-agent` per chattare con AI esterne (GPT, Claude, Gemini)
+  - Bolle colorate per provider: verde acqua (OpenAI), arancione (Anthropic), blu (Google)
+  - Label modello in alto nella bolla (es. "OpenAI · GPT-4o") in testo bianco piccolo
+  - Bordo colorato per le bolle dell'agente
+  - Cronologia conversazione completa inviata ad ogni messaggio
+- **Settings → Agente Esterno**: Sezione dedicata per API key e selezione modello
+  - 13 modelli supportati tra OpenAI, Anthropic e Google
+  - Selezione visuale raggruppata per provider
+  - Persistenza in localStorage
+- **Bottom Nav → "Agent"**: Icona 🤖 (Bot) nella barra di navigazione per accesso rapido
+- **Edge Function `external-agent-proxy`**: Proxy server-side per OpenAI, Anthropic e Google APIs
+
 - **Long-press su bubble utente → "Modifica messaggio"**: Il messaggio viene rimosso e il testo viene ripopolato nell'input per la correzione e il re-invio
 - **Long-press su immagini di Kael → "Scarica immagine"**: Download diretto dell'immagine dal menu contestuale
 - **Long-press su audio di Kael → "Scarica audio"**: Download diretto dell'audio dal menu contestuale
