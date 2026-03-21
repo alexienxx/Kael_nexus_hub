@@ -73,6 +73,15 @@ export interface TrackCard {
   previewUrl?: string;
 }
 
+export interface PlaylistCard {
+  name: string;
+  description?: string;
+  coverArt?: string;
+  trackCount?: number;
+  spotifyUrl?: string;
+  createdByKael?: boolean;
+}
+
 // ===== Memories =====
 export interface Memory {
   id: string;
