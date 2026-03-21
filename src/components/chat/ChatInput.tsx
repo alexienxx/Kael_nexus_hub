@@ -129,6 +129,7 @@ const ChatInput = ({ onSend, onImageUpload, onVoiceNote, disabled }: ChatInputPr
 
         <div className="glass flex flex-1 items-center rounded-full px-4 py-2">
           <input
+            ref={inputRef}
             type="text"
             placeholder="Scrivi a Kael..."
             value={input}
