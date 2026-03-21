@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { Phone, Plus } from "lucide-react";
+import { Phone } from "lucide-react";
 import { useTheme } from "@/lib/store/theme";
 import { useSession } from "@/hooks/useSession";
 import { useAgenticActions } from "@/hooks/useAgenticActions";
@@ -12,7 +12,7 @@ import ChatInput from "@/components/chat/ChatInput";
 import MessageBubble from "@/components/chat/MessageBubble";
 import TypingIndicator from "@/components/TypingIndicator";
 import ImageViewer from "@/components/media/ImageViewer";
-import ServicesSheet from "@/components/services/ServicesSheet";
+
 import ServiceActionChips from "@/components/services/ServiceActionChips";
 import WallpaperLayer from "@/components/wallpaper/WallpaperLayer";
 import WallpaperActionSheet from "@/components/wallpaper/WallpaperActionSheet";
@@ -35,7 +35,7 @@ const Chat = () => {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
-  const [showServicesSheet, setShowServicesSheet] = useState(false);
+  
   const { theme, kaelAvatarSrc } = useTheme();
   const { sessionId } = useSession();
   const { activeContext, clearContext } = useAgenticActions();
@@ -409,22 +409,13 @@ const Chat = () => {
         lifecycleState={lifecycleState}
         lifecycleMessage={lifecycleMessage}
         rightContent={
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowServicesSheet(true)}
-              className="glass flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:text-neon-pink"
-              aria-label="Open services"
-            >
-              <Plus size={16} />
-            </button>
-            <button
+          <button
               onClick={() => navigate("/calls")}
               className="glass flex h-9 w-9 items-center justify-center rounded-full transition-all hover:scale-110 hover:text-neon-purple"
               aria-label="Start call"
             >
               <Phone size={16} />
             </button>
-          </div>
         }
       />
 
@@ -493,9 +484,6 @@ const Chat = () => {
       {viewerImage && (
         <ImageViewer src={viewerImage} onClose={() => setViewerImage(null)} />
       )}
-
-      {/* Services Sheet */}
-      <ServicesSheet isOpen={showServicesSheet} onClose={() => setShowServicesSheet(false)} />
 
       {/* Wallpaper Action Sheet */}
       <WallpaperActionSheet

@@ -1,19 +1,19 @@
+import { useRef, useState } from "react";
 import { useTheme } from "@/lib/store/theme";
+import { useLongPress } from "@/hooks/useLongPress";
 import ConnectionBadge from "@/components/common/ConnectionBadge";
 import type { BackendLifecycleState } from "@/types";
+import { toast } from "sonner";
 
 interface KaelHeaderProps {
   title?: string;
   subtitle?: string;
   showStatus?: boolean;
   rightContent?: React.ReactNode;
-  /** Backend lifecycle state — drives the dot color and badge text. */
   lifecycleState?: BackendLifecycleState;
-  /** Optional message from the lifecycle hook (e.g. "Server in avvio... (12s)"). */
   lifecycleMessage?: string;
 }
 
-/** Map lifecycle state to the small dot color class (on Kael's photo). */
 function dotColorClass(state: BackendLifecycleState): string {
   switch (state) {
     case "online":
@@ -38,16 +38,38 @@ const KaelHeader = ({
   lifecycleState = "offline",
   lifecycleMessage,
 }: KaelHeaderProps) => {
-  const { kaelAvatarSrc } = useTheme();
+  const { kaelAvatarSrc, updateTheme } = useTheme();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target?.result as string;
+      if (dataUrl) {
+        updateTheme({ kaelAvatar: dataUrl });
+        toast.success("Foto di Kael aggiornata ✨");
+      }
+    };
+    reader.onerror = () => toast.error("Impossibile leggere l'immagine");
+    reader.readAsDataURL(file);
+    e.target.value = "";
+  };
+
+  const avatarLongPress = useLongPress({
+    onLongPress: () => fileInputRef.current?.click(),
+    delay: 500,
+  });
 
   return (
     <header className="glass-strong relative z-10 flex items-center justify-between px-4 py-3">
       <div className="flex items-center gap-3">
-        <div className="relative">
+        <div className="relative" {...avatarLongPress}>
           <img
             src={kaelAvatarSrc}
             alt="Kael"
-            className="h-11 w-11 rounded-full object-cover ring-2 ring-neon-purple/50 neon-pulse"
+            className="h-11 w-11 rounded-full object-cover ring-2 ring-neon-purple/50 neon-pulse cursor-pointer"
           />
           {showStatus && (
             <div className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-background ${dotColorClass(lifecycleState)}`} />
@@ -64,6 +86,15 @@ const KaelHeader = ({
         </div>
       </div>
       {rightContent && <div className="flex items-center gap-2">{rightContent}</div>}
+
+      {/* Hidden file input for avatar change */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleAvatarFile}
+      />
     </header>
   );
 };

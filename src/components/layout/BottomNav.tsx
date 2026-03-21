@@ -1,10 +1,10 @@
 import { NavLink as RouterNavLink } from "react-router-dom";
-import { MessageCircle, Phone, ImageIcon, Heart, FolderKanban, Settings } from "lucide-react";
+import { MessageCircle, Paperclip, Heart, FolderKanban, Settings } from "lucide-react";
 import NetharionButton from "@/components/common/NetharionButton";
+
 const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
-  { to: "/calls", icon: Phone, label: "Calls" },
-  { to: "/media", icon: ImageIcon, label: "Media" },
+  { to: "/media", icon: Paperclip, label: "Allegati" },
   { to: "/workspace", icon: FolderKanban, label: "Workspace" },
   { to: "/memories", icon: Heart, label: "Memories" },
   { to: "/settings", icon: Settings, label: "Settings" },
