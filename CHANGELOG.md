@@ -60,6 +60,9 @@
 - **Hook `useBootUpdateCheck`**: stub per controllo update all'avvio (da collegare al backend)
 
 ### ✏️ Changed
+- **Dialog aggiornamento APK rinnovato**: bottoni rinominati "Installa ora" / "Installa dopo" / "Chiudi"; rimossa dicitura "Scarica e installa"; pulsante chiudi ora funziona correttamente in tutti gli stati
+
+
 - **Bottom nav ristrutturata**:
   - Rimossa voce "Calls" (già presente nel header della chat)
   - Icona "Media" → "Allegati" con icona 📎 Paperclip
