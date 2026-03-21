@@ -16,6 +16,20 @@ const ChatInput = ({ onSend, onImageUpload, onVoiceNote, disabled }: ChatInputPr
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Listen for edit-message events from long-press
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const text = (e as CustomEvent).detail?.text;
+      if (text) {
+        setInput(text);
+        setTimeout(() => inputRef.current?.focus(), 100);
+      }
+    };
+    window.addEventListener("kael-edit-message", handler);
+    return () => window.removeEventListener("kael-edit-message", handler);
+  }, []);
 
   const handleSend = () => {
     if (!input.trim() || disabled) return;
