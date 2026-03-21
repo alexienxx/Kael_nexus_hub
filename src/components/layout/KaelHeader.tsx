@@ -37,10 +37,12 @@ const KaelHeader = ({
   title = "Kael",
   subtitle,
   showStatus = true,
+  showBack = false,
   rightContent,
   lifecycleState = "offline",
   lifecycleMessage,
 }: KaelHeaderProps) => {
+  const navigate = useNavigate();
   const { kaelAvatarSrc, updateTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
