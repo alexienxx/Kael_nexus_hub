@@ -180,11 +180,10 @@ const Chat = () => {
             time: now(),
             sender: response.sender || "kael", // Use backend sender, default to "kael"
             feedback: null,
-            backend_turn_id: response.assistant_turn_id,
+            backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
             latency,
             meta: response.meta,
             audioUrl: response.voice_audio,
-            // Preserve external agent metadata if present
             agent_id: response.agent_id,
             agent_name: response.agent_name,
             agent_avatar: response.agent_avatar,
