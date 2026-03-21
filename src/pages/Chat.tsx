@@ -35,7 +35,7 @@ const Chat = () => {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
-  const [showServicesSheet, setShowServicesSheet] = useState(false);
+  
   const { theme, kaelAvatarSrc } = useTheme();
   const { sessionId } = useSession();
   const { activeContext, clearContext } = useAgenticActions();
