@@ -98,10 +98,30 @@ const Settings = () => {
     );
   }
 
+  if (section === "external_agent") {
+    return (
+      <div className="flex h-full flex-col">
+        <KaelHeader
+          title="Agente Esterno"
+          showStatus={false}
+          rightContent={
+            <button onClick={() => setSection("main")} className="text-sm text-neon-purple">
+              ← Indietro
+            </button>
+          }
+        />
+        <div className="flex-1 overflow-y-auto">
+          <ExternalAgentSettings />
+        </div>
+      </div>
+    );
+  }
+
   const menuItems = [
     { id: "profile" as const, icon: User, label: "Profilo Kael", desc: "Avatar e identità" },
     { id: "theme" as const, icon: Palette, label: "Personalizzazione", desc: "Colori, bolle, sfondo, blur" },
     { id: "backend" as const, icon: Globe, label: "Connessione Backend", desc: "URL, API key, stato" },
+    { id: "external_agent" as const, icon: Bot, label: "Agente Esterno", desc: "API key, modello AI" },
     { id: "updates" as const, icon: Download, label: "Aggiornamenti", desc: "Versione, update remoti" },
   ];
 
