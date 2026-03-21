@@ -17,6 +17,7 @@ interface MessageBubbleProps {
   onRegenerate?: (id: string) => void;
   onPlayTTS?: (text: string) => void;
   onImageClick?: (url: string) => void;
+  onEditMessage?: (id: string, currentText: string) => void;
   wallpaperStyle?: WallpaperDisplaySettings | null;
 }
 
