@@ -105,7 +105,7 @@ const Settings = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <KaelHeader title="Settings" showStatus={false} />
+      <KaelHeader title="Settings" showStatus={false} showBack />
 
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
         {menuItems.map(({ id, icon: Icon, label, desc }) => (

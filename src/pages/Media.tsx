@@ -21,7 +21,7 @@ const Media = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <KaelHeader title="Media" subtitle="Foto, video e musica" showStatus={false} />
+      <KaelHeader title="Media" subtitle="Foto, video e musica" showStatus={false} showBack />
 
       {/* Tabs */}
       <div className="relative z-10 flex gap-1 px-4 py-2">
