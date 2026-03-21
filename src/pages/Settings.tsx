@@ -8,14 +8,16 @@ import {
   ChevronRight,
   RotateCcw,
   Download,
+  Bot,
 } from "lucide-react";
 import KaelHeader from "@/components/layout/KaelHeader";
 import ThemeCustomizer from "@/components/settings/ThemeCustomizer";
 import BackendConfig from "@/components/settings/BackendConfig";
 import ProfileEditor from "@/components/settings/ProfileEditor";
 import UpdateSettings from "@/components/settings/UpdateSettings";
+import ExternalAgentSettings from "@/components/settings/ExternalAgentSettings";
 
-type SettingsSection = "main" | "theme" | "backend" | "profile" | "updates";
+type SettingsSection = "main" | "theme" | "backend" | "profile" | "updates" | "external_agent";
 
 const Settings = () => {
   const [section, setSection] = useState<SettingsSection>("main");
