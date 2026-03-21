@@ -461,6 +461,7 @@ const Chat = () => {
             onRegenerate={handleRegenerate}
             onPlayTTS={handlePlayTTS}
             onImageClick={setViewerImage}
+            onEditMessage={handleEditMessage}
             wallpaperStyle={bubbleWallpaperStyle}
           />
         ))}

@@ -118,6 +118,14 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
       <span className="text-[10px] text-muted-foreground shrink-0">
         {formatTime(currentTime || duration || 0)}
       </span>
+
+      <button
+        onClick={handleDownload}
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all hover:scale-110 hover:text-neon-blue"
+        title="Scarica audio"
+      >
+        <Download size={12} />
+      </button>
     </div>
   );
 };
