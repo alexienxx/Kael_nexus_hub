@@ -79,6 +79,9 @@ Pulsante fluttuante posizionato centralmente sopra la bottom nav.
   - **Long-press sull'avatar** → Apre la galleria del dispositivo per cambiare la foto di Kael
   - La foto viene salvata in `localStorage` come data URI nel theme store (`kaelAvatar`)
   - Toast di conferma: "Foto di Kael aggiornata ✨"
+- **Freccia indietro** (`showBack` prop): Presente su tutte le pagine secondarie (Media, Workspace, Memories, Settings). Naviga a `/` (Chat).
+  - Icona: `ChevronLeft` da lucide-react
+  - Animazione: hover bg + scale su pressione
 - **Status dot**: Pallino colorato sotto l'avatar
   - 🟢 Verde = backend online
   - 🔴 Rosso = offline / errore
