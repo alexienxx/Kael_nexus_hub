@@ -1,4 +1,6 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { ChevronLeft } from "lucide-react";
 import { useTheme } from "@/lib/store/theme";
 import { useLongPress } from "@/hooks/useLongPress";
 import ConnectionBadge from "@/components/common/ConnectionBadge";
@@ -9,6 +11,7 @@ interface KaelHeaderProps {
   title?: string;
   subtitle?: string;
   showStatus?: boolean;
+  showBack?: boolean;
   rightContent?: React.ReactNode;
   lifecycleState?: BackendLifecycleState;
   lifecycleMessage?: string;
