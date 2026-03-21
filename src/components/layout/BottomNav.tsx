@@ -56,6 +56,16 @@ const BottomNav = () => {
           )}
         </RouterNavLink>
       ))}
+
+      {/* Spotify quick-launch button */}
+      <button
+        onClick={handleSpotifyPress}
+        className="flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[9px] text-muted-foreground transition-all hover:text-green-400 active:scale-95"
+        aria-label="Apri Spotify"
+      >
+        <SpotifyIcon size={20} />
+        <span className="font-normal">Spotify</span>
+      </button>
     </nav>
   );
 };
