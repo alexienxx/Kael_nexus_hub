@@ -4,6 +4,7 @@ import AudioMessage from "./AudioMessage";
 import ImageMessage from "./ImageMessage";
 import AssistantMarkdown from "./AssistantMarkdown";
 import type { ChatMessage } from "@/types";
+import type { WallpaperDisplaySettings, BubbleWallpaperStyle } from "@/types/wallpaper";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -12,6 +13,57 @@ interface MessageBubbleProps {
   onRegenerate?: (id: string) => void;
   onPlayTTS?: (text: string) => void;
   onImageClick?: (url: string) => void;
+  wallpaperStyle?: WallpaperDisplaySettings | null;
+}
+
+/**
+ * Get bubble CSS based on wallpaper style mode.
+ * Keeps bubbles readable while allowing atmosphere inheritance.
+ */
+function getBubbleWallpaperCSS(
+  isUser: boolean,
+  isExternalAgent: boolean,
+  style: WallpaperDisplaySettings | null,
+  theme: { bubbleRadius: number; bubbleColorHue: number }
+): React.CSSProperties {
+  const base: React.CSSProperties = {};
+
+  if (!style) return base;
+
+  const mode = style.bubbleStyle;
+
+  if (mode === "glass") {
+    base.background = isUser
+      ? `hsl(${theme.bubbleColorHue} 60% 45% / 0.35)`
+      : isExternalAgent
+        ? "rgba(0, 180, 255, 0.1)"
+        : "hsl(var(--glass) / 0.4)";
+    base.backdropFilter = `blur(${style.bubbleBlurEnabled ? 16 : 0}px)`;
+    (base as any).WebkitBackdropFilter = base.backdropFilter;
+  } else if (mode === "gradient" && style.extendGradientToBubbles) {
+    base.background = isUser
+      ? `linear-gradient(135deg, hsl(${theme.bubbleColorHue} 60% 45% / 0.5), hsl(${theme.bubbleColorHue} 80% 35% / 0.3))`
+      : isExternalAgent
+        ? "linear-gradient(135deg, rgba(0, 180, 255, 0.12), rgba(0, 120, 255, 0.08))"
+        : "linear-gradient(135deg, hsl(var(--glass) / 0.5), hsl(var(--glass) / 0.3))";
+    if (style.bubbleBlurEnabled) {
+      base.backdropFilter = "blur(12px)";
+      (base as any).WebkitBackdropFilter = "blur(12px)";
+    }
+  } else if (mode === "tinted") {
+    base.background = isUser
+      ? `hsl(${theme.bubbleColorHue} 50% 40% / 0.55)`
+      : isExternalAgent
+        ? "rgba(0, 180, 255, 0.12)"
+        : "hsl(var(--glass) / 0.5)";
+    if (style.bubbleBlurEnabled) {
+      base.backdropFilter = "blur(10px)";
+      (base as any).WebkitBackdropFilter = "blur(10px)";
+    }
+  }
+  // "solid" mode = default behavior, no special CSS
+
+  return base;
 }
 
 const MessageBubble = ({
@@ -21,13 +73,12 @@ const MessageBubble = ({
   onRegenerate,
   onPlayTTS,
   onImageClick,
+  wallpaperStyle = null,
 }: MessageBubbleProps) => {
   const { theme, kaelAvatarSrc } = useTheme();
   const isUser = message.sender === "user";
   const isExternalAgent = message.sender === "external_agent";
-  const isKael = message.sender === "kael";
 
-  // Get display name and avatar for the sender
   const getSenderInfo = () => {
     if (isUser) return { name: null, avatar: null };
     if (isExternalAgent) {
@@ -41,18 +92,31 @@ const MessageBubble = ({
 
   const senderInfo = getSenderInfo();
 
-  const bubbleStyle = {
+  const bubbleStyle: React.CSSProperties = {
     borderRadius: isUser
       ? `${theme.bubbleRadius}px ${theme.bubbleRadius}px 4px ${theme.bubbleRadius}px`
       : `${theme.bubbleRadius}px ${theme.bubbleRadius}px ${theme.bubbleRadius}px 4px`,
   };
 
+  // Default backgrounds
   const userBubbleBg = `hsl(${theme.bubbleColorHue} 60% 45% / 0.7)`;
-  // External agent gets neon-blue styling as specified in requirements
   const externalAgentBg = "rgba(0, 180, 255, 0.15)";
 
+  // Wallpaper-aware overrides
+  const wallpaperCSS = getBubbleWallpaperCSS(isUser, isExternalAgent, wallpaperStyle, theme);
+  const hasWallpaperOverride = wallpaperStyle && wallpaperStyle.bubbleStyle !== "solid";
+
+  // Prevent long press from triggering on bubbles (stop propagation)
+  const stopLongPress = (e: React.TouchEvent | React.MouseEvent) => {
+    e.stopPropagation();
+  };
+
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} group`}>
+    <div
+      className={`flex ${isUser ? "justify-end" : "justify-start"} group`}
+      onTouchStart={stopLongPress}
+      onMouseDown={stopLongPress}
+    >
       {!isUser && senderInfo.avatar && (
         <img
           src={senderInfo.avatar}
@@ -68,12 +132,13 @@ const MessageBubble = ({
       <div className="max-w-[75%] flex flex-col">
         <div
           className={`px-4 py-2.5 ${
-            isUser ? "backdrop-blur-sm" : "glass"
-          }`}
+            isUser && !hasWallpaperOverride ? "backdrop-blur-sm" : ""
+          } ${!isUser && !hasWallpaperOverride ? "glass" : ""}`}
           style={{
             ...bubbleStyle,
-            ...(isUser ? { background: userBubbleBg } : {}),
-            ...(isExternalAgent ? { background: externalAgentBg } : {}),
+            ...(isUser && !hasWallpaperOverride ? { background: userBubbleBg } : {}),
+            ...(isExternalAgent && !hasWallpaperOverride ? { background: externalAgentBg } : {}),
+            ...wallpaperCSS,
           }}
         >
           {!isUser && senderInfo.name && (

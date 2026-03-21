@@ -81,8 +81,8 @@ describe("External Agent Support", () => {
 
   it("should define ChatResponse with sender field", () => {
     const response: ChatResponse = {
-      turn_id: "t-1",
-      content: "Hello",
+      reply: "Hello",
+      session_id: "s-1",
       sender: "external_agent",
       agent_id: "agent-1",
       agent_name: "Test Agent",
