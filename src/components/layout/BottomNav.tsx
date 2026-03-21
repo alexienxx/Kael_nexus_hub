@@ -1,11 +1,12 @@
 import { NavLink as RouterNavLink } from "react-router-dom";
-import { MessageCircle, Paperclip, Heart, FolderKanban, Settings } from "lucide-react";
+import { MessageCircle, Paperclip, Heart, FolderKanban, Settings, Bot } from "lucide-react";
 import NetharionButton from "@/components/common/NetharionButton";
 import SpotifyIcon from "@/components/common/SpotifyIcon";
 
 const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
   { to: "/media", icon: Paperclip, label: "Allegati" },
+  { to: "/external-agent", icon: Bot, label: "Agent" },
   { to: "/workspace", icon: FolderKanban, label: "Workspace" },
   { to: "/memories", icon: Heart, label: "Memories" },
   { to: "/settings", icon: Settings, label: "Settings" },
@@ -13,15 +14,11 @@ const navItems = [
 
 const BottomNav = () => {
   const handleSpotifyPress = () => {
-    // Try deep link first (opens Spotify app on Android/iOS), fallback to web
     const spotifyDeepLink = "spotify://";
     const spotifyWeb = "https://open.spotify.com";
-
-    // On mobile (Capacitor), try the deep link
     const isCapacitor = !!(window as any).Capacitor;
     if (isCapacitor) {
       window.location.href = spotifyDeepLink;
-      // Fallback after short delay if deep link didn't work
       setTimeout(() => {
         window.open(spotifyWeb, "_blank");
       }, 1500);

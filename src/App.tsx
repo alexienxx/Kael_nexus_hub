@@ -32,6 +32,7 @@ const AppRoutes = () => {
           <Route path="/media" element={<Media />} />
           <Route path="/workspace" element={<Workspace />} />
           <Route path="/memories" element={<Memories />} />
+          <Route path="/external-agent" element={<ExternalAgentChat />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
         <Route path="/spotify-callback" element={<SpotifyCallback />} />

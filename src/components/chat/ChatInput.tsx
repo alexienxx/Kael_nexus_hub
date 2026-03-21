@@ -3,7 +3,7 @@ import { Send, Image, Mic, Square, Camera, Paperclip, X } from "lucide-react";
 
 interface ChatInputProps {
   onSend: (text: string) => void;
-  onImageUpload: (file: File) => void;
+  onImageUpload?: (file: File) => void;
   onVoiceNote?: (blob: Blob) => void;
   disabled?: boolean;
 }
