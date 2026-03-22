@@ -289,6 +289,22 @@ POST /visual-context
 | URL Manifest | Configurazione avanzata URL update |
 | UpdateDialog | Modal con changelog, download APK |
 
+### Foto Kael & Alexièn (`PhotoGalleryUpload`)
+Galleria dedicata per caricare foto di riferimento che il backend userà per generare immagini di Kael e Alexièn insieme.
+
+| Elemento | Descrizione |
+|----------|-------------|
+| Griglia foto | Anteprima 3 colonne con bottone rimuovi su hover |
+| Bottone aggiungi | Upload multiplo da galleria dispositivo |
+| Persistenza | `localStorage` key `kael_reference_photos` (data URI) |
+| Scopo backend | Reference images per img2img / LoRA / IP-Adapter |
+
+**Endpoint backend suggeriti:**
+- `GET /media/reference-gallery` — lista foto reference
+- `POST /media/reference-gallery` — upload nuova foto
+- `DELETE /media/reference-gallery/:id` — rimuovi foto
+- `POST /media/generate-together` — genera immagine usando le reference
+
 ---
 
 ## 🔌 BACKEND LIFECYCLE
