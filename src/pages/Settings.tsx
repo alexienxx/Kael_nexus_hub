@@ -143,6 +143,7 @@ const Settings = () => {
     { id: "theme" as const, icon: Palette, label: "Personalizzazione", desc: "Colori, bolle, sfondo, blur" },
     { id: "backend" as const, icon: Globe, label: "Connessione Backend", desc: "URL, API key, stato" },
     { id: "external_agent" as const, icon: Bot, label: "Agente Esterno", desc: "API key, modello AI" },
+    { id: "photo_gallery" as const, icon: ImagePlus, label: "Foto Kael & Alexièn", desc: "Galleria reference per generazione" },
     { id: "updates" as const, icon: Download, label: "Aggiornamenti", desc: "Versione, update remoti" },
   ];
 
