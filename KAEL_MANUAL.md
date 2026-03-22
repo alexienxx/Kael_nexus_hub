@@ -64,7 +64,7 @@ src/
 | 📎 Paperclip | Allegati | `/media` | File, immagini, allegati condivisi |
 | 🤖 Bot | Agent | `/external-agent` | Chat con agente AI esterno |
 | 📁 FolderKanban | Workspace | `/workspace` | Progetti e workspace |
-| ❤️ Heart | Memories | `/memories` | Ricordi e momenti con Kael |
+
 | ⚙️ Settings | Settings | `/settings` | Configurazione app |
 
 ### Netharion Button (sopra la nav bar)
