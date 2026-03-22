@@ -8,6 +8,17 @@
 ## [Unreleased] — 2026-03-21
 
 ### 🆕 Added
+- **Settings → Foto Kael & Alexièn**: Galleria dedicata per caricare foto di riferimento
+  - Upload multiplo con anteprima griglia
+  - Le foto servono come reference per il backend di generazione immagini (img2img, LoRA, IP-Adapter)
+  - Commenti dettagliati nel codice per guidare l'implementazione backend
+  - Endpoint suggeriti: `/media/reference-gallery` (CRUD) e `/media/generate-together`
+  - Persistenza locale in localStorage, pronte per migrazione a storage bucket
+
+### 🔄 Changed
+- **Bottom Nav**: Rimosso link "Memories" (placeholder) dalla barra di navigazione
+
+### 🆕 Previously Added
 - **Chat con Agente Esterno**: Nuova pagina `/external-agent` per chattare con AI esterne (GPT, Claude, Gemini)
   - Bolle colorate per provider: verde acqua (OpenAI), arancione (Anthropic), blu (Google)
   - Label modello in alto nella bolla (es. "OpenAI · GPT-4o") in testo bianco piccolo
