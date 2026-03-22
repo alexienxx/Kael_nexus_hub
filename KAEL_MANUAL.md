@@ -64,7 +64,7 @@ src/
 | 📎 Paperclip | Allegati | `/media` | File, immagini, allegati condivisi |
 | 🤖 Bot | Agent | `/external-agent` | Chat con agente AI esterno |
 | 📁 FolderKanban | Workspace | `/workspace` | Progetti e workspace |
-| ❤️ Heart | Memories | `/memories` | Ricordi e momenti con Kael |
+
 | ⚙️ Settings | Settings | `/settings` | Configurazione app |
 
 ### Netharion Button (sopra la nav bar)
@@ -255,6 +255,8 @@ POST /visual-context
 | Profilo Kael | 👤 User | Avatar e identità (nota: avatar ora cambiabile anche via long-press in chat) |
 | Personalizzazione | 🎨 Palette | Colori, bolle, sfondo, blur |
 | Connessione Backend | 🌐 Globe | URL, API key, test connessione |
+| Agente Esterno | 🤖 Bot | API key e modello AI per chat con agenti esterni |
+| Foto Kael & Alexièn | 🖼️ ImagePlus | Galleria foto reference per generazione immagini |
 | Aggiornamenti | ⬇️ Download | Versione, controllo update remoti |
 
 ### Personalizzazione Tema (`ThemeCustomizer`)
@@ -286,6 +288,22 @@ POST /visual-context
 | Controlla aggiornamenti | Fetch manifest da backend |
 | URL Manifest | Configurazione avanzata URL update |
 | UpdateDialog | Modal con changelog, download APK |
+
+### Foto Kael & Alexièn (`PhotoGalleryUpload`)
+Galleria dedicata per caricare foto di riferimento che il backend userà per generare immagini di Kael e Alexièn insieme.
+
+| Elemento | Descrizione |
+|----------|-------------|
+| Griglia foto | Anteprima 3 colonne con bottone rimuovi su hover |
+| Bottone aggiungi | Upload multiplo da galleria dispositivo |
+| Persistenza | `localStorage` key `kael_reference_photos` (data URI) |
+| Scopo backend | Reference images per img2img / LoRA / IP-Adapter |
+
+**Endpoint backend suggeriti:**
+- `GET /media/reference-gallery` — lista foto reference
+- `POST /media/reference-gallery` — upload nuova foto
+- `DELETE /media/reference-gallery/:id` — rimuovi foto
+- `POST /media/generate-together` — genera immagine usando le reference
 
 ---
 
