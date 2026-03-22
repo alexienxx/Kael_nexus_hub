@@ -8,7 +8,7 @@ const navItems = [
   { to: "/media", icon: Paperclip, label: "Allegati" },
   { to: "/external-agent", icon: Bot, label: "Agent" },
   { to: "/workspace", icon: FolderKanban, label: "Workspace" },
-  { to: "/memories", icon: Heart, label: "Memories" },
+  
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
