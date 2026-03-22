@@ -255,6 +255,8 @@ POST /visual-context
 | Profilo Kael | 👤 User | Avatar e identità (nota: avatar ora cambiabile anche via long-press in chat) |
 | Personalizzazione | 🎨 Palette | Colori, bolle, sfondo, blur |
 | Connessione Backend | 🌐 Globe | URL, API key, test connessione |
+| Agente Esterno | 🤖 Bot | API key e modello AI per chat con agenti esterni |
+| Foto Kael & Alexièn | 🖼️ ImagePlus | Galleria foto reference per generazione immagini |
 | Aggiornamenti | ⬇️ Download | Versione, controllo update remoti |
 
 ### Personalizzazione Tema (`ThemeCustomizer`)
