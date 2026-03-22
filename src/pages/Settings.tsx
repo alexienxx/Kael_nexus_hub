@@ -9,6 +9,7 @@ import {
   RotateCcw,
   Download,
   Bot,
+  ImagePlus,
 } from "lucide-react";
 import KaelHeader from "@/components/layout/KaelHeader";
 import ThemeCustomizer from "@/components/settings/ThemeCustomizer";
@@ -16,8 +17,9 @@ import BackendConfig from "@/components/settings/BackendConfig";
 import ProfileEditor from "@/components/settings/ProfileEditor";
 import UpdateSettings from "@/components/settings/UpdateSettings";
 import ExternalAgentSettings from "@/components/settings/ExternalAgentSettings";
+import PhotoGalleryUpload from "@/components/settings/PhotoGalleryUpload";
 
-type SettingsSection = "main" | "theme" | "backend" | "profile" | "updates" | "external_agent";
+type SettingsSection = "main" | "theme" | "backend" | "profile" | "updates" | "external_agent" | "photo_gallery";
 
 const Settings = () => {
   const [section, setSection] = useState<SettingsSection>("main");
