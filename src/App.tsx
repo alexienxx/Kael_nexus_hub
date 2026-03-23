@@ -11,6 +11,7 @@ import Media from "@/pages/Media";
 import Workspace from "@/pages/Workspace";
 import Memories from "@/pages/Memories";
 import Settings from "@/pages/Settings";
+import Observatory from "@/pages/Observatory";
 
 import SpotifyCallback from "@/pages/SpotifyCallback";
 import NotFound from "@/pages/NotFound";
