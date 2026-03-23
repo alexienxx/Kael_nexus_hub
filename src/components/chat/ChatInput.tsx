@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Image, Mic, Square, Camera, Paperclip, X } from "lucide-react";
+import { Send, Image, Mic, Square, Camera, Plug, X } from "lucide-react";
 
 interface ChatInputProps {
   onSend: (text: string) => void;
   onImageUpload?: (file: File) => void;
   onVoiceNote?: (blob: Blob) => void;
+  onOpenServices?: () => void;
   disabled?: boolean;
 }
 
