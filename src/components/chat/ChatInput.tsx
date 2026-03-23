@@ -9,7 +9,7 @@ interface ChatInputProps {
   disabled?: boolean;
 }
 
-const ChatInput = ({ onSend, onImageUpload, onVoiceNote, disabled }: ChatInputProps) => {
+const ChatInput = ({ onSend, onImageUpload, onVoiceNote, onOpenServices, disabled }: ChatInputProps) => {
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [showMediaMenu, setShowMediaMenu] = useState(false);
