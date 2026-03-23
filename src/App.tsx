@@ -11,6 +11,7 @@ import Media from "@/pages/Media";
 import Workspace from "@/pages/Workspace";
 import Memories from "@/pages/Memories";
 import Settings from "@/pages/Settings";
+import Observatory from "@/pages/Observatory";
 
 import SpotifyCallback from "@/pages/SpotifyCallback";
 import NotFound from "@/pages/NotFound";
@@ -39,6 +40,7 @@ const AppRoutes = () => {
           <Route path="/memories" element={<Memories />} />
           
           <Route path="/settings" element={<Settings />} />
+          <Route path="/observatory" element={<Observatory />} />
         </Route>
         <Route path="/spotify-callback" element={<SpotifyCallback />} />
         <Route path="*" element={<NotFound />} />
