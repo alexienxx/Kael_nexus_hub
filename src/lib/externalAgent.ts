@@ -16,11 +16,14 @@ export interface AgentModel {
 
 export const AGENT_MODELS: AgentModel[] = [
   // OpenAI
+  { id: "gpt-5.4", label: "GPT-5.4", provider: "openai", providerLabel: "OpenAI" },
+  { id: "gpt-5.3", label: "GPT-5.3", provider: "openai", providerLabel: "OpenAI" },
+  { id: "gpt-5.2", label: "GPT-5.2", provider: "openai", providerLabel: "OpenAI" },
+  { id: "gpt-5", label: "GPT-5", provider: "openai", providerLabel: "OpenAI" },
+  { id: "gpt-5-mini", label: "GPT-5 Mini", provider: "openai", providerLabel: "OpenAI" },
   { id: "gpt-4o", label: "GPT-4o", provider: "openai", providerLabel: "OpenAI" },
-  { id: "gpt-4o-mini", label: "GPT-4o Mini", provider: "openai", providerLabel: "OpenAI" },
-  { id: "gpt-4-turbo", label: "GPT-4 Turbo", provider: "openai", providerLabel: "OpenAI" },
-  { id: "o1-preview", label: "o1 Preview", provider: "openai", providerLabel: "OpenAI" },
-  { id: "o1-mini", label: "o1 Mini", provider: "openai", providerLabel: "OpenAI" },
+  { id: "o3-pro", label: "o3 Pro", provider: "openai", providerLabel: "OpenAI" },
+  { id: "o3-mini", label: "o3 Mini", provider: "openai", providerLabel: "OpenAI" },
   // Anthropic
   { id: "claude-sonnet-4-20250514", label: "Sonnet 4", provider: "anthropic", providerLabel: "Anthropic" },
   { id: "claude-3-5-sonnet-20241022", label: "Sonnet 3.5", provider: "anthropic", providerLabel: "Anthropic" },

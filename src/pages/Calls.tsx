@@ -333,7 +333,7 @@ const Calls = () => {
           </div>
 
           {/* Video call button â€” ONLY button on this page */}
-          <CapabilityGuard capability={callCapability}>
+          <CapabilityGuard state={callCapability}>
             <button
               onClick={handleStartCall}
               disabled={backendUnavailable}
