@@ -14,6 +14,7 @@ import TypingIndicator from "@/components/TypingIndicator";
 import ImageViewer from "@/components/media/ImageViewer";
 
 import ServiceActionChips from "@/components/services/ServiceActionChips";
+import ServicesSheet from "@/components/services/ServicesSheet";
 import WallpaperLayer from "@/components/wallpaper/WallpaperLayer";
 import WallpaperActionSheet from "@/components/wallpaper/WallpaperActionSheet";
 import WallpaperPreviewSheet from "@/components/wallpaper/WallpaperPreviewSheet";
