@@ -28,6 +28,7 @@ import * as chatApi from "@/lib/api/chat";
 import { requestTTS } from "@/lib/api/voice";
 import { fetchAvatarVideo } from "@/lib/api/avatar";
 import { getApiConfig, probeAndResolveBackend, invalidateBackendCache } from "@/lib/api/client";
+import { sendExternalAgentMessage, getSelectedModel, type ExternalChatMessage } from "@/lib/externalAgent";
 
 // Default conversation ID for the main Kael chat
 const DEFAULT_CONVERSATION_ID = "kael-main";
@@ -37,6 +38,7 @@ const Chat = () => {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
+  const [agentMode, setAgentMode] = useState(() => localStorage.getItem("kael_agent_mode") === "1");
   
   const { theme, kaelAvatarSrc } = useTheme();
   const { sessionId } = useSession();
@@ -273,6 +275,16 @@ const Chat = () => {
     };
   }, [lifecycleState, fetchAndAppendPending]);
 
+  // Listen for agent mode toggle from BottomNav
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const active = (e as CustomEvent).detail?.active ?? false;
+      setAgentMode(active);
+    };
+    window.addEventListener("kael-agent-mode-changed", handler);
+    return () => window.removeEventListener("kael-agent-mode-changed", handler);
+  }, []);
+
   const handleSend = useCallback(
     async (text: string) => {
       const userMsg: ChatMessage = {
@@ -285,6 +297,43 @@ const Chat = () => {
       setMessages((prev) => [...prev, userMsg]);
       scrollToBottom();
 
+      // --- External Agent Mode ---
+      if (agentMode) {
+        setIsTyping(true);
+        try {
+          // Build conversation history for agent (last 20 messages)
+          const agentHistory: ExternalChatMessage[] = messages
+            .filter((m) => m.sender === "user" || m.sender === "external_agent")
+            .slice(-20)
+            .map((m) => ({
+              role: m.sender === "user" ? "user" as const : "assistant" as const,
+              content: m.text,
+            }));
+          agentHistory.push({ role: "user", content: text });
+
+          const model = getSelectedModel();
+          const reply = await sendExternalAgentMessage(agentHistory);
+
+          setIsTyping(false);
+          const agentMsg: ChatMessage = {
+            id: (Date.now() + 1).toString(),
+            text: reply,
+            time: now(),
+            sender: "external_agent",
+            feedback: null,
+            agent_id: model.id,
+            agent_name: model.label,
+          };
+          setMessages((prev) => [...prev, agentMsg]);
+          scrollToBottom();
+        } catch (error) {
+          setIsTyping(false);
+          toast.error(error instanceof Error ? error.message : "Errore agente esterno");
+        }
+        return;
+      }
+
+      // --- Normal Kael Mode ---
       setIsTyping(true);
       try {
         const startTime = Date.now();
@@ -302,8 +351,6 @@ const Chat = () => {
           latency,
           meta: response.meta,
           audioUrl: response.voice_audio,
-          // Image generation: if backend generated an image (vision/generate),
-          // embed it directly into the message bubble.
           image: response.image_base64
             ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
             : undefined,
@@ -313,13 +360,13 @@ const Chat = () => {
         };
         setMessages((prev) => [...prev, responseMsg]);
         scrollToBottom();
-        // Avatar video: async poll if backend triggered a render job
         if (response.avatar_job_id) {
           const msgId = responseMsg.id;
-          fetchAvatarVideo(response.avatar_job_id).then((dataUrl) => {
-            if (dataUrl) {
+          fetchAvatarVideo(response.avatar_job_id).then((result) => {
+            if (result?.video_base64) {
+              const videoDataUrl = `data:video/mp4;base64,${result.video_base64}`;
               setMessages((prev) =>
-                prev.map((m) => (m.id === msgId ? { ...m, videoUrl: dataUrl } : m))
+                prev.map((m) => (m.id === msgId ? { ...m, videoUrl: videoDataUrl } : m))
               );
             }
           });
@@ -332,7 +379,7 @@ const Chat = () => {
         probeAndResolveBackend().catch(() => {});
       }
     },
-    [sessionId]
+    [sessionId, agentMode, messages]
   );
 
   const handleImageUpload = useCallback(
@@ -380,10 +427,11 @@ const Chat = () => {
           // Avatar video: async poll if backend triggered a render job
           if (response.avatar_job_id) {
             const msgId = responseMsg.id;
-            fetchAvatarVideo(response.avatar_job_id).then((dataUrl) => {
-              if (dataUrl) {
+            fetchAvatarVideo(response.avatar_job_id).then((result) => {
+              if (result?.video_base64) {
+                const videoDataUrl = `data:video/mp4;base64,${result.video_base64}`;
                 setMessages((prev) =>
-                  prev.map((m) => (m.id === msgId ? { ...m, videoUrl: dataUrl } : m))
+                  prev.map((m) => (m.id === msgId ? { ...m, videoUrl: videoDataUrl } : m))
                 );
               }
             });
@@ -443,10 +491,11 @@ const Chat = () => {
         // Avatar video: async poll if backend triggered a render job
         if (response.avatar_job_id) {
           const msgId = responseMsg.id;
-          fetchAvatarVideo(response.avatar_job_id).then((dataUrl) => {
-            if (dataUrl) {
+          fetchAvatarVideo(response.avatar_job_id).then((result) => {
+            if (result?.video_base64) {
+              const videoDataUrl = `data:video/mp4;base64,${result.video_base64}`;
               setMessages((prev) =>
-                prev.map((m) => (m.id === msgId ? { ...m, videoUrl: dataUrl } : m))
+                prev.map((m) => (m.id === msgId ? { ...m, videoUrl: videoDataUrl } : m))
               );
             }
           });

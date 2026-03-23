@@ -7,6 +7,15 @@
 
 ## [Unreleased] — 2026-03-25
 
+### ✨ Added / Changed
+- **Agente Esterno integrato nella chat principale**: Il pulsante "Agent" nella barra in basso ora funziona come toggle ON/OFF. Quando attivo (icona teal + pallino pulsante), i messaggi vengono inviati all'agente esterno selezionato invece che a Kael. Le risposte appaiono nella stessa conversazione con bubble di colore diverso e etichetta modello.
+- **Modelli OpenAI aggiornati**: Rimossi modelli obsoleti (GPT-4 Turbo, o1), aggiunti GPT-5, 5.2, 5.3, 5.4, o3 Pro, o3 Mini.
+- **Menu agenti scrollabile**: La lista modelli nelle impostazioni è ora scrollabile per gestire il numero crescente di modelli.
+- **Rimossa pagina ExternalAgentChat separata**: La funzionalità è ora integrata nella chat principale.
+
+---
+
+
 ### 🔧 Fixed / Wired
 - **`PhotoGalleryUpload.tsx` — sostituita con implementazione reale**: L'implementazione di Lovable era localStorage-only, generica, senza identità. Sostituita con picker reale connesso al backend:
   - Tab segmentato "Foto di Alexièn" / "Foto di Kael" — identity selection prima del pick

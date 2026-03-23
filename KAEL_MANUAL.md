@@ -27,8 +27,7 @@
 ```
 src/
 ├── pages/           # Route principali
-│   ├── Chat.tsx     # Chat principale con Kael
-│   ├── ExternalAgentChat.tsx # Chat con agente AI esterno (GPT/Claude/Gemini)
+│   ├── Chat.tsx     # Chat principale con Kael + agente esterno (toggle in BottomNav)
 │   ├── Calls.tsx    # Chiamate vocali
 │   ├── Media.tsx    # Allegati/media condivisi
 │   ├── Workspace.tsx # Workspace/progetti
@@ -336,40 +335,35 @@ Server leggero sempre attivo che può svegliare il backend principale.
 
 ---
 
-## 🤖 EXTERNAL AGENT CHAT (`/external-agent`)
+## 🤖 EXTERNAL AGENT (integrato nella chat principale)
 
 ### Panoramica
-Chat dedicata per comunicare con agenti AI esterni (OpenAI GPT, Anthropic Claude, Google Gemini) usando la propria API key.
+L'agente esterno è integrato direttamente nella chat principale di Kael. Il pulsante "Agent" nella barra in basso funziona come toggle ON/OFF: quando attivo, i messaggi vengono inviati all'agente AI esterno selezionato; quando disattivo, tornano a Kael.
 
 ### Architettura
-- **Pagina**: `src/pages/ExternalAgentChat.tsx`
+- **Toggle**: Pulsante nella `BottomNav` — salva stato in `localStorage("kael_agent_mode")` e dispatcha evento `kael-agent-mode-changed`
+- **Chat.tsx**: Ascolta l'evento e, quando `agentMode === true`, instrada i messaggi tramite `sendExternalAgentMessage()` invece di `chatApi.sendMessage()`
 - **Config lib**: `src/lib/externalAgent.ts` — gestione config, modelli, invio messaggi
-- **Edge Function proxy**: `supabase/functions/external-agent-proxy/index.ts` — proxy server-side per evitare CORS e proteggere le API key
-- **Settings**: `src/components/settings/ExternalAgentSettings.tsx` — selezione modello + API key
+- **Edge Function proxy**: `supabase/functions/external-agent-proxy/index.ts` — proxy server-side
+- **Settings**: `src/components/settings/ExternalAgentSettings.tsx` — selezione modello + API key (lista scrollabile)
 
-### Provider Supportati
-| Provider | Modelli | API Endpoint (proxied) |
-|----------|---------|----------------------|
-| OpenAI | GPT-4o, GPT-4o Mini, GPT-4 Turbo, o1 Preview, o1 Mini | `api.openai.com/v1/chat/completions` |
-| Anthropic | Sonnet 4, Sonnet 3.5, Opus 3, Haiku 3 | `api.anthropic.com/v1/messages` |
-| Google | Gemini 2.5 Pro, 2.5 Flash, 2.0 Flash | `generativelanguage.googleapis.com` |
+### Provider e Modelli Supportati
+| Provider | Modelli |
+|----------|---------|
+| OpenAI | GPT-5.4, GPT-5.3, GPT-5.2, GPT-5, GPT-5 Mini, GPT-4o, o3 Pro, o3 Mini |
+| Anthropic | Sonnet 4, Sonnet 3.5, Opus 3, Haiku 3 |
+| Google | Gemini 2.5 Pro, 2.5 Flash, 2.0 Flash |
 
-### UI delle Bolle
-- **Colore diverso per provider**: Verde acqua (OpenAI), Arancione (Anthropic), Blu (Google)
-- **Label modello**: Testo piccolo bianco (`text-[9px]`) in alto dentro la bolla dell'assistente, formato: `"Provider · Modello"` (es. "OpenAI · GPT-4o")
-- **Bordo colorato**: Le bolle dell'agente hanno un bordo del colore del provider
+### UI
+- **Toggle attivo**: Icona Bot teal con pallino pulsante nella barra in basso; sotto l'icona appare il nome del modello attivo (es. "GPT-5.4")
+- **Bolle agente**: Colore diverso per provider, label modello in alto nella bolla (`sender === "external_agent"`)
+- **Stessa conversazione**: I messaggi dell'agente e di Kael coesistono nello stesso thread
 
 ### Configurazione (Settings → Agente Esterno)
 - **API Key**: Input password per la chiave del provider selezionato
-- **Selezione modello**: Lista raggruppata per provider con indicatore attivo
+- **Selezione modello**: Lista scrollabile raggruppata per provider
 - **Persistenza**: `localStorage` key `kael_external_agent_config`
 - **Formato**: `{ apiKey: string, modelId: string }`
-
-### Flusso Messaggio
-1. Utente invia testo → aggiunto alla cronologia locale
-2. Cronologia completa inviata a edge function `external-agent-proxy`
-3. Edge function formatta la richiesta per il provider selezionato
-4. Risposta convertita in formato unificato → bolla con label modello
 
 ---
 

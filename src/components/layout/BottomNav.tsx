@@ -6,14 +6,13 @@ import NetharionRealEventsSheet from "@/components/common/NetharionRealEventsShe
 import SpotifyIcon from "@/components/common/SpotifyIcon";
 import { useBackendConnection } from "@/context/BackendConnectionContext";
 import { useNetharion } from "@/hooks/useNetharion";
+import { getSelectedModel } from "@/lib/externalAgent";
 import type { BackendLifecycleState } from "@/types";
 
 const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
   { to: "/media", icon: Paperclip, label: "Allegati" },
-  { to: "/external-agent", icon: Bot, label: "Agent" },
   { to: "/workspace", icon: FolderKanban, label: "Workspace" },
-  
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
@@ -44,7 +43,6 @@ const ReconnectButton = () => {
       className="flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[9px] text-muted-foreground transition-all hover:text-foreground active:scale-95 disabled:opacity-50 relative"
       aria-label={state === "online" ? "Backend online" : "Riconnetti backend"}
     >
-      {/* Status dot — absolute top-right on the icon */}
       <div className="relative">
         <RefreshCw
           size={20}
@@ -65,6 +63,21 @@ const BottomNav = () => {
   const { state: backendState } = useBackendConnection();
   const { state: netharionState } = useNetharion(5000, backendState === "online");
   const [showRealEvents, setShowRealEvents] = useState(false);
+
+  // External agent toggle state — persisted so Chat.tsx can read it
+  const [agentActive, setAgentActive] = useState(() => {
+    return localStorage.getItem("kael_agent_mode") === "1";
+  });
+
+  const toggleAgent = () => {
+    const next = !agentActive;
+    setAgentActive(next);
+    localStorage.setItem("kael_agent_mode", next ? "1" : "0");
+    // Dispatch event so Chat.tsx can react
+    window.dispatchEvent(new CustomEvent("kael-agent-mode-changed", { detail: { active: next } }));
+  };
+
+  const selectedModel = getSelectedModel();
 
   const handleSpotifyPress = () => {
     const spotifyDeepLink = "spotify://";
@@ -113,6 +126,27 @@ const BottomNav = () => {
           )}
         </RouterNavLink>
       ))}
+
+      {/* External Agent toggle button */}
+      <button
+        onClick={toggleAgent}
+        className={`flex flex-col items-center gap-0.5 rounded-xl px-2 py-1.5 text-[9px] transition-all active:scale-95 ${
+          agentActive
+            ? "text-teal-400 scale-105"
+            : "text-muted-foreground hover:text-foreground"
+        }`}
+        aria-label={agentActive ? "Disconnetti agente" : "Connetti agente"}
+      >
+        <div className="relative">
+          <Bot size={20} className={agentActive ? "text-teal-400" : ""} />
+          {agentActive && (
+            <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full border border-background bg-teal-400 animate-pulse" />
+          )}
+        </div>
+        <span className={agentActive ? "font-semibold text-teal-400" : "font-normal"}>
+          {agentActive ? selectedModel.label : "Agent"}
+        </span>
+      </button>
 
       {/* Spotify quick-launch button */}
       <button
