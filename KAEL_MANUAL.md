@@ -362,8 +362,9 @@ L'agente esterno è integrato direttamente nella chat principale di Kael. Il pul
 ### Configurazione (Settings → Agente Esterno)
 - **API Key**: Input password per la chiave del provider selezionato
 - **Selezione modello**: Lista scrollabile raggruppata per provider
-- **Persistenza**: `localStorage` key `kael_external_agent_config`
-- **Formato**: `{ apiKey: string, modelId: string }`
+- **System Prompt** (⚙️ rotellina in alto a destra): Editor testuale per istruzioni persistenti inviate come messaggio `system` all'agente. Es: "Rispondi sempre in italiano". Indicatore viola quando attivo.
+- **Persistenza config**: `localStorage` key `kael_external_agent_config` → `{ apiKey, modelId }`
+- **Persistenza prompt**: `localStorage` key `kael_external_agent_system_prompt` → stringa libera
 
 ---
 
