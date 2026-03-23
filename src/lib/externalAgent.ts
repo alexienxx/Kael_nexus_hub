@@ -76,6 +76,7 @@ export interface ExternalChatMessage {
 /**
  * Send a message to the external agent via edge function proxy.
  * The edge function handles provider-specific API formatting.
+ * If a system prompt is configured, it is prepended to the messages.
  */
 export async function sendExternalAgentMessage(
   messages: ExternalChatMessage[],
@@ -84,6 +85,17 @@ export async function sendExternalAgentMessage(
   if (!config.apiKey) throw new Error("API key non configurata. Vai in Settings → Agente Esterno.");
   
   const model = getSelectedModel();
+  const systemPrompt = getSystemPrompt();
+
+  // Prepend system prompt if configured
+  const finalMessages: ExternalChatMessage[] = systemPrompt
+    ? [{ role: "user" as const, content: `[SYSTEM] ${systemPrompt}` }, ...messages]
+    : messages;
+
+  // For OpenAI/Anthropic, use proper system role
+  const apiMessages = systemPrompt
+    ? [{ role: "system", content: systemPrompt }, ...messages.map(m => ({ role: m.role, content: m.content }))]
+    : messages.map(m => ({ role: m.role, content: m.content }));
 
   const response = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/external-agent-proxy`,
@@ -94,7 +106,7 @@ export async function sendExternalAgentMessage(
         Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
       },
       body: JSON.stringify({
-        messages,
+        messages: apiMessages,
         model_id: model.id,
         provider: model.provider,
         api_key: config.apiKey,
