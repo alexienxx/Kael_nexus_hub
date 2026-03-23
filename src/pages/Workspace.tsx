@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { FolderKanban, Target, BookOpen } from "lucide-react";
+import { FolderKanban, Target, BookOpen, Plug } from "lucide-react";
 import KaelHeader from "@/components/layout/KaelHeader";
 import CapabilityGuard from "@/components/common/CapabilityGuard";
 import { useCapability } from "@/hooks/useCapability";
 import { useSession } from "@/hooks/useSession";
 import * as projectsApi from "@/lib/api/projects";
+import ServicesSheet from "@/components/services/ServicesSheet";
 
 type WorkspaceTab = "projects" | "goals" | "reflections";
 
