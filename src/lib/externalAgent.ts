@@ -36,6 +36,7 @@ export const AGENT_MODELS: AgentModel[] = [
 ];
 
 const STORAGE_KEY = "kael_external_agent_config";
+const SYSTEM_PROMPT_KEY = "kael_external_agent_system_prompt";
 
 export interface ExternalAgentConfig {
   apiKey: string;
@@ -52,6 +53,14 @@ export function getExternalAgentConfig(): ExternalAgentConfig {
 
 export function setExternalAgentConfig(config: ExternalAgentConfig) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+}
+
+export function getSystemPrompt(): string {
+  return localStorage.getItem(SYSTEM_PROMPT_KEY) || "";
+}
+
+export function setSystemPrompt(prompt: string) {
+  localStorage.setItem(SYSTEM_PROMPT_KEY, prompt);
 }
 
 export function getSelectedModel(): AgentModel {
