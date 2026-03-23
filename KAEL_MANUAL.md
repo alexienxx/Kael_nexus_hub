@@ -27,8 +27,7 @@
 ```
 src/
 ├── pages/           # Route principali
-│   ├── Chat.tsx     # Chat principale con Kael
-│   ├── ExternalAgentChat.tsx # Chat con agente AI esterno (GPT/Claude/Gemini)
+│   ├── Chat.tsx     # Chat principale con Kael + agente esterno (toggle in BottomNav)
 │   ├── Calls.tsx    # Chiamate vocali
 │   ├── Media.tsx    # Allegati/media condivisi
 │   ├── Workspace.tsx # Workspace/progetti
