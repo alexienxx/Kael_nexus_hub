@@ -10,9 +10,8 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import KaelHeader from "@/components/layout/KaelHeader";
 import {
   Activity, Gauge, Fingerprint, Brain, Heart,
-  Database, User, Package, Zap, Code, ChevronLeft
+  Database, User, Package, Zap, Code
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 
 // Lazy-loaded sections for code splitting
 import OverviewSection from "@/components/observatory/OverviewSection";
