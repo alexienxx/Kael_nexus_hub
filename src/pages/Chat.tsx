@@ -14,6 +14,7 @@ import TypingIndicator from "@/components/TypingIndicator";
 import ImageViewer from "@/components/media/ImageViewer";
 
 import ServiceActionChips from "@/components/services/ServiceActionChips";
+import ServicesSheet from "@/components/services/ServicesSheet";
 import WallpaperLayer from "@/components/wallpaper/WallpaperLayer";
 import WallpaperActionSheet from "@/components/wallpaper/WallpaperActionSheet";
 import WallpaperPreviewSheet from "@/components/wallpaper/WallpaperPreviewSheet";
@@ -39,6 +40,7 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
   const [agentMode, setAgentMode] = useState(() => localStorage.getItem("kael_agent_mode") === "1");
+  const [showServices, setShowServices] = useState(false);
   
   const { theme, kaelAvatarSrc } = useTheme();
   const { sessionId } = useSession();
@@ -669,7 +671,11 @@ const Chat = () => {
         onSend={handleSend}
         onImageUpload={handleImageUpload}
         onVoiceNote={handleVoiceNote}
+        onOpenServices={() => setShowServices(true)}
       />
+
+      {/* Services Sheet */}
+      <ServicesSheet isOpen={showServices} onClose={() => setShowServices(false)} />
 
       {/* Hidden wallpaper file input */}
       <input
