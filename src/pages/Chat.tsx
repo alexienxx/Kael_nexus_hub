@@ -28,6 +28,7 @@ import * as chatApi from "@/lib/api/chat";
 import { requestTTS } from "@/lib/api/voice";
 import { fetchAvatarVideo } from "@/lib/api/avatar";
 import { getApiConfig, probeAndResolveBackend, invalidateBackendCache } from "@/lib/api/client";
+import { sendExternalAgentMessage, getSelectedModel, type ExternalChatMessage } from "@/lib/externalAgent";
 
 // Default conversation ID for the main Kael chat
 const DEFAULT_CONVERSATION_ID = "kael-main";
