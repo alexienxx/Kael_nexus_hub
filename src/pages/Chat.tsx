@@ -40,6 +40,7 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
   const [agentMode, setAgentMode] = useState(() => localStorage.getItem("kael_agent_mode") === "1");
+  const [showServices, setShowServices] = useState(false);
   
   const { theme, kaelAvatarSrc } = useTheme();
   const { sessionId } = useSession();
