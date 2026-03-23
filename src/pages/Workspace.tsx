@@ -11,6 +11,7 @@ type WorkspaceTab = "projects" | "goals" | "reflections";
 
 const Workspace = () => {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("projects");
+  const [showServices, setShowServices] = useState(false);
   const { sessionId } = useSession();
 
   const tabs: { id: WorkspaceTab; label: string; icon: React.ElementType }[] = [
@@ -21,7 +22,21 @@ const Workspace = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <KaelHeader title="Workspace" subtitle="Progetti, obiettivi e riflessioni" showStatus={false} showBack />
+      <KaelHeader
+        title="Workspace"
+        subtitle="Progetti, obiettivi e riflessioni"
+        showStatus={false}
+        showBack
+        rightContent={
+          <button
+            onClick={() => setShowServices(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-neon-purple/15 px-3 py-1.5 text-xs font-medium text-neon-purple transition-all hover:bg-neon-purple/25 active:scale-95"
+          >
+            <Plug size={14} />
+            Servizi
+          </button>
+        }
+      />
 
       {/* Tabs */}
       <div className="relative z-10 flex gap-1 px-4 py-2">
