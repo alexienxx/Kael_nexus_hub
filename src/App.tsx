@@ -16,6 +16,11 @@ import SpotifyCallback from "@/pages/SpotifyCallback";
 import NotFound from "@/pages/NotFound";
 import { useBootUpdateCheck } from "@/hooks/useBootUpdateCheck";
 import UpdateDialog from "@/components/updates/UpdateDialog";
+import { initNativeNotifications } from "@/lib/nativeNotifications";
+
+// Initialize native notification channel & permissions on app boot.
+// Safe no-op when running in browser (non-Capacitor).
+initNativeNotifications();
 
 const queryClient = new QueryClient();
 

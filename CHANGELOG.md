@@ -5,6 +5,34 @@
 
 ---
 
+## [Unreleased] — 2026-03-23b
+
+### 🏗️ Build System — Dual-mode Capacitor (Lovable + Prod)
+- **`capacitor.config.ts` — default = Lovable live-preview**: `server.url` punta al preview Lovable (`0a6f887f-...lovableproject.com`). L'APK sul telefono carica la UI da remoto; modifiche su Lovable appaiono istantaneamente senza rebuild.
+- **`capacitor.config.prod.ts` — NEW**: Config produzione senza `server.url`. UI caricata da `dist/` locale dentro l'APK. Usata solo dallo script di build in mode prod.
+- **`build_apk.ps1` — NEW**: Script unico per build APK con due modalita':
+  - `.\build_apk.ps1` (default) — build con config Lovable, install su device
+  - `.\build_apk.ps1 -Mode prod` — swap temporaneo a config prod, npm build, Gradle, sign, install, ripristino config Lovable
+  - `.\build_apk.ps1 -AdbWifi -PhoneIp <ip>` — setup ADB WiFi (niente cavo)
+  - Gestisce automaticamente: `local.properties`, JDK 21, zipalign, apksigner (debug keystore)
+
+### 🔔 Native Notifications — Autonomous Messages
+- **`src/lib/nativeNotifications.ts` — NEW**: Helper notifiche native Android via `@capacitor/local-notifications`. Canale `kael_autonomous` (importanza HIGH = heads-up). Richiesta permessi al boot, tap su notifica dispatcha evento DOM `kael-notification-tap`.
+- **`src/components/layout/AppShell.tsx` — MODIFIED**: SSE bridge con logica 3 livelli:
+  - App in background (`document.hidden`) → notifica nativa Android
+  - App visibile ma non su chat → toast in-app (sonner)
+  - Su chat page → nulla (Chat.tsx gestisce direttamente)
+- **`src/App.tsx` — MODIFIED**: `initNativeNotifications()` chiamata al boot dell'app.
+- **`android/app/src/main/AndroidManifest.xml` — MODIFIED**: Aggiunti permessi `POST_NOTIFICATIONS` e `SCHEDULE_EXACT_ALARM`.
+- **`@capacitor/local-notifications@8.0.2`** aggiunto alle dipendenze.
+
+### 📝 Impact
+- **Sviluppo**: Zero azioni manuali. L'APK punta a Lovable di default, aggiornamenti automatici.
+- **Build prod**: Un solo comando (`.\build_apk.ps1 -Mode prod`) per APK con UI locale.
+- **Notifiche**: Messaggi autonomi di Kael generano notifiche native Android quando l'app e' in background.
+
+---
+
 ## [Unreleased] — 2026-03-25
 
 ### ✨ Added / Changed

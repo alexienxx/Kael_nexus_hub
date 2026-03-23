@@ -4,14 +4,22 @@ import { toast } from "sonner";
 import BottomNav from "./BottomNav";
 import { BackendConnectionProvider, useBackendConnection } from "@/context/BackendConnectionContext";
 import { useKaelSSE, type KaelSSENewMessage } from "@/hooks/useKaelSSE";
+import { showAutonomousNotification } from "@/lib/nativeNotifications";
 
 /**
  * KaelSSEBridge — runs SSE listener at app level (inside BackendConnectionProvider).
  *
  * Responsibilities:
  *   1. Keep EventSource alive while backend is online (via useKaelSSE).
- *   2. Show toast for autonomous messages ONLY when chat page is NOT active.
+ *   2. Show native notification for autonomous messages when app is backgrounded/closed.
+ *   3. Show in-app toast when on a non-chat page and app is visible.
  *      Chat.tsx handles its own message appending separately.
+ *
+ * Notification rules (like WhatsApp/Telegram):
+ *   - App backgrounded/hidden → native Android notification (only autonomous)
+ *   - App visible, NOT on chat → in-app toast (only autonomous)
+ *   - App visible, ON chat → nothing (Chat.tsx appends directly)
+ *   - Normal chat responses → NEVER trigger notifications
  *
  * Renders nothing (bridge component).
  */
@@ -23,15 +31,19 @@ const KaelSSEBridge = () => {
   useEffect(() => {
     const handler = (e: Event) => {
       const data = (e as CustomEvent<KaelSSENewMessage>).detail;
-      // Toast ONLY if user is NOT on the chat page AND app is visible.
-      // When on chat ("/"), Chat.tsx appends the message directly — no toast needed.
-      // When app is backgrounded, toast wouldn't be visible anyway.
-      if (location.pathname !== "/" && document.visibilityState === "visible") {
+      const preview = data.preview || "Nuovo messaggio da Kael";
+
+      if (document.visibilityState === "hidden") {
+        // App is backgrounded or closed → native notification
+        showAutonomousNotification(preview);
+      } else if (location.pathname !== "/") {
+        // App visible but NOT on chat page → in-app toast
         toast("Kael", {
-          description: data.preview || "Nuovo messaggio",
+          description: preview,
           duration: 5000,
         });
       }
+      // On chat page ("/") and visible → Chat.tsx handles it, no notification
     };
     window.addEventListener("kael-autonomous-message", handler);
     return () => window.removeEventListener("kael-autonomous-message", handler);
