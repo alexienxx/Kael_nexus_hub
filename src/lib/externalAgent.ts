@@ -36,6 +36,7 @@ export const AGENT_MODELS: AgentModel[] = [
 ];
 
 const STORAGE_KEY = "kael_external_agent_config";
+const SYSTEM_PROMPT_KEY = "kael_external_agent_system_prompt";
 
 export interface ExternalAgentConfig {
   apiKey: string;
@@ -54,6 +55,14 @@ export function setExternalAgentConfig(config: ExternalAgentConfig) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
 }
 
+export function getSystemPrompt(): string {
+  return localStorage.getItem(SYSTEM_PROMPT_KEY) || "";
+}
+
+export function setSystemPrompt(prompt: string) {
+  localStorage.setItem(SYSTEM_PROMPT_KEY, prompt);
+}
+
 export function getSelectedModel(): AgentModel {
   const config = getExternalAgentConfig();
   return AGENT_MODELS.find((m) => m.id === config.modelId) || AGENT_MODELS[0];
@@ -67,6 +76,7 @@ export interface ExternalChatMessage {
 /**
  * Send a message to the external agent via edge function proxy.
  * The edge function handles provider-specific API formatting.
+ * If a system prompt is configured, it is prepended to the messages.
  */
 export async function sendExternalAgentMessage(
   messages: ExternalChatMessage[],
@@ -75,6 +85,17 @@ export async function sendExternalAgentMessage(
   if (!config.apiKey) throw new Error("API key non configurata. Vai in Settings → Agente Esterno.");
   
   const model = getSelectedModel();
+  const systemPrompt = getSystemPrompt();
+
+  // Prepend system prompt if configured
+  const finalMessages: ExternalChatMessage[] = systemPrompt
+    ? [{ role: "user" as const, content: `[SYSTEM] ${systemPrompt}` }, ...messages]
+    : messages;
+
+  // For OpenAI/Anthropic, use proper system role
+  const apiMessages = systemPrompt
+    ? [{ role: "system", content: systemPrompt }, ...messages.map(m => ({ role: m.role, content: m.content }))]
+    : messages.map(m => ({ role: m.role, content: m.content }));
 
   const response = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/external-agent-proxy`,
@@ -85,7 +106,7 @@ export async function sendExternalAgentMessage(
         Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
       },
       body: JSON.stringify({
-        messages,
+        messages: apiMessages,
         model_id: model.id,
         provider: model.provider,
         api_key: config.apiKey,

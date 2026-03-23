@@ -12,6 +12,7 @@
 - **Modelli OpenAI aggiornati**: Rimossi modelli obsoleti (GPT-4 Turbo, o1), aggiunti GPT-5, 5.2, 5.3, 5.4, o3 Pro, o3 Mini.
 - **Menu agenti scrollabile**: La lista modelli nelle impostazioni è ora scrollabile per gestire il numero crescente di modelli.
 - **Rimossa pagina ExternalAgentChat separata**: La funzionalità è ora integrata nella chat principale.
+- **System Prompt personalizzabile**: Icona rotellina (⚙️) in alto a destra nel menu agenti apre un editor per il system prompt. Viene inviato come messaggio `system` a ogni conversazione con l'agente. Persistenza in `localStorage("kael_external_agent_system_prompt")`.
 
 ---
 

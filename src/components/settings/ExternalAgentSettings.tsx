@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { Key, Bot } from "lucide-react";
+import { Key, Bot, Settings2, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   getExternalAgentConfig,
   setExternalAgentConfig,
+  getSystemPrompt,
+  setSystemPrompt as saveSystemPrompt,
   AGENT_MODELS,
   type AgentProvider,
 } from "@/lib/externalAgent";
@@ -18,11 +20,14 @@ const ExternalAgentSettings = () => {
   const [apiKey, setApiKey] = useState("");
   const [modelId, setModelId] = useState("gpt-5.4");
   const [saved, setSaved] = useState(false);
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [systemPrompt, setSystemPrompt] = useState("");
 
   useEffect(() => {
     const config = getExternalAgentConfig();
     setApiKey(config.apiKey);
     setModelId(config.modelId);
+    setSystemPrompt(getSystemPrompt());
   }, []);
 
   const handleSave = () => {
@@ -31,12 +36,89 @@ const ExternalAgentSettings = () => {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const selectedModel = AGENT_MODELS.find((m) => m.id === modelId) || AGENT_MODELS[0];
+  const handleSavePrompt = () => {
+    saveSystemPrompt(systemPrompt.trim());
+    setShowPromptEditor(false);
+  };
 
+  const selectedModel = AGENT_MODELS.find((m) => m.id === modelId) || AGENT_MODELS[0];
+  const hasPrompt = systemPrompt.trim().length > 0;
+
+  // --- System Prompt Editor Overlay ---
+  if (showPromptEditor) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center justify-between px-4 pt-4 pb-3">
+          <h3 className="text-sm font-semibold text-foreground">System Prompt</h3>
+          <button
+            onClick={() => {
+              setSystemPrompt(getSystemPrompt()); // reset to saved
+              setShowPromptEditor(false);
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="px-4 flex-1 flex flex-col gap-3">
+          <p className="text-[10px] text-muted-foreground/70">
+            Istruzioni che verranno inviate all'agente prima di ogni conversazione.
+            Es: "Rispondi sempre in italiano", "Sei un assistente tecnico esperto di React".
+          </p>
+          <textarea
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+            placeholder="Es: Rispondi sempre in italiano. Sii conciso e diretto."
+            className="flex-1 w-full rounded-xl glass p-4 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-neon-purple/40 resize-none"
+          />
+          <div className="flex gap-2 pb-4">
+            {hasPrompt && (
+              <button
+                onClick={() => {
+                  setSystemPrompt("");
+                  saveSystemPrompt("");
+                  setShowPromptEditor(false);
+                }}
+                className="flex-1 rounded-xl glass py-3 text-sm font-medium text-destructive transition-all hover:scale-[1.01] active:scale-[0.99]"
+              >
+                Rimuovi
+              </button>
+            )}
+            <button
+              onClick={handleSavePrompt}
+              className="flex-1 rounded-xl bg-gradient-to-r from-neon-purple to-accent py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-neon-purple/20 transition-all hover:scale-[1.01] active:scale-[0.99]"
+            >
+              Salva Prompt
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Main Settings View ---
   return (
     <div className="flex flex-col h-full">
-      {/* API Key — fixed top */}
-      <div className="px-4 pt-4 pb-2">
+      {/* Header with gear icon */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-1">
+        <div />
+        <button
+          onClick={() => setShowPromptEditor(true)}
+          className={`flex h-8 w-8 items-center justify-center rounded-full transition-all hover:scale-110 ${
+            hasPrompt ? "text-neon-purple" : "text-muted-foreground hover:text-foreground"
+          }`}
+          aria-label="System Prompt"
+          title="System Prompt"
+        >
+          <Settings2 size={18} />
+          {hasPrompt && (
+            <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-neon-purple" />
+          )}
+        </button>
+      </div>
+
+      {/* API Key */}
+      <div className="px-4 pb-2">
         <section>
           <h3 className="mb-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             API Key
@@ -58,6 +140,17 @@ const ExternalAgentSettings = () => {
           </p>
         </section>
       </div>
+
+      {/* Active prompt indicator */}
+      {hasPrompt && (
+        <button
+          onClick={() => setShowPromptEditor(true)}
+          className="mx-4 mb-2 glass rounded-xl px-4 py-2.5 text-left transition-all hover:bg-accent/10"
+        >
+          <p className="text-[10px] font-medium text-neon-purple mb-0.5">System Prompt attivo</p>
+          <p className="text-[10px] text-muted-foreground truncate">{systemPrompt}</p>
+        </button>
+      )}
 
       {/* Model list — scrollable */}
       <div className="px-4 pb-1">
