@@ -5,6 +5,54 @@
 
 ---
 
+## [Unreleased] — 2026-03-25
+
+### 🔧 Fixed / Wired
+- **`PhotoGalleryUpload.tsx` — sostituita con implementazione reale**: L'implementazione di Lovable era localStorage-only, generica, senza identità. Sostituita con picker reale connesso al backend:
+  - Tab segmentato "Foto di Alexièn" / "Foto di Kael" — identity selection prima del pick
+  - Upload via `POST /multimodal/photos/upload` (multipart) → `save_photo()` in `photo_container.py`
+  - Lista foto da `GET /multimodal/photos/list?identity=...` al cambio tab
+  - Thumbnail da `GET /multimodal/photos/file/{identity}/{name}` (FileResponse backend)
+  - Delete via `DELETE /multimodal/photos/file/{identity}/{name}`
+  - Loading skeletons, error banner, refresh button
+  - Commento legale obbligatorio: authorized use only, solo Alexièn e Kael
+
+- **`lib/api/referencePhotos.ts` — nuovo modulo API**: Funzioni `listReferencePhotos()`, `uploadReferencePhoto()`, `deleteReferencePhoto()`, `referencePhotoUrl()` con tipo `AuthorizedIdentity = "kael" | "alexien"`. Usa `apiRequest` e `apiUpload` da `client.ts`.
+
+### 📝 Impact
+- **PhotoGalleryUpload.tsx**: Nessun più dato in localStorage. Tutte le foto vanno su `state/vision/photo_container/{identity}/` sul server. Constraint identità applicato lato backend (`_ALLOWED_IDENTITIES = {"kael", "alexien"}`).
+- **Backend**: Richiede il backend attivo su `/multimodal/*` (router ora montato in `kael_refactor/runtime/router.py`).
+
+---
+
+## [Unreleased] — 2026-03-23
+
+### 🆕 Added
+- **`sendCallVoiceMessage()` in `lib/api/voice.ts`**: Nuova funzione che invia un chunk audio base64 a `POST /mobile/call/voice` e restituisce `VoiceCallTurnResponse` (`reply`, `reply_audio_base64`, `transcription`, `emotion`, `call_id`). Completa il contratto API per le chiamate audio.
+
+- **Audio loop durante videochiamata (`Calls.tsx`)**: Implementato il ciclo di cattura e risposta audio durante le chiamate attive:
+  - `startAudioLoop(stream, callId)`: avvia `MediaRecorder` con `start(4000)` — ogni 4 s invia chunk audio al backend via `sendCallVoiceMessage()`
+  - `stopAudioLoop()`: ferma il registratore in modo sicuro
+  - Il chip di trascrizione UI si popola ora con le trascrizioni utente e le risposte Kael in tempo reale
+  - L'audio di risposta (`reply_audio_base64`) viene riprodotto immediatamente via `new Audio(...).play()`
+  - Guards: `isMutedRef` (chunk scartato se muted), `isProcessingRef` (no concurrent sends), `callActiveRef` (stop se chiamata terminata)
+  - Cleanup su `handleEndCall` e su unmount
+
+- **Source of truth — SEZIONE 6-8** (`source_of_truth-apk_kael_nexus_hub.py`):
+  - Sezione 6: videocall audio loop (call/voice wiring completo)
+  - Sezione 7: external agent Supabase proxy (cablaggio confermato corretto)
+  - Sezione 8: wallpaper kaelMode stubs (stato documentato, fix `syncStatus` applicato)
+
+### 🔧 Fixed
+- **`useChatWallpaper.ts` — `syncStatus` stubs**: I modi `share_once` e `persistent_context` settavano `syncStatus: "pending_upload"` che non veniva mai risolto (nessun endpoint backend esiste). Ora tutti i modi usano `syncStatus: "local_only"`, che riflette onestamente lo stato reale. Il campo `syncStatus` rimane nel type per uso futuro.
+
+### 📝 Impact
+- **Calls.tsx**: La pagina videochiamata è ora completamente funzionale end-to-end. La trascrizione che prima era dichiarata ma mai popolata ora si aggiorna in tempo reale.
+- **voice.ts**: Contratto API call/voice aggiunto. Nessuna breaking change.
+- **useChatWallpaper.ts**: Nessuna breaking change di comportamento. I dati localStorage esistenti con `pending_upload` vengono letti correttamente (campo opzional non bloccante).
+
+---
+
 ## [Unreleased] — 2026-03-21
 
 ### 🆕 Added

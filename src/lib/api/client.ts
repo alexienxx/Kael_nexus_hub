@@ -75,7 +75,8 @@ export async function apiRequest<T = any>(
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+    // Backend auth uses X-KAEL-KEY header (not Authorization: Bearer)
+    ...(config.apiKey ? { "X-KAEL-KEY": config.apiKey } : {}),
     ...(options.headers as Record<string, string> || {}),
   };
 
@@ -129,7 +130,7 @@ export async function apiUpload<T = any>(
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+      headers: config.apiKey ? { "X-KAEL-KEY": config.apiKey } : {},
       body: formData,
       signal: controller.signal,
     });
@@ -164,7 +165,7 @@ export async function apiFetchAudio(path: string): Promise<Blob> {
   const url = `${config.baseUrl.replace(/\/$/, "")}${path}`;
 
   const res = await fetch(url, {
-    headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+    headers: config.apiKey ? { "X-KAEL-KEY": config.apiKey } : {},
   });
 
   if (!res.ok) throw new ApiError(res.status, res.statusText, "");
@@ -177,7 +178,7 @@ export async function checkHealth(): Promise<boolean> {
     if (!config.baseUrl) return false;
     const res = await fetch(`${config.baseUrl.replace(/\/$/, "")}/health`, {
       method: "GET",
-      headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {},
+      headers: config.apiKey ? { "X-KAEL-KEY": config.apiKey } : {},
       signal: AbortSignal.timeout(5000),
     });
     return res.ok;

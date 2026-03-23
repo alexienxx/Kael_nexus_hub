@@ -3,7 +3,7 @@ import { Phone } from "lucide-react";
 import { useTheme } from "@/lib/store/theme";
 import { useSession } from "@/hooks/useSession";
 import { useAgenticActions } from "@/hooks/useAgenticActions";
-import { useBackendLifecycle } from "@/hooks/useBackendLifecycle";
+import { useBackendConnection } from "@/context/BackendConnectionContext";
 import { useChatWallpaper } from "@/hooks/useChatWallpaper";
 import { useLongPress } from "@/hooks/useLongPress";
 import chatBg from "@/assets/chat-bg.jpg";
@@ -21,10 +21,12 @@ import WallpaperKaelModeSheet from "@/components/wallpaper/WallpaperKaelModeShee
 import WallpaperDisplaySettingsSheet from "@/components/wallpaper/WallpaperDisplaySettingsSheet";
 import type { ChatMessage } from "@/types";
 import type { WallpaperDisplaySettings, WallpaperKaelMode } from "@/types/wallpaper";
+import type { KaelSSENewMessage } from "@/hooks/useKaelSSE";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import * as chatApi from "@/lib/api/chat";
 import { requestTTS } from "@/lib/api/voice";
+import { fetchAvatarVideo } from "@/lib/api/avatar";
 import { getApiConfig, probeAndResolveBackend, invalidateBackendCache } from "@/lib/api/client";
 
 // Default conversation ID for the main Kael chat
@@ -39,11 +41,18 @@ const Chat = () => {
   const { theme, kaelAvatarSrc } = useTheme();
   const { sessionId } = useSession();
   const { activeContext, clearContext } = useAgenticActions();
-  const { state: lifecycleState, message: lifecycleMessage } = useBackendLifecycle();
+  const { state: lifecycleState, message: lifecycleMessage } = useBackendConnection();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const historyLoadedRef = useRef(false);
   const wallpaperFileRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Watermark: Unix timestamp (seconds) of last known state.
+   * Set after history load; used by SSE handler to fetch only newer messages.
+   * Starts at 0 (sentinel) — SSE handler skips if history hasn't loaded yet.
+   */
+  const lastFetchTsRef = useRef<number>(0);
 
   // Wallpaper state
   const {
@@ -159,7 +168,11 @@ const Chat = () => {
       } catch (err) {
         console.warn("[Chat] History load failed:", err);
       } finally {
-        if (!cancelled) setHistoryLoading(false);
+        if (!cancelled) {
+          setHistoryLoading(false);
+          // Set SSE watermark so autonomous message handler knows history is loaded
+          lastFetchTsRef.current = Date.now() / 1000;
+        }
       }
     })();
     return () => { cancelled = true; };
@@ -178,6 +191,87 @@ const Chat = () => {
   }, [historyLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const now = () => new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+
+  // -----------------------------------------------------------------
+  // SSE autonomous message listener
+  //
+  // When useKaelSSE (running in AppShell) dispatches "kael-autonomous-message",
+  // we fetch the FULL message from /chat/history/pending and append it.
+  // Also handles "kael-sse-connected" (reconnect catch-up).
+  //
+  // Dedup: check backend_turn_id against existing messages.
+  // No polling. SSE is the sole trigger.
+  // -----------------------------------------------------------------
+  const fetchAndAppendPending = useCallback(async () => {
+    // Skip if history hasn't loaded yet (watermark still at 0)
+    if (lastFetchTsRef.current === 0) return;
+
+    try {
+      const afterTs = lastFetchTsRef.current;
+      const result = await chatApi.fetchPendingMessages(afterTs, sessionId);
+      if (!result?.messages?.length) return;
+
+      // Advance watermark
+      lastFetchTsRef.current = Date.now() / 1000;
+
+      setMessages((prev) => {
+        const existingIds = new Set(
+          prev.map((m) => m.backend_turn_id).filter(Boolean)
+        );
+        const newMsgs: ChatMessage[] = result.messages
+          .filter((m: any) => {
+            const id = String(m.id ?? m.turn_id ?? "");
+            return id && !existingIds.has(id);
+          })
+          .map((m: any) => ({
+            id: String(m.id ?? m.turn_id ?? Date.now() + Math.random()),
+            text: m.text ?? m.content ?? "",
+            time:
+              m.time ??
+              new Date(m.timestamp ?? Date.now()).toLocaleTimeString("it-IT", {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            sender: (m.sender ?? (m.role === "user" ? "user" : "kael")) as ChatMessage["sender"],
+            feedback: m.feedback ?? null,
+            backend_turn_id: String(m.id ?? m.turn_id ?? ""),
+            audioUrl: m.tts_url ?? m.voice_audio ?? m.audioUrl,
+            image: m.image,
+            meta: m.meta,
+            agent_id: m.agent_id,
+            agent_name: m.agent_name,
+            agent_avatar: m.agent_avatar,
+          }));
+
+        if (newMsgs.length === 0) return prev;
+        return [...prev, ...newMsgs];
+      });
+
+      scrollToBottom();
+    } catch (err) {
+      console.warn("[Chat] Failed to fetch pending messages:", err);
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (lifecycleState !== "online") return;
+
+    const handleAutonomous = () => {
+      fetchAndAppendPending();
+    };
+
+    const handleReconnect = () => {
+      // Catch up on any messages missed while disconnected
+      fetchAndAppendPending();
+    };
+
+    window.addEventListener("kael-autonomous-message", handleAutonomous);
+    window.addEventListener("kael-sse-connected", handleReconnect);
+    return () => {
+      window.removeEventListener("kael-autonomous-message", handleAutonomous);
+      window.removeEventListener("kael-sse-connected", handleReconnect);
+    };
+  }, [lifecycleState, fetchAndAppendPending]);
 
   const handleSend = useCallback(
     async (text: string) => {
@@ -208,12 +302,28 @@ const Chat = () => {
           latency,
           meta: response.meta,
           audioUrl: response.voice_audio,
+          // Image generation: if backend generated an image (vision/generate),
+          // embed it directly into the message bubble.
+          image: response.image_base64
+            ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
+            : undefined,
           agent_id: response.agent_id,
           agent_name: response.agent_name,
           agent_avatar: response.agent_avatar,
         };
         setMessages((prev) => [...prev, responseMsg]);
         scrollToBottom();
+        // Avatar video: async poll if backend triggered a render job
+        if (response.avatar_job_id) {
+          const msgId = responseMsg.id;
+          fetchAvatarVideo(response.avatar_job_id).then((dataUrl) => {
+            if (dataUrl) {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === msgId ? { ...m, videoUrl: dataUrl } : m))
+              );
+            }
+          });
+        }
       } catch (error) {
         setIsTyping(false);
         const errorMsg = error instanceof Error ? error.message : "Failed to send message";
@@ -257,12 +367,27 @@ const Chat = () => {
             latency,
             meta: response.meta,
             audioUrl: response.voice_audio,
+            // Image generation: if backend generated an image, embed it.
+            image: response.image_base64
+              ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
+              : undefined,
             agent_id: response.agent_id,
             agent_name: response.agent_name,
             agent_avatar: response.agent_avatar,
           };
           setMessages((prev) => [...prev, responseMsg]);
           scrollToBottom();
+          // Avatar video: async poll if backend triggered a render job
+          if (response.avatar_job_id) {
+            const msgId = responseMsg.id;
+            fetchAvatarVideo(response.avatar_job_id).then((dataUrl) => {
+              if (dataUrl) {
+                setMessages((prev) =>
+                  prev.map((m) => (m.id === msgId ? { ...m, videoUrl: dataUrl } : m))
+                );
+              }
+            });
+          }
         } catch (error) {
           setIsTyping(false);
           toast.error(error instanceof Error ? error.message : "Failed to send image");
@@ -305,12 +430,27 @@ const Chat = () => {
           latency,
           meta: response.meta,
           audioUrl: response.voice_audio,
+          // Image generation: if backend generated an image, embed it.
+          image: response.image_base64
+            ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
+            : undefined,
           agent_id: response.agent_id,
           agent_name: response.agent_name,
           agent_avatar: response.agent_avatar,
         };
         setMessages((prev) => [...prev, responseMsg]);
         scrollToBottom();
+        // Avatar video: async poll if backend triggered a render job
+        if (response.avatar_job_id) {
+          const msgId = responseMsg.id;
+          fetchAvatarVideo(response.avatar_job_id).then((dataUrl) => {
+            if (dataUrl) {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === msgId ? { ...m, videoUrl: dataUrl } : m))
+              );
+            }
+          });
+        }
       } catch (error) {
         setIsTyping(false);
         toast.error(error instanceof Error ? error.message : "Failed to send voice note");

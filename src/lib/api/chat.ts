@@ -10,14 +10,15 @@ import type { ChatMessage, FeedbackPayload } from "@/types";
  * - POST /feedback - Submit RLHF feedback
  * - POST /chat/image - Upload image for analysis
  * - POST /chat/voice - Send voice note
- * - GET /chat/history - Get message history (defined but not actively used in UI)
+ * - GET /chat/history/messages - Load full chat history
+ * - GET /chat/history/pending - Fetch new messages after timestamp (SSE catch-up)
  *
  * REALTIME BEHAVIOR:
- * - APK uses request-response pattern ONLY
- * - NO polling, SSE, or WebSocket for chat messages
+ * - User-initiated chat: request-response pattern (POST /chat → response)
+ * - Autonomous messages: SSE push via GET /chat/events (see lib/api/sse.ts)
+ * - On SSE "new_message" event: fetch full content via /chat/history/pending
  * - WebSocket only used for voice call transcription (see voice.ts)
- *
- * See APK_CHAT_BEHAVIOR.md for complete verification audit.
+ * - NO polling. SSE is the single realtime channel.
  */
 
 export interface ChatResponse {
@@ -39,11 +40,22 @@ export interface ChatResponse {
   agent_id?: string;
   agent_name?: string;
   agent_avatar?: string;
+  // Avatar video: present when user requested a video message.
+  // Job is async (CPU-heavy render). Poll /avatar/live/video/{id} until done,
+  // then fetch /avatar/live/video/{id}/base64 for the MP4 data URL.
+  // See src/lib/api/avatar.ts fetchAvatarVideo().
+  avatar_job_id?: string;
 }
 
 export interface VoiceResponse extends ChatResponse {
   transcription?: string;
 }
+
+/**
+ * Timeout for LLM-backed requests (chat, regenerate, voice).
+ * Ollama inference can take 40-55s depending on model load.
+ */
+const CHAT_TIMEOUT = 90_000;
 
 /** Send a text message and get Kael's reply */
 export async function sendMessage(
@@ -54,6 +66,7 @@ export async function sendMessage(
   return apiRequest<ChatResponse>("/chat", {
     method: "POST",
     body: JSON.stringify({ text, session_id: sessionId }),
+    timeout: CHAT_TIMEOUT,
   });
 }
 
@@ -62,6 +75,7 @@ export async function regenerateResponse(turnId: string, sessionId: string) {
   return apiRequest<ChatResponse>("/chat/regenerate", {
     method: "POST",
     body: JSON.stringify({ turn_id: turnId, session_id: sessionId }),
+    timeout: CHAT_TIMEOUT,
   });
 }
 
@@ -72,7 +86,8 @@ export async function submitFeedback(
 ) {
   return apiRequest("/feedback", {
     method: "POST",
-    body: JSON.stringify({ turn_id: turnId, type }),
+    // Backend FeedbackRequest model uses "feedback_type", not "type"
+    body: JSON.stringify({ turn_id: turnId, feedback_type: type }),
   });
 }
 
@@ -94,7 +109,7 @@ export async function sendVoiceNote(audioBlob: Blob, sessionId: string) {
   const formData = new FormData();
   formData.append("audio", audioBlob, "voice-note.webm");
   formData.append("session_id", sessionId);
-  return apiUpload<VoiceResponse>("/chat/voice", formData);
+  return apiUpload<VoiceResponse>("/chat/voice", formData, { timeout: CHAT_TIMEOUT });
 }
 
 /** Get chat history */
@@ -102,6 +117,25 @@ export async function getChatHistory(sessionId: string, conversationId?: string)
   const params = new URLSearchParams({ session_id: sessionId });
   if (conversationId) params.append("conversationId", conversationId);
   return apiRequest<{ messages: ChatMessage[] }>(`/chat/history/messages?${params}`);
+}
+
+/**
+ * Fetch new messages since a given timestamp.
+ *
+ * Used by Chat.tsx when SSE fires "new_message" — this fetches the FULL
+ * message content (SSE only carries a 120-char preview).
+ *
+ * Endpoint: GET /chat/history/pending?after_ts=<unix_ts>
+ *   - after_ts: exclusive Unix timestamp (seconds)
+ *   - exclude_client: defaults to "mobile" (prevents echo of own user messages)
+ *   - Returns: { messages: [...] } with full message objects
+ */
+export async function fetchPendingMessages(afterTs: number, sessionId: string) {
+  const params = new URLSearchParams({
+    after_ts: String(afterTs),
+    session_id: sessionId,
+  });
+  return apiRequest<{ messages: any[] }>(`/chat/history/pending?${params}`);
 }
 
 /**

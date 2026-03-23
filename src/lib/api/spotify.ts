@@ -1,4 +1,5 @@
 import { apiRequest } from "./client";
+import type { SpotifyPlaybackState } from "@/lib/spotify/api";
 
 /**
  * SPOTIFY API SERVICE LAYER
@@ -97,4 +98,35 @@ export async function kaelCreatePlaylist(request: KaelPlaylistRequest) {
 /** Get Kael's music suggestions (tracks + playlists) */
 export async function getKaelMusicSuggestions() {
   return apiRequest<{ suggestions: KaelMusicSuggestion[] }>("/spotify/suggestions");
+}
+
+/**
+ * Push live playback state to Kael backend so it can use it as context
+ * during chat. Maps SpotifyPlaybackState → UpdateStateRequest.
+ * Fires-and-forgets: errors are swallowed to never break the player UI.
+ */
+export async function pushPlaybackToBackend(
+  state: SpotifyPlaybackState | null,
+): Promise<void> {
+  if (!state?.item) return;
+  const track = state.item;
+  try {
+    await apiRequest<unknown>("/spotify/state", {
+      method: "POST",
+      body: JSON.stringify({
+        track_id: track.id ?? null,
+        track_name: track.name ?? null,
+        artist_name: track.artists?.map((a) => a.name).join(", ") ?? null,
+        album_name: (track as any).album?.name ?? null,
+        duration_ms: track.duration_ms ?? null,
+        progress_ms: state.progress_ms ?? null,
+        is_playing: state.is_playing,
+        device_id: state.device?.id ?? null,
+        device_name: state.device?.name ?? null,
+        ttl_seconds: 60,
+      }),
+    });
+  } catch {
+    // Non-critical: ignore push failures silently
+  }
 }

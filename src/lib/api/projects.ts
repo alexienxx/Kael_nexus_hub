@@ -7,8 +7,6 @@ import { apiRequest } from "./client";
  * - GET /projects — List user projects
  * - GET /goals — List user goals
  *
- * PENDING BACKEND:
- * - /reflections — Not yet live
  */
 
 export interface Project {
@@ -39,13 +37,6 @@ export interface GoalMilestone {
   completed: boolean;
 }
 
-export interface Reflection {
-  id: string;
-  title: string;
-  content: string;
-  mood?: string;
-  created_at: string;
-}
 
 export interface ProjectsResponse {
   projects: Project[];
@@ -55,9 +46,6 @@ export interface GoalsResponse {
   goals: Goal[];
 }
 
-export interface ReflectionsResponse {
-  reflections: Reflection[];
-}
 
 /** Get all user projects */
 export async function getProjects(sessionId: string) {
@@ -69,7 +57,4 @@ export async function getGoals(sessionId: string) {
   return apiRequest<GoalsResponse>(`/goals?session_id=${sessionId}`);
 }
 
-/** Get reflections (PENDING — backend not yet live) */
-export async function getReflections(sessionId: string) {
-  return apiRequest<ReflectionsResponse>(`/reflections?session_id=${sessionId}`);
-}
+

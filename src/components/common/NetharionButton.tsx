@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { Shield } from "lucide-react";
+import { useLongPress } from "@/hooks/useLongPress";
 
 export type NetharionState = "idle" | "warning" | "alert";
 
 interface NetharionButtonProps {
   state?: NetharionState;
   onClick?: () => void;
+  onLongPress?: () => void;
 }
 
 const stateConfig: Record<NetharionState, { hue: number; sat: number; label: string }> = {
@@ -14,14 +16,20 @@ const stateConfig: Record<NetharionState, { hue: number; sat: number; label: str
   alert:   { hue: 0,   sat: 80, label: "allarme" },
 };
 
-const NetharionButton = ({ state: externalState, onClick }: NetharionButtonProps) => {
+const NetharionButton = ({ state: externalState, onClick, onLongPress: onLongPressCb }: NetharionButtonProps) => {
   const [internalState] = useState<NetharionState>("idle");
   const state = externalState ?? internalState;
   const cfg = stateConfig[state];
 
+  const longPressHandlers = useLongPress({
+    onLongPress: () => onLongPressCb?.(),
+    onPress: () => onClick?.(),
+    delay: 500,
+  });
+
   return (
     <button
-      onClick={onClick}
+      {...longPressHandlers}
       className="netharion-btn group relative flex h-9 w-9 items-center justify-center rounded-full outline-none transition-transform active:scale-90"
       aria-label={`Netharion: ${cfg.label}`}
     >

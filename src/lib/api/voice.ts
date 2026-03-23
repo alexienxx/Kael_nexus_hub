@@ -1,28 +1,36 @@
-import { apiRequest, apiFetchAudio, apiUpload } from "./client";
-import type { CallSession, TranscriptEntry } from "@/types";
+import { apiRequest, apiUpload, getApiConfig } from "./client";
+import type { CallSession } from "@/types";
 
 /**
  * VOICE & CALL API SERVICE LAYER
  *
  * VERIFIED ENDPOINTS:
- * - POST /mobile/call/start
- * - POST /mobile/call/end
- * - GET /voice/tts
+ * - POST /chat/voice/tts           (TTS, JSON body → base64 audio)
+ * - POST /mobile/call/start        (start call)
+ * - POST /mobile/call/end          (end call)
+ * - GET  /mobile/call/active       (active call status)
+ * - POST /mobile/call/incoming/answer  (answer incoming)
+ * - POST /mobile/call/incoming/dismiss (dismiss incoming)
  *
- * PENDING BACKEND VERIFICATION:
- * - GET /mobile/call/active
- * - WS /mobile/ws/call
- * - GET /call/transcript
- * - POST /call/answer
- * - POST /call/dismiss
- *
- * These endpoints reflect the expected contracts but may require
- * adjustment once backend implementation is confirmed.
  */
 
 /** Request TTS playback audio for a text message */
-export async function requestTTS(text: string): Promise<Blob> {
-  return apiFetchAudio(`/voice/tts?text=${encodeURIComponent(text)}`);
+export async function requestTTS(text: string, language: string = "it", sessionId: string = "default"): Promise<Blob> {
+  // Backend expects POST /chat/voice/tts with JSON body
+  const config = getApiConfig();
+  const baseUrl = config.baseUrl.replace(/\/$/, "");
+  const response = await fetch(`${baseUrl}/chat/voice/tts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, language, session_id: sessionId }),
+  });
+  if (!response.ok) throw new Error(`TTS failed: ${response.status}`);
+  const data = await response.json();
+  // Decode base64 audio_base64 to Blob
+  const binaryStr = atob(data.audio_base64);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+  return new Blob([bytes], { type: "audio/wav" });
 }
 
 /** Initiate a voice call */
@@ -65,25 +73,53 @@ export async function getActiveCall(sessionId: string) {
  * };
  */
 
-/** Get call transcript updates */
-export async function getCallTranscript(sessionId: string) {
-  return apiRequest<{ entries: TranscriptEntry[] }>(
-    `/call/transcript?sessionId=${sessionId}`
-  );
-}
-
 /** Answer an incoming call from Kael */
 export async function answerCall(sessionId: string) {
-  return apiRequest<{ session: CallSession }>("/call/answer", {
+  return apiRequest<{ session: CallSession }>("/mobile/call/incoming/answer", {
     method: "POST",
-    body: JSON.stringify({ sessionId }),
+    body: JSON.stringify({ session_id: sessionId }),
   });
 }
 
 /** Dismiss an incoming call */
 export async function dismissCall(sessionId: string) {
-  return apiRequest("/call/dismiss", {
+  return apiRequest("/mobile/call/incoming/dismiss", {
     method: "POST",
-    body: JSON.stringify({ sessionId }),
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
+/** Response shape from POST /mobile/call/voice */
+export interface VoiceCallTurnResponse {
+  reply: string;
+  reply_audio_base64?: string;
+  transcription?: string;
+  emotion?: string;
+  call_id?: string;
+}
+
+/**
+ * Send an audio chunk to the backend during an active call.
+ *
+ * Endpoint: POST /mobile/call/voice
+ * The backend runs STT → emotion → LLM → TTS and returns both the text
+ * reply and a base64-encoded WAV for immediate playback.
+ *
+ * @param callId     - Active call ID returned by initiateCall / answerCall
+ * @param audioBase64 - Raw audio bytes as base64 string (webm/ogg/wav)
+ * @param sessionId  - Current Kael session ID
+ */
+export async function sendCallVoiceMessage(
+  callId: string,
+  audioBase64: string,
+  sessionId: string,
+): Promise<VoiceCallTurnResponse> {
+  return apiRequest<VoiceCallTurnResponse>("/mobile/call/voice", {
+    method: "POST",
+    body: JSON.stringify({
+      call_id: callId,
+      audio_base64: audioBase64,
+      session_id: sessionId,
+    }),
   });
 }

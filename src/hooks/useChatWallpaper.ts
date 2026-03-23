@@ -54,7 +54,9 @@ export function useChatWallpaper(conversationId: string) {
           kaelMode,
           displaySettings: { ...DEFAULT_DISPLAY_SETTINGS, ...displaySettings },
           lastUpdatedAt: new Date().toISOString(),
-          syncStatus: kaelMode === "wallpaper_only" ? "local_only" : "pending_upload",
+          // No backend upload endpoint exists yet — all modes are local-only.
+          // When a backend wallpaper endpoint is added, gate on kaelMode here.
+          syncStatus: "local_only",
         },
       }));
     },
@@ -89,7 +91,8 @@ export function useChatWallpaper(conversationId: string) {
           [conversationId]: {
             ...current,
             kaelMode: mode,
-            syncStatus: mode === "wallpaper_only" ? "local_only" : "pending_upload",
+            // No backend upload endpoint — keep local_only regardless of mode.
+            syncStatus: "local_only",
             lastUpdatedAt: new Date().toISOString(),
           },
         };

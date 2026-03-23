@@ -7,6 +7,7 @@ import {
   getSpotifyClientId,
 } from "@/lib/spotify/auth";
 import * as spotifyApi from "@/lib/spotify/api";
+import { pushPlaybackToBackend } from "@/lib/api/spotify";
 
 export type SpotifyConnectionState = "not_configured" | "disconnected" | "connected" | "error";
 
@@ -43,6 +44,10 @@ export function useSpotify() {
     try {
       const state = await spotifyApi.getCurrentPlayback();
       setPlayback(state);
+      // Push now-playing to Kael backend for chat context (fire-and-forget)
+      if (state?.is_playing) {
+        pushPlaybackToBackend(state);
+      }
     } catch {
       // Silent fail for polling
     }
