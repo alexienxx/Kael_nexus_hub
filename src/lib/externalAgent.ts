@@ -47,7 +47,7 @@ export function getExternalAgentConfig(): ExternalAgentConfig {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
   } catch {}
-  return { apiKey: "", modelId: "gpt-4o" };
+  return { apiKey: "", modelId: "gpt-5.4" };
 }
 
 export function setExternalAgentConfig(config: ExternalAgentConfig) {
