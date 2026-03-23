@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { RefreshCw, Download, ExternalLink, ChevronDown, ChevronUp, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,11 @@ import {
   type UpdateCheckResult,
 } from "@/lib/api/updates";
 import UpdateDialog from "@/components/updates/UpdateDialog";
+import { Browser } from "@capacitor/browser";
+import { App as CapApp } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
+
+const LOVABLE_URL = "https://0a6f887f-df8f-4066-86ec-c6471cdc96bc.lovableproject.com?forceHideBadge=true";
 
 const UpdateSettings = () => {
   const [checking, setChecking] = useState(false);
@@ -18,6 +23,25 @@ const UpdateSettings = () => {
   const [showDialog, setShowDialog] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [manifestUrl, setManifestUrlLocal] = useState(getManifestUrl());
+  const [lovableOpen, setLovableOpen] = useState(false);
+
+  // On resume after Lovable browser closes → light UI refresh
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const listener = CapApp.addListener("resume", () => {
+      if (lovableOpen) {
+        setLovableOpen(false);
+        // Dispatch refresh event so other components can refetch data
+        window.dispatchEvent(new Event("kael-content-refresh"));
+      }
+    });
+    return () => { listener.then(h => h.remove()); };
+  }, [lovableOpen]);
+
+  const handleOpenLovable = async () => {
+    setLovableOpen(true);
+    await Browser.open({ url: LOVABLE_URL });
+  };
 
   const handleCheck = async () => {
     setChecking(true);
@@ -93,6 +117,30 @@ const UpdateSettings = () => {
         >
           <RefreshCw size={14} className={checking ? "animate-spin" : ""} />
           {checking ? "Controllo in corso..." : "Controlla aggiornamenti"}
+        </Button>
+      </div>
+
+      {/* Aggiorna contenuti via Lovable */}
+      <div className="glass rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-foreground">Aggiorna contenuti</p>
+            <p className="text-[11px] text-muted-foreground">
+              Apre Lovable per sincronizzare aggiornamenti
+            </p>
+          </div>
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-neon-purple/15 text-neon-purple">
+            <ExternalLink size={18} />
+          </div>
+        </div>
+        <Button
+          onClick={handleOpenLovable}
+          disabled={lovableOpen}
+          variant="outline"
+          className="w-full gap-2"
+        >
+          <ExternalLink size={14} />
+          {lovableOpen ? "Lovable aperto..." : "Apri Lovable"}
         </Button>
       </div>
 
