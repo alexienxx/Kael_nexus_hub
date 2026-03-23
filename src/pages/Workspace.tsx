@@ -62,6 +62,8 @@ const Workspace = () => {
         {activeTab === "goals" && <GoalsTab sessionId={sessionId} />}
         {activeTab === "reflections" && <ReflectionsTab />}
       </div>
+
+      <ServicesSheet isOpen={showServices} onClose={() => setShowServices(false)} />
     </div>
   );
 };
