@@ -13,6 +13,7 @@ const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
   { to: "/media", icon: Paperclip, label: "Allegati" },
   { to: "/workspace", icon: FolderKanban, label: "Workspace" },
+  { to: "/observatory", icon: BrainCircuit, label: "Observatory" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 

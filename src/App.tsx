@@ -40,6 +40,7 @@ const AppRoutes = () => {
           <Route path="/memories" element={<Memories />} />
           
           <Route path="/settings" element={<Settings />} />
+          <Route path="/observatory" element={<Observatory />} />
         </Route>
         <Route path="/spotify-callback" element={<SpotifyCallback />} />
         <Route path="*" element={<NotFound />} />
