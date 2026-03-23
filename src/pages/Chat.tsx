@@ -671,7 +671,11 @@ const Chat = () => {
         onSend={handleSend}
         onImageUpload={handleImageUpload}
         onVoiceNote={handleVoiceNote}
+        onOpenServices={() => setShowServices(true)}
       />
+
+      {/* Services Sheet */}
+      <ServicesSheet isOpen={showServices} onClose={() => setShowServices(false)} />
 
       {/* Hidden wallpaper file input */}
       <input
