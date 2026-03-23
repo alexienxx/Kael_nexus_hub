@@ -11,7 +11,6 @@ import {
 } from "@/lib/api/updates";
 import UpdateDialog from "@/components/updates/UpdateDialog";
 import { Browser } from "@capacitor/browser";
-import { App as CapApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 
 const LOVABLE_URL = "https://0a6f887f-df8f-4066-86ec-c6471cdc96bc.lovableproject.com?forceHideBadge=true";
@@ -25,18 +24,15 @@ const UpdateSettings = () => {
   const [manifestUrl, setManifestUrlLocal] = useState(getManifestUrl());
   const [lovableOpen, setLovableOpen] = useState(false);
 
-  // On resume after Lovable browser closes → light UI refresh
+  // Listen for browserFinished — fires when the external browser is closed
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
-    const listener = CapApp.addListener("resume", () => {
-      if (lovableOpen) {
-        setLovableOpen(false);
-        // Dispatch refresh event so other components can refetch data
-        window.dispatchEvent(new Event("kael-content-refresh"));
-      }
+    const listener = Browser.addListener("browserFinished", () => {
+      setLovableOpen(false);
+      window.dispatchEvent(new Event("kael-content-refresh"));
     });
     return () => { listener.then(h => h.remove()); };
-  }, [lovableOpen]);
+  }, []);
 
   const handleOpenLovable = async () => {
     setLovableOpen(true);

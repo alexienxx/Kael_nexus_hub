@@ -10,6 +10,7 @@ import {
   Download,
   Bot,
   ImagePlus,
+  GitBranch,
 } from "lucide-react";
 import KaelHeader from "@/components/layout/KaelHeader";
 import ThemeCustomizer from "@/components/settings/ThemeCustomizer";
@@ -18,8 +19,9 @@ import ProfileEditor from "@/components/settings/ProfileEditor";
 import UpdateSettings from "@/components/settings/UpdateSettings";
 import ExternalAgentSettings from "@/components/settings/ExternalAgentSettings";
 import PhotoGalleryUpload from "@/components/settings/PhotoGalleryUpload";
+import AgenticSettings from "@/components/settings/AgenticSettings";
 
-type SettingsSection = "main" | "theme" | "backend" | "profile" | "updates" | "external_agent" | "photo_gallery";
+type SettingsSection = "main" | "theme" | "backend" | "profile" | "updates" | "external_agent" | "photo_gallery" | "agentic";
 
 const Settings = () => {
   const [section, setSection] = useState<SettingsSection>("main");
@@ -138,12 +140,32 @@ const Settings = () => {
     );
   }
 
+  if (section === "agentic") {
+    return (
+      <div className="flex h-full flex-col">
+        <KaelHeader
+          title="Funzioni Agentiche"
+          showStatus={false}
+          rightContent={
+            <button onClick={() => setSection("main")} className="text-sm text-neon-purple">
+              ← Indietro
+            </button>
+          }
+        />
+        <div className="flex-1 overflow-y-auto">
+          <AgenticSettings />
+        </div>
+      </div>
+    );
+  }
+
   const menuItems = [
     { id: "profile" as const, icon: User, label: "Profilo Kael", desc: "Avatar e identità" },
     { id: "theme" as const, icon: Palette, label: "Personalizzazione", desc: "Colori, bolle, sfondo, blur" },
     { id: "backend" as const, icon: Globe, label: "Connessione Backend", desc: "URL, API key, stato" },
     { id: "external_agent" as const, icon: Bot, label: "Agente Esterno", desc: "API key, modello AI" },
     { id: "photo_gallery" as const, icon: ImagePlus, label: "Foto Kael & Alexièn", desc: "Galleria reference per generazione" },
+    { id: "agentic" as const, icon: GitBranch, label: "Funzioni Agentiche", desc: "GitHub, repo analysis, self-audit" },
     { id: "updates" as const, icon: Download, label: "Aggiornamenti", desc: "Versione, update remoti" },
   ];
 
