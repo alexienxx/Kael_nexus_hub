@@ -5,7 +5,10 @@ const config: CapacitorConfig = {
   appName: 'Kael',
   webDir: 'dist',
   server: {
-    // Use http:// scheme to avoid Mixed Content blocking when calling HTTP backend
+    // Live-reload: the APK loads the UI directly from the Lovable preview.
+    // After rebuilding the APK once with this config, all future code changes
+    // will appear on the phone automatically without reinstalling.
+    url: 'https://0a6f887f-df8f-4066-86ec-c6471cdc96bc.lovableproject.com?forceHideBadge=true',
     androidScheme: 'http',
     cleartext: true,
   },
