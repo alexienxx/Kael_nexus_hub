@@ -52,11 +52,7 @@ export default function Observatory() {
       {/* Header */}
       <KaelHeader
         title="Cognitive Observatory"
-        leftContent={
-          <button onClick={() => navigate(-1)} className="p-1.5 rounded-lg hover:bg-muted transition-colors">
-            <ChevronLeft size={20} className="text-muted-foreground" />
-          </button>
-        }
+        showBack
       />
 
       {/* Scrollable tab bar */}
