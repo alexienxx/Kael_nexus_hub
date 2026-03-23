@@ -381,10 +381,11 @@ const Chat = () => {
           // Avatar video: async poll if backend triggered a render job
           if (response.avatar_job_id) {
             const msgId = responseMsg.id;
-            fetchAvatarVideo(response.avatar_job_id).then((dataUrl) => {
-              if (dataUrl) {
+            fetchAvatarVideo(response.avatar_job_id).then((result) => {
+              if (result?.video_base64) {
+                const videoDataUrl = `data:video/mp4;base64,${result.video_base64}`;
                 setMessages((prev) =>
-                  prev.map((m) => (m.id === msgId ? { ...m, videoUrl: dataUrl } : m))
+                  prev.map((m) => (m.id === msgId ? { ...m, videoUrl: videoDataUrl } : m))
                 );
               }
             });
