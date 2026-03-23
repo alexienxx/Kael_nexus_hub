@@ -42,7 +42,6 @@ type TabId = typeof TABS[number]["id"];
 
 export default function Observatory() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
-  const navigate = useNavigate();
 
   const ActiveComponent = TABS.find((t) => t.id === activeTab)!.component;
 
