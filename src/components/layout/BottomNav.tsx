@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink as RouterNavLink } from "react-router-dom";
-import { MessageCircle, Paperclip, FolderKanban, Settings, Bot, RefreshCw } from "lucide-react";
+import { MessageCircle, Paperclip, FolderKanban, Settings, Bot, RefreshCw, BrainCircuit } from "lucide-react";
 import NetharionButton from "@/components/common/NetharionButton";
 import NetharionRealEventsSheet from "@/components/common/NetharionRealEventsSheet";
 import SpotifyIcon from "@/components/common/SpotifyIcon";
