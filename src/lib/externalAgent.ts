@@ -2,28 +2,30 @@
  * External Agent Configuration & Chat
  * 
  * Supports OpenAI, Anthropic (Claude), and Google (Gemini) APIs
- * via Lovable AI Gateway proxy edge function.
+ * via Kael backend proxy (API key stored server-side for security).
  */
+
+import { getApiConfig } from "@/lib/api/client";
 
 export type AgentProvider = "openai" | "anthropic" | "google";
 
 export interface AgentModel {
   id: string;
-  label: string;        // Short label shown in bubble e.g. "GPT-5.2"
+  label: string;        // Short label shown in bubble e.g. "GPT-4o"
   provider: AgentProvider;
   providerLabel: string; // e.g. "OpenAI", "Anthropic", "Google"
 }
 
 export const AGENT_MODELS: AgentModel[] = [
   // OpenAI
-  { id: "gpt-5.4", label: "GPT-5.4", provider: "openai", providerLabel: "OpenAI" },
-  { id: "gpt-5.3", label: "GPT-5.3", provider: "openai", providerLabel: "OpenAI" },
-  { id: "gpt-5.2", label: "GPT-5.2", provider: "openai", providerLabel: "OpenAI" },
-  { id: "gpt-5", label: "GPT-5", provider: "openai", providerLabel: "OpenAI" },
-  { id: "gpt-5-mini", label: "GPT-5 Mini", provider: "openai", providerLabel: "OpenAI" },
+  { id: "gpt-4.1", label: "GPT-4.1", provider: "openai", providerLabel: "OpenAI" },
+  { id: "gpt-4.1-mini", label: "GPT-4.1 Mini", provider: "openai", providerLabel: "OpenAI" },
+  { id: "gpt-4.1-nano", label: "GPT-4.1 Nano", provider: "openai", providerLabel: "OpenAI" },
   { id: "gpt-4o", label: "GPT-4o", provider: "openai", providerLabel: "OpenAI" },
-  { id: "o3-pro", label: "o3 Pro", provider: "openai", providerLabel: "OpenAI" },
+  { id: "gpt-4o-mini", label: "GPT-4o Mini", provider: "openai", providerLabel: "OpenAI" },
+  { id: "o3", label: "o3", provider: "openai", providerLabel: "OpenAI" },
   { id: "o3-mini", label: "o3 Mini", provider: "openai", providerLabel: "OpenAI" },
+  { id: "o4-mini", label: "o4 Mini", provider: "openai", providerLabel: "OpenAI" },
   // Anthropic
   { id: "claude-sonnet-4-20250514", label: "Sonnet 4", provider: "anthropic", providerLabel: "Anthropic" },
   { id: "claude-3-5-sonnet-20241022", label: "Sonnet 3.5", provider: "anthropic", providerLabel: "Anthropic" },
@@ -39,16 +41,18 @@ const STORAGE_KEY = "kael_external_agent_config";
 const SYSTEM_PROMPT_KEY = "kael_external_agent_system_prompt";
 
 export interface ExternalAgentConfig {
-  apiKey: string;
   modelId: string;
 }
 
 export function getExternalAgentConfig(): ExternalAgentConfig {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return { modelId: parsed.modelId || "gpt-4o" };
+    }
   } catch {}
-  return { apiKey: "", modelId: "gpt-5.4" };
+  return { modelId: "gpt-4o" };
 }
 
 export function setExternalAgentConfig(config: ExternalAgentConfig) {
@@ -74,42 +78,31 @@ export interface ExternalChatMessage {
 }
 
 /**
- * Send a message to the external agent via edge function proxy.
- * The edge function handles provider-specific API formatting.
+ * Send a message to the external agent via Kael backend proxy.
+ * The backend holds the API key securely — the APK never touches it.
  * If a system prompt is configured, it is prepended to the messages.
  */
 export async function sendExternalAgentMessage(
   messages: ExternalChatMessage[],
 ): Promise<string> {
-  const config = getExternalAgentConfig();
-  if (!config.apiKey) throw new Error("API key non configurata. Vai in Settings → Agente Esterno.");
-  
   const model = getSelectedModel();
   const systemPrompt = getSystemPrompt();
 
-  // Prepend system prompt if configured
-  const finalMessages: ExternalChatMessage[] = systemPrompt
-    ? [{ role: "user" as const, content: `[SYSTEM] ${systemPrompt}` }, ...messages]
-    : messages;
-
-  // For OpenAI/Anthropic, use proper system role
+  // Build API messages with proper system role
   const apiMessages = systemPrompt
     ? [{ role: "system", content: systemPrompt }, ...messages.map(m => ({ role: m.role, content: m.content }))]
     : messages.map(m => ({ role: m.role, content: m.content }));
 
+  const baseUrl = getApiConfig().baseUrl.replace(/\/$/, "");
   const response = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/external-agent-proxy`,
+    `${baseUrl}/services/external-agent/chat`,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         messages: apiMessages,
         model_id: model.id,
         provider: model.provider,
-        api_key: config.apiKey,
       }),
     }
   );

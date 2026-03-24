@@ -9,15 +9,16 @@ import Chat from "@/pages/Chat";
 import Calls from "@/pages/Calls";
 import Media from "@/pages/Media";
 import Workspace from "@/pages/Workspace";
-import Memories from "@/pages/Memories";
 import Settings from "@/pages/Settings";
 import Observatory from "@/pages/Observatory";
 
 import SpotifyCallback from "@/pages/SpotifyCallback";
+import ServiceCallback from "@/pages/ServiceCallback";
 import NotFound from "@/pages/NotFound";
 import { useBootUpdateCheck } from "@/hooks/useBootUpdateCheck";
 import UpdateDialog from "@/components/updates/UpdateDialog";
 import { initNativeNotifications } from "@/lib/nativeNotifications";
+import ClickInspector from "@/components/dev/ClickInspector";
 
 // Initialize native notification channel & permissions on app boot.
 // Safe no-op when running in browser (non-Capacitor).
@@ -37,12 +38,12 @@ const AppRoutes = () => {
           <Route path="/calls" element={<Calls />} />
           <Route path="/media" element={<Media />} />
           <Route path="/workspace" element={<Workspace />} />
-          <Route path="/memories" element={<Memories />} />
           
           <Route path="/settings" element={<Settings />} />
           <Route path="/observatory" element={<Observatory />} />
         </Route>
         <Route path="/spotify-callback" element={<SpotifyCallback />} />
+        <Route path="/services/callback" element={<ServiceCallback />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       {/* WiFi update dialog — shown automatically on boot if update is available */}
@@ -64,6 +65,7 @@ const App = () => (
         <BrowserRouter>
           <AppRoutes />
         </BrowserRouter>
+        {import.meta.env.DEV && <ClickInspector />}
       </TooltipProvider>
     </ThemeProvider>
   </QueryClientProvider>

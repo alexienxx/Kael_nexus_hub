@@ -1,4 +1,4 @@
-import { apiRequest, apiUpload, getApiConfig } from "./client";
+import { apiRequest, apiUpload, getApiConfig, ensureBackendAlive } from "./client";
 import type { CallSession } from "@/types";
 
 /**
@@ -16,6 +16,9 @@ import type { CallSession } from "@/types";
 
 /** Request TTS playback audio for a text message */
 export async function requestTTS(text: string, language: string = "it", sessionId: string = "default"): Promise<Blob> {
+  if (!(await ensureBackendAlive())) {
+    throw new Error("Backend non raggiungibile — riprova tra poco");
+  }
   // Backend expects POST /chat/voice/tts with JSON body
   const config = getApiConfig();
   const baseUrl = config.baseUrl.replace(/\/$/, "");
@@ -35,6 +38,9 @@ export async function requestTTS(text: string, language: string = "it", sessionI
 
 /** Initiate a voice call */
 export async function initiateCall(sessionId: string) {
+  if (!(await ensureBackendAlive())) {
+    throw new Error("Backend non raggiungibile — riprova tra poco");
+  }
   return apiRequest<{
     call_id: string;
     state: string;

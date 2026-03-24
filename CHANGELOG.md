@@ -35,6 +35,16 @@
 
 ## [Unreleased] — 2026-03-25
 
+### 🔧 Fixed — Critical Chat Routing
+- **`src/pages/Chat.tsx` — Kael restored as canonical route**: `handleSend()` now always calls `chatApi.sendMessage()` for the main conversation. Agent mode no longer replaces Kael.
+- **`src/pages/Chat.tsx` — external agent made additive/non-blocking**: when Agent mode is ON, `sendExternalAgentMessage()` runs only as an optional secondary path after Kael responds. Missing API key or proxy/provider failure no longer blocks the main chat.
+- **`src/components/layout/BottomNav.tsx` — removed destructive persistence of agent mode**: the Agent toggle is now session-only UI state and no longer persists via `localStorage("kael_agent_mode")`, preventing accidental future hijack of the primary chat route.
+
+### ✅ Verification Contract
+- **agentMode ON**: Kael still responds.
+- **agentMode OFF**: Kael still responds.
+- **No external API key**: Kael still works; only the optional external path fails.
+
 ### ✨ Added / Changed
 - **Agente Esterno integrato nella chat principale**: Il pulsante "Agent" nella barra in basso ora funziona come toggle ON/OFF. Quando attivo (icona teal + pallino pulsante), i messaggi vengono inviati all'agente esterno selezionato invece che a Kael. Le risposte appaiono nella stessa conversazione con bubble di colore diverso e etichetta modello.
 - **Modelli OpenAI aggiornati**: Rimossi modelli obsoleti (GPT-4 Turbo, o1), aggiunti GPT-5, 5.2, 5.3, 5.4, o3 Pro, o3 Mini.

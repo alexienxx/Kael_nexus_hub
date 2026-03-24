@@ -1,11 +1,15 @@
 import { useState, useEffect } from "react";
-import { Globe, Key, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Globe, Key, CheckCircle, XCircle, Loader2, Power, AlertTriangle } from "lucide-react";
 import { getApiConfig, setApiConfig, checkHealth } from "@/lib/api/client";
+import { useServerRestart } from "@/hooks/useServerRestart";
 
 const BackendConfig = () => {
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [status, setStatus] = useState<"idle" | "checking" | "ok" | "error">("idle");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const { state: restartState, message: restartMessage, proof: restartProof, restartServer, reset: resetRestart } = useServerRestart();
 
   useEffect(() => {
     const config = getApiConfig();
@@ -14,10 +18,21 @@ const BackendConfig = () => {
   }, []);
 
   const handleSave = async () => {
-    setApiConfig({ baseUrl, apiKey });
     setStatus("checking");
+    // Test FIRST — only persist if backend is reachable at this URL.
+    const prevConfig = getApiConfig();
+    // Temporarily set for checkHealth to use this URL
+    setApiConfig({ baseUrl, apiKey });
     const ok = await checkHealth();
-    setStatus(ok ? "ok" : "error");
+    if (ok) {
+      console.log("[API CONFIG] user saved & validated:", baseUrl);
+      setStatus("ok");
+    } else {
+      // Restore previous config — don't persist a broken URL
+      setApiConfig(prevConfig);
+      console.warn("[API CONFIG] validation failed, restored previous:", prevConfig.baseUrl);
+      setStatus("error");
+    }
   };
 
   return (
@@ -93,6 +108,118 @@ const BackendConfig = () => {
         <br />
         Configura qui l'URL per connettere l'app.
       </p>
+
+      {/* ── Avanzate ──────────────────────────────────────────────── */}
+      <section>
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="flex w-full items-center justify-between text-xs text-muted-foreground py-2"
+        >
+          <span className="font-semibold uppercase tracking-wider">Avanzate</span>
+          <span className="text-[10px]">{showAdvanced ? "▲" : "▼"}</span>
+        </button>
+
+        {showAdvanced && (
+          <div className="glass rounded-xl p-4 space-y-4">
+            <div>
+              <h4 className="text-xs font-semibold text-foreground mb-1">Riavvia Server</h4>
+              <p className="text-[10px] text-muted-foreground mb-3">
+                Invia un comando al sentinel (porta 8099) per riavviare il backend.
+                Usa questa funzione SOLO se il server è bloccato o non risponde.
+              </p>
+
+              {/* Confirmation gate */}
+              {!confirmRestart && restartState === "idle" && (
+                <button
+                  onClick={() => setConfirmRestart(true)}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-destructive/30 bg-destructive/10 py-2.5 text-sm font-medium text-destructive transition-all active:scale-[0.98]"
+                >
+                  <Power size={16} />
+                  Riavvia Server
+                </button>
+              )}
+
+              {confirmRestart && restartState === "idle" && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 rounded-lg bg-yellow-500/10 p-2.5 text-yellow-500">
+                    <AlertTriangle size={16} className="shrink-0" />
+                    <span className="text-[11px]">
+                      Questo riavvierà il backend Kael. Sei sicuro?
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setConfirmRestart(false)}
+                      className="flex-1 rounded-xl border border-border py-2 text-xs text-muted-foreground"
+                    >
+                      Annulla
+                    </button>
+                    <button
+                      onClick={() => {
+                        setConfirmRestart(false);
+                        restartServer();
+                      }}
+                      className="flex-1 rounded-xl bg-destructive py-2 text-xs font-semibold text-destructive-foreground"
+                    >
+                      Conferma riavvio
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {restartState === "restarting" && (
+                <div className="flex items-center gap-2 rounded-lg bg-yellow-500/10 p-3 text-yellow-500">
+                  <Loader2 size={16} className="animate-spin shrink-0" />
+                  <span className="text-xs">{restartMessage}</span>
+                </div>
+              )}
+
+              {restartState === "success" && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 rounded-lg bg-green-500/10 p-3 text-green-500">
+                    <CheckCircle size={16} />
+                    <span className="text-xs">{restartMessage}</span>
+                  </div>
+                  {restartProof && (
+                    <div className="rounded-lg bg-muted/30 p-2.5 space-y-0.5 text-[10px] text-muted-foreground font-mono">
+                      {restartProof.pidChanged && (
+                        <p>PID: {restartProof.oldPid} → {restartProof.newPid}</p>
+                      )}
+                      {restartProof.newSessionId && (
+                        <p>Session: {restartProof.newSessionId.slice(0, 20)}...</p>
+                      )}
+                      {restartProof.newUptime && (
+                        <p>Uptime: {restartProof.newUptime}</p>
+                      )}
+                    </div>
+                  )}
+                  <button
+                    onClick={resetRestart}
+                    className="w-full rounded-xl border border-border py-2 text-xs text-muted-foreground"
+                  >
+                    OK
+                  </button>
+                </div>
+              )}
+
+              {restartState === "error" && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 rounded-lg bg-destructive/10 p-3 text-destructive">
+                    <XCircle size={16} />
+                    <span className="text-xs">{restartMessage}</span>
+                  </div>
+                  <button
+                    onClick={resetRestart}
+                    className="w-full rounded-xl border border-border py-2 text-xs text-muted-foreground"
+                  >
+                    Chiudi
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   );
 };

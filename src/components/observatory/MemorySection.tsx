@@ -62,19 +62,20 @@ export default function MemorySection() {
           <MemCount label="Lungo termine" value={d.long_term_count} />
           <MemCount label="Semantica" value={d.semantic_memory_count} />
           <MemCount label="Relazionale" value={d.relationship_timeline_count} />
-          <MemCount label="Simbolica" value={d.symbolic_memory_count} />
-          <MemCount label="Backlog" value={d.backlog_count} warn={d.backlog_count > 10} />
+          <MemCount label="Simbolica" value={d.symbolic_memory_count} unavailable={d.symbolic_memory_available === false} />
+          <MemCount label="Backlog" value={d.backlog_count} warn={(d.backlog_count ?? 0) > 10} unavailable={d.backlog_available === false} />
         </div>
       </div>
 
       {/* Distillation status */}
       <div className="rounded-lg border border-border bg-secondary/20 p-3">
         <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Distillation</p>
-        <p className="text-sm font-semibold text-foreground">{d.distillation_status}</p>
+        <p className="text-sm font-semibold text-foreground">{d.distillation_status ?? "Non disponibile"}</p>
+        {d.distillation_available === false && <p className="text-[9px] text-muted-foreground">Non implementata</p>}
       </div>
 
       {/* Failed retrievals */}
-      {d.failed_retrievals > 0 && (
+      {d.failed_retrievals != null && d.failed_retrievals > 0 && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 flex items-center gap-2">
           <AlertTriangle size={14} className="text-amber-400" />
           <span className="text-xs text-amber-300">Retrieval falliti: <strong>{d.failed_retrievals}</strong></span>
@@ -127,11 +128,15 @@ function TimestampCard({ label, ts }: { label: string; ts: number | null }) {
   );
 }
 
-function MemCount({ label, value, warn }: { label: string; value: number; warn?: boolean }) {
+function MemCount({ label, value, warn, unavailable }: { label: string; value: number | null; warn?: boolean; unavailable?: boolean }) {
   return (
     <div className="flex items-center justify-between text-xs">
       <span className="text-foreground/70">{label}</span>
-      <span className={`font-mono font-semibold ${warn ? "text-amber-400" : "text-foreground"}`}>{value}</span>
+      {unavailable ? (
+        <span className="font-mono text-muted-foreground/50">N/D</span>
+      ) : (
+        <span className={`font-mono font-semibold ${warn ? "text-amber-400" : "text-foreground"}`}>{value ?? 0}</span>
+      )}
     </div>
   );
 }

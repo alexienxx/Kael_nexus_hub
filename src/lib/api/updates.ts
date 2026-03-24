@@ -151,14 +151,28 @@ export async function checkForUpdatesSilent(): Promise<UpdateCheckResult | null>
 }
 
 /**
- * Download APK from URL with progress tracking.
- * In a Capacitor WebView context, this triggers a browser-style download
- * which Android will handle via the system download manager / install intent.
+ * Download APK from URL.
+ * On native Capacitor (Android), opens the download URL in the system browser
+ * which triggers Android's download manager + APK install prompt.
+ * On web/desktop, falls back to blob + <a> download trick.
  */
 export async function downloadApk(
   apkUrl: string,
   onProgress?: (percent: number) => void
 ): Promise<void> {
+  // On native Android, delegate to system browser for proper APK install flow
+  const isNative = typeof (window as any).Capacitor?.isNativePlatform === "function"
+    && (window as any).Capacitor.isNativePlatform();
+
+  if (isNative) {
+    // Dynamic import to avoid bundling Browser in web builds
+    const { Browser } = await import("@capacitor/browser");
+    await Browser.open({ url: apkUrl });
+    onProgress?.(100);
+    return;
+  }
+
+  // Web fallback: fetch + blob download
   const res = await fetch(apkUrl);
   if (!res.ok) throw new Error(`Download fallito: ${res.status}`);
 
@@ -166,7 +180,6 @@ export async function downloadApk(
   const total = contentLength ? parseInt(contentLength, 10) : 0;
 
   if (!res.body) {
-    // Fallback: simple download
     const blob = await res.blob();
     triggerBrowserDownload(blob, "kael-companion.apk");
     onProgress?.(100);

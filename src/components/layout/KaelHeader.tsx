@@ -24,8 +24,12 @@ function dotColorClass(state: BackendLifecycleState): string {
     case "starting":
     case "waiting":
     case "checking":
-      return "bg-red-500 animate-pulse";
+      return "bg-yellow-400 animate-pulse";
     case "start_failed":
+      return "bg-destructive";
+    case "offline_network":
+      return "bg-orange-400";
+    case "backend_unreachable":
       return "bg-destructive";
     case "offline":
     default:

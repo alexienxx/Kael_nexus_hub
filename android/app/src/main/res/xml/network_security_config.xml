@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network security config for Kael Companion APK.
+  Allows cleartext (HTTP) to any host — required because:
+  - WebView loads from https://localhost (Capacitor androidScheme)
+  - Backend runs on HTTP (LAN IP, Tailscale IP, localhost via adb reverse)
+  - IPs are dynamic (WiFi, Tailscale, hotspot)
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

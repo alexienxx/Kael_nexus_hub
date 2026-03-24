@@ -7,32 +7,14 @@ import "./index.css";
  * Cleans up old demo/contaminated state from localStorage.
  */
 (function bootMigration() {
-  const MIGRATION_KEY = "kael_boot_migration_v1";
+  const MIGRATION_KEY = "kael_boot_migration_v3";
   if (localStorage.getItem(MIGRATION_KEY)) return; // already migrated
 
-  // 1. Ensure backend config has a valid default URL
+  // 1. Backend config: RESET to empty so auto-discovery can find port 8002.
+  //    v3: always clear stale URLs (e.g. old :8000 from previous builds).
+  //    Discovery will re-scan KNOWN_HOSTS × PORT_RANGE and persist the correct one.
   const configKey = "kael-backend-config";
-  try {
-    const raw = localStorage.getItem(configKey);
-    if (!raw) {
-      // No config at all — set the LAN default
-      localStorage.setItem(configKey, JSON.stringify({
-        baseUrl: "http://192.168.178.78:8002",
-        apiKey: "",
-      }));
-    } else {
-      const parsed = JSON.parse(raw);
-      if (!parsed.baseUrl) {
-        parsed.baseUrl = "http://192.168.178.78:8002";
-        localStorage.setItem(configKey, JSON.stringify(parsed));
-      }
-    }
-  } catch {
-    localStorage.setItem(configKey, JSON.stringify({
-      baseUrl: "http://192.168.178.78:8002",
-      apiKey: "",
-    }));
-  }
+  localStorage.setItem(configKey, JSON.stringify({ baseUrl: "", apiKey: "" }));
 
   // 2. Ensure session ID is canonical
   const sessionKey = "kael_session_id";
@@ -54,7 +36,7 @@ import "./index.css";
 
   // Mark migration as done
   localStorage.setItem(MIGRATION_KEY, new Date().toISOString());
-  console.log("[KAEL_BOOT] Migration v1 complete");
+  console.log("[KAEL_BOOT] Migration v3 complete — URL reset, discovery active");
 })();
 
 createRoot(document.getElementById("root")!).render(<App />);

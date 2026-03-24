@@ -8,12 +8,14 @@ interface StatusVisual {
 }
 
 const stateConfig: Record<BackendLifecycleState, StatusVisual> = {
-  checking:     { label: "Connessione...",     color: "text-yellow-400",        dot: "bg-yellow-400 animate-pulse",    showLabel: true },
-  online:       { label: "Online",             color: "text-online",            dot: "bg-online",                      showLabel: false },
-  starting:     { label: "Server in avvio...", color: "text-yellow-400",        dot: "bg-red-500 animate-pulse",       showLabel: true },
-  waiting:      { label: "Server in avvio...", color: "text-yellow-400",        dot: "bg-red-500 animate-pulse",       showLabel: true },
-  start_failed: { label: "Avvio fallito",      color: "text-destructive",       dot: "bg-destructive",                 showLabel: true },
-  offline:      { label: "Offline",            color: "text-muted-foreground",  dot: "bg-muted-foreground",            showLabel: true },
+  checking:              { label: "Connessione...",       color: "text-yellow-400",        dot: "bg-yellow-400 animate-pulse",    showLabel: true },
+  online:                { label: "Online",               color: "text-online",            dot: "bg-online",                      showLabel: false },
+  starting:              { label: "Server in avvio...",   color: "text-yellow-400",        dot: "bg-red-500 animate-pulse",       showLabel: true },
+  waiting:               { label: "Server in avvio...",   color: "text-yellow-400",        dot: "bg-red-500 animate-pulse",       showLabel: true },
+  start_failed:          { label: "Avvio fallito",        color: "text-destructive",       dot: "bg-destructive",                 showLabel: true },
+  offline:               { label: "Offline",              color: "text-muted-foreground",  dot: "bg-muted-foreground",            showLabel: true },
+  offline_network:       { label: "No rete",              color: "text-orange-400",        dot: "bg-orange-400",                  showLabel: true },
+  backend_unreachable:   { label: "Irraggiungibile",      color: "text-destructive",       dot: "bg-destructive",                 showLabel: true },
 };
 
 interface ConnectionBadgeProps {

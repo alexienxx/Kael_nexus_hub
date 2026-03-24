@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import KaelHeader from "@/components/layout/KaelHeader";
+import { useBackendConnection } from "@/context/BackendConnectionContext";
 import {
   Activity, Gauge, Fingerprint, Brain, Heart,
   Database, User, Package, Zap, Code
@@ -42,6 +43,7 @@ type TabId = typeof TABS[number]["id"];
 
 export default function Observatory() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const { state: lifecycleState, message: lifecycleMessage } = useBackendConnection();
 
   const ActiveComponent = TABS.find((t) => t.id === activeTab)!.component;
 
@@ -51,6 +53,8 @@ export default function Observatory() {
       <KaelHeader
         title="Cognitive Observatory"
         showBack
+        lifecycleState={lifecycleState}
+        lifecycleMessage={lifecycleMessage}
       />
 
       {/* Scrollable tab bar */}

@@ -127,6 +127,31 @@ const MessageBubble = ({
       onEditMessage={onEditMessage}
       onDownloadImage={(url) => downloadFile(url, `kael-image-${Date.now()}.jpg`)}
       onDownloadAudio={(url) => downloadFile(url, `kael-audio-${Date.now()}.webm`)}
+      onSaveToGallery={async (type, dataUrl) => {
+        try {
+          // Extract base64 from data URL (data:image/png;base64,...) or raw URL
+          let b64 = dataUrl;
+          if (dataUrl.startsWith("data:")) {
+            b64 = dataUrl.split(",")[1] || "";
+          } else if (dataUrl.startsWith("http")) {
+            // Fetch and convert to base64
+            const resp = await fetch(dataUrl);
+            const blob = await resp.blob();
+            b64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve((reader.result as string).split(",")[1] || "");
+              reader.readAsDataURL(blob);
+            });
+          }
+          const { saveToGallery } = await import("@/lib/api/media");
+          await saveToGallery({ type, data_b64: b64, source: "chat_save" });
+          const { toast } = await import("sonner");
+          toast.success("Salvato in galleria");
+        } catch {
+          const { toast } = await import("sonner");
+          toast.error("Errore salvataggio in galleria");
+        }
+      }}
     >
     <div
       className={`flex ${isUser ? "justify-end" : "justify-start"} group`}

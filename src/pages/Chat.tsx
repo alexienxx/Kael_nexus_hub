@@ -14,7 +14,6 @@ import TypingIndicator from "@/components/TypingIndicator";
 import ImageViewer from "@/components/media/ImageViewer";
 
 import ServiceActionChips from "@/components/services/ServiceActionChips";
-import ServicesSheet from "@/components/services/ServicesSheet";
 import WallpaperLayer from "@/components/wallpaper/WallpaperLayer";
 import WallpaperActionSheet from "@/components/wallpaper/WallpaperActionSheet";
 import WallpaperPreviewSheet from "@/components/wallpaper/WallpaperPreviewSheet";
@@ -27,8 +26,30 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import * as chatApi from "@/lib/api/chat";
 import { requestTTS } from "@/lib/api/voice";
-import { fetchAvatarVideo } from "@/lib/api/avatar";
-import { getApiConfig, probeAndResolveBackend, invalidateBackendCache } from "@/lib/api/client";
+import { fetchAvatarVideo, getVideoJobStatus } from "@/lib/api/avatar";
+
+/** Poll avatar render job until done, then fetch the base64 video. */
+const pollAndFetchAvatarVideo = async (jobId: string): Promise<string | null> => {
+  const POLL_INTERVAL_MS = 2000;
+  const MAX_POLLS = 30; // 60s max
+  for (let i = 0; i < MAX_POLLS; i++) {
+    try {
+      const status = await getVideoJobStatus(jobId);
+      if (status.status === "done") {
+        const result = await fetchAvatarVideo(jobId);
+        return result?.video_base64
+          ? `data:video/mp4;base64,${result.video_base64}`
+          : null;
+      }
+      if (status.status === "error") return null;
+    } catch {
+      // transient network error — keep polling
+    }
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+  }
+  return null; // timeout
+};
+import { getApiConfig, probeAndResolveBackend } from "@/lib/api/client";
 import { sendExternalAgentMessage, getSelectedModel, type ExternalChatMessage } from "@/lib/externalAgent";
 
 // Default conversation ID for the main Kael chat
@@ -39,9 +60,7 @@ const Chat = () => {
   const [historyLoading, setHistoryLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
-  const [agentMode, setAgentMode] = useState(() => localStorage.getItem("kael_agent_mode") === "1");
-  const [showServices, setShowServices] = useState(false);
-  
+  const [agentMode, setAgentMode] = useState(false);
   const { theme, kaelAvatarSrc } = useTheme();
   const { sessionId } = useSession();
   const { activeContext, clearContext } = useAgenticActions();
@@ -182,17 +201,32 @@ const Chat = () => {
     return () => { cancelled = true; };
   }, [lifecycleState, sessionId]);
 
-  const scrollToBottom = (instant?: boolean) => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView(instant ? { behavior: "auto" } : { behavior: "smooth" });
-    }, instant ? 30 : 100);
-  };
+  const scrollToBottom = useCallback((instant?: boolean) => {
+    const doScroll = () => {
+      messagesEndRef.current?.scrollIntoView(
+        instant ? { behavior: "auto" } : { behavior: "smooth" },
+      );
+    };
+    // Double rAF ensures DOM has flushed before scrolling
+    requestAnimationFrame(() => requestAnimationFrame(doScroll));
+  }, []);
 
   useEffect(() => {
     if (!historyLoading && messages.length > 0) {
       scrollToBottom(true);
     }
   }, [historyLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-scroll when user returns to app/tab (visibility change)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible" && messages.length > 0) {
+        scrollToBottom(true);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [messages.length, scrollToBottom]);
 
   const now = () => new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 
@@ -269,11 +303,21 @@ const Chat = () => {
       fetchAndAppendPending();
     };
 
+    const handleServerRestarted = () => {
+      // Server silently restarted — force full history reload
+      console.warn("[Chat] Server restarted detected, reloading history...");
+      historyLoadedRef.current = false;
+      setHistoryLoading(true);
+      lastFetchTsRef.current = 0;
+    };
+
     window.addEventListener("kael-autonomous-message", handleAutonomous);
     window.addEventListener("kael-sse-connected", handleReconnect);
+    window.addEventListener("kael-server-restarted", handleServerRestarted);
     return () => {
       window.removeEventListener("kael-autonomous-message", handleAutonomous);
       window.removeEventListener("kael-sse-connected", handleReconnect);
+      window.removeEventListener("kael-server-restarted", handleServerRestarted);
     };
   }, [lifecycleState, fetchAndAppendPending]);
 
@@ -299,43 +343,7 @@ const Chat = () => {
       setMessages((prev) => [...prev, userMsg]);
       scrollToBottom();
 
-      // --- External Agent Mode ---
-      if (agentMode) {
-        setIsTyping(true);
-        try {
-          // Build conversation history for agent (last 20 messages)
-          const agentHistory: ExternalChatMessage[] = messages
-            .filter((m) => m.sender === "user" || m.sender === "external_agent")
-            .slice(-20)
-            .map((m) => ({
-              role: m.sender === "user" ? "user" as const : "assistant" as const,
-              content: m.text,
-            }));
-          agentHistory.push({ role: "user", content: text });
-
-          const model = getSelectedModel();
-          const reply = await sendExternalAgentMessage(agentHistory);
-
-          setIsTyping(false);
-          const agentMsg: ChatMessage = {
-            id: (Date.now() + 1).toString(),
-            text: reply,
-            time: now(),
-            sender: "external_agent",
-            feedback: null,
-            agent_id: model.id,
-            agent_name: model.label,
-          };
-          setMessages((prev) => [...prev, agentMsg]);
-          scrollToBottom();
-        } catch (error) {
-          setIsTyping(false);
-          toast.error(error instanceof Error ? error.message : "Errore agente esterno");
-        }
-        return;
-      }
-
-      // --- Normal Kael Mode ---
+      // --- Kael is ALWAYS the primary chat route ---
       setIsTyping(true);
       try {
         const startTime = Date.now();
@@ -362,22 +370,53 @@ const Chat = () => {
         };
         setMessages((prev) => [...prev, responseMsg]);
         scrollToBottom();
+        // Trigger instant Observatory refresh after chat interaction
+        window.dispatchEvent(new CustomEvent("kael-observatory-refresh"));
         if (response.avatar_job_id) {
           const msgId = responseMsg.id;
-          fetchAvatarVideo(response.avatar_job_id).then((result) => {
-            if (result?.video_base64) {
-              const videoDataUrl = `data:video/mp4;base64,${result.video_base64}`;
+          pollAndFetchAvatarVideo(response.avatar_job_id).then((videoDataUrl) => {
+            if (videoDataUrl) {
               setMessages((prev) =>
                 prev.map((m) => (m.id === msgId ? { ...m, videoUrl: videoDataUrl } : m))
               );
             }
           });
         }
+
+        if (agentMode) {
+          try {
+            const agentHistory: ExternalChatMessage[] = [...messages, userMsg]
+              .filter((m) => m.sender === "user" || m.sender === "external_agent")
+              .slice(-20)
+              .map((m) => ({
+                role: m.sender === "user" ? "user" as const : "assistant" as const,
+                content: m.text,
+              }));
+
+            const model = getSelectedModel();
+            const reply = await sendExternalAgentMessage(agentHistory);
+
+            const agentMsg: ChatMessage = {
+              id: (Date.now() + 2).toString(),
+              text: reply,
+              time: now(),
+              sender: "external_agent",
+              feedback: null,
+              agent_id: model.id,
+              agent_name: `${model.providerLabel} · ${model.label}`,
+            };
+            setMessages((prev) => [...prev, agentMsg]);
+            scrollToBottom();
+          } catch (error) {
+            console.warn("[Chat] External agent unavailable:", error);
+          }
+        }
       } catch (error) {
         setIsTyping(false);
         const errorMsg = error instanceof Error ? error.message : "Failed to send message";
         toast.error(errorMsg);
-        invalidateBackendCache();
+        // Do NOT invalidateBackendCache — user URL is source of truth.
+        // Just trigger re-discovery which will probe without overwriting.
         probeAndResolveBackend().catch(() => {});
       }
     },
@@ -406,6 +445,14 @@ const Chat = () => {
           const latency = Date.now() - startTime;
 
           setIsTyping(false);
+          // Warn user if vision failed (Kael replied without seeing the image)
+          if (response.vision_ok === false && response.failure_kind) {
+            const msgs: Record<string, string> = {
+              vision_error: "Kael non è riuscito ad analizzare l'immagine",
+              not_configured: "La visione non è configurata",
+            };
+            toast.warning(msgs[response.failure_kind] ?? "Visione non disponibile");
+          }
           const responseMsg: ChatMessage = {
             id: (Date.now() + 1).toString(),
             text: response.reply,
@@ -429,9 +476,8 @@ const Chat = () => {
           // Avatar video: async poll if backend triggered a render job
           if (response.avatar_job_id) {
             const msgId = responseMsg.id;
-            fetchAvatarVideo(response.avatar_job_id).then((result) => {
-              if (result?.video_base64) {
-                const videoDataUrl = `data:video/mp4;base64,${result.video_base64}`;
+            pollAndFetchAvatarVideo(response.avatar_job_id).then((videoDataUrl) => {
+              if (videoDataUrl) {
                 setMessages((prev) =>
                   prev.map((m) => (m.id === msgId ? { ...m, videoUrl: videoDataUrl } : m))
                 );
@@ -493,9 +539,8 @@ const Chat = () => {
         // Avatar video: async poll if backend triggered a render job
         if (response.avatar_job_id) {
           const msgId = responseMsg.id;
-          fetchAvatarVideo(response.avatar_job_id).then((result) => {
-            if (result?.video_base64) {
-              const videoDataUrl = `data:video/mp4;base64,${result.video_base64}`;
+          pollAndFetchAvatarVideo(response.avatar_job_id).then((videoDataUrl) => {
+            if (videoDataUrl) {
               setMessages((prev) =>
                 prev.map((m) => (m.id === msgId ? { ...m, videoUrl: videoDataUrl } : m))
               );
@@ -522,7 +567,12 @@ const Chat = () => {
       );
 
       try {
-        await chatApi.submitFeedback(message.backend_turn_id, type);
+        const res = await chatApi.submitFeedback(message.backend_turn_id, type);
+        if (res.cap_reached) {
+          setMessages((prev) =>
+            prev.map((m) => m.id === id ? { ...m, feedbackCapReached: true } : m)
+          );
+        }
       } catch (error) {
         setMessages((prev) =>
           prev.map((m) => m.id === id ? { ...m, feedback: message.feedback } : m)
@@ -671,11 +721,9 @@ const Chat = () => {
         onSend={handleSend}
         onImageUpload={handleImageUpload}
         onVoiceNote={handleVoiceNote}
-        onOpenServices={() => setShowServices(true)}
+        onOpenServices={() => navigate("/workspace")}
+        disabled={lifecycleState !== "online"}
       />
-
-      {/* Services Sheet */}
-      <ServicesSheet isOpen={showServices} onClose={() => setShowServices(false)} />
 
       {/* Hidden wallpaper file input */}
       <input

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Key, Bot, Settings2, X } from "lucide-react";
+import { Bot, Settings2, X } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   getExternalAgentConfig,
@@ -17,21 +17,19 @@ const providerGroups: { provider: AgentProvider; label: string }[] = [
 ];
 
 const ExternalAgentSettings = () => {
-  const [apiKey, setApiKey] = useState("");
-  const [modelId, setModelId] = useState("gpt-5.4");
+  const [modelId, setModelId] = useState("gpt-4o");
   const [saved, setSaved] = useState(false);
   const [showPromptEditor, setShowPromptEditor] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState("");
 
   useEffect(() => {
     const config = getExternalAgentConfig();
-    setApiKey(config.apiKey);
     setModelId(config.modelId);
     setSystemPrompt(getSystemPrompt());
   }, []);
 
   const handleSave = () => {
-    setExternalAgentConfig({ apiKey, modelId });
+    setExternalAgentConfig({ modelId });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -115,30 +113,6 @@ const ExternalAgentSettings = () => {
             <span className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-neon-purple" />
           )}
         </button>
-      </div>
-
-      {/* API Key */}
-      <div className="px-4 pb-2">
-        <section>
-          <h3 className="mb-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            API Key
-          </h3>
-          <div className="glass rounded-xl p-4">
-            <div className="flex items-center gap-2">
-              <Key size={16} className="text-neon-purple shrink-0" />
-              <input
-                type="password"
-                placeholder="sk-... / anthropic-... / AIza..."
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
-              />
-            </div>
-          </div>
-          <p className="mt-2 text-[10px] text-muted-foreground/60">
-            La chiave viene usata per autenticarti con il provider selezionato.
-          </p>
-        </section>
       </div>
 
       {/* Active prompt indicator */}

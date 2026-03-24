@@ -52,7 +52,8 @@ export default function DecisionsSection() {
         </div>
         <div className="rounded-lg border border-border bg-secondary/20 p-3 text-center">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Confidence Media</p>
-          <p className="text-lg font-bold font-mono text-foreground">{(d.confidence_avg * 100).toFixed(0)}%</p>
+          <p className="text-lg font-bold font-mono text-foreground">{d.confidence_avg != null ? `${(d.confidence_avg * 100).toFixed(0)}%` : "N/D"}</p>
+          {d.confidence_avg == null && <p className="text-[9px] text-muted-foreground">Non misurata</p>}
         </div>
       </div>
 
@@ -106,13 +107,13 @@ export default function DecisionsSection() {
                 <span className="font-mono text-muted-foreground shrink-0 w-8">#{p.turn_id}</span>
                 <div className="flex-1 min-w-0">
                   <span className="font-semibold text-foreground">{p.action}</span>
-                  <span className="ml-1.5 text-muted-foreground">({(p.confidence * 100).toFixed(0)}%)</span>
+                  <span className="ml-1.5 text-muted-foreground">({p.confidence != null ? `${(p.confidence * 100).toFixed(0)}%` : "N/D"})</span>
                   {p.factors.length > 0 && (
                     <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{p.factors.join(", ")}</p>
                   )}
                 </div>
                 <span className="text-[9px] text-muted-foreground shrink-0">
-                  {new Date(p.ts * 1000).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" })}
+                  {p.ts ? new Date(p.ts * 1000).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "—"}
                 </span>
               </div>
             ))}

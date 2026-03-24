@@ -27,6 +27,7 @@ export interface ObservatoryMeta {
   manifest_active: string | null;
   updated_at: number; // unix ts
   freshness: DataFreshness;
+  content_hash?: string; // MD5 hash for change detection
 }
 
 export interface ObservatoryResponse<T> {
@@ -108,11 +109,14 @@ export interface PersonalityTrait {
   current: number;
   delta: number;
   trend: WeightTrend;
+  tracked?: boolean; // false = no runtime tracking, current == baseline
 }
 
 export interface IdentityDrift {
   drift_score: number;
   coherence_score: number;
+  coherence_derived_from?: string; // e.g. "drift" — how coherence is computed
+  drift_ever_computed?: boolean;
   traits: PersonalityTrait[];
   emerging_traits: string[];
   declining_traits: string[];
@@ -134,14 +138,14 @@ export async function getIdentityDrift(): Promise<ObservatoryResponse<IdentityDr
 export interface DecisionPath {
   turn_id: number;
   action: string;
-  confidence: number;
+  confidence: number | null; // null = never computed
   factors: string[];
-  ts: number;
+  ts: number | null; // null = no real timestamp available
 }
 
 export interface DecisionPreferences {
-  action_distribution: Record<string, number>; // e.g. { "guide": 0.3, "contain": 0.1, ... }
-  confidence_avg: number;
+  action_distribution: Record<string, number>;
+  confidence_avg: number | null; // null = never computed (honest)
   recent_paths: DecisionPath[];
   dominant_strategy: string;
   factors_ranking: string[];
@@ -185,17 +189,22 @@ export interface MemoryStats {
   db_status: SubsystemStatus;
   last_retrieval_ts: number | null;
   last_persist_ts: number | null;
-  distillation_status: string;
+  distillation_status: string | null; // null = not implemented
+  distillation_available?: boolean;
   semantic_memory_count: number;
   relationship_timeline_count: number;
-  symbolic_memory_count: number;
+  symbolic_memory_count: number | null; // null = not implemented
+  symbolic_memory_available?: boolean;
   short_term_count: number;
   long_term_count: number;
   memories_used_last_turn: string[];
+  memories_used_last_turn_available?: boolean;
   dominant_categories: Record<string, number>;
-  failed_retrievals: number;
+  failed_retrievals: number | null; // null = not tracked
+  failed_retrievals_available?: boolean;
   saturation_pct: number;
-  backlog_count: number;
+  backlog_count: number | null; // null = not tracked
+  backlog_available?: boolean;
 }
 
 export async function getMemoryState(): Promise<ObservatoryResponse<MemoryStats>> {
@@ -207,9 +216,10 @@ export async function getMemoryState(): Promise<ObservatoryResponse<MemoryStats>
 export interface ManifestUsage {
   manifest_id: string;
   label: string;
-  usage_count: number;
-  last_used_ts: number;
+  usage_count: number | null; // null = not tracked
+  last_used_ts: number | null; // null = not tracked
   is_current: boolean;
+  usage_tracked?: boolean; // false = usage data not available
 }
 
 export interface PersonaRouting {

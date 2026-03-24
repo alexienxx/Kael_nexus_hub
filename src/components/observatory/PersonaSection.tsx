@@ -70,7 +70,7 @@ export default function PersonaSection() {
         <h3 className="text-xs font-semibold text-muted-foreground mb-3">Utilizzo Manifest</h3>
         <div className="space-y-2">
           {d.manifests
-            .sort((a, b) => b.usage_count - a.usage_count)
+            .sort((a, b) => (b.usage_count ?? 0) - (a.usage_count ?? 0))
             .map((m) => (
               <div key={m.manifest_id} className={`flex items-center gap-2 text-xs p-2 rounded ${m.is_current ? "bg-primary/10 border border-primary/20" : ""}`}>
                 {m.is_current && <Check size={12} className="text-primary shrink-0" />}
@@ -78,7 +78,7 @@ export default function PersonaSection() {
                   <span className="font-semibold text-foreground">{m.label}</span>
                   <span className="ml-1 text-[9px] text-muted-foreground font-mono">{m.manifest_id}</span>
                 </div>
-                <span className="font-mono text-muted-foreground shrink-0">{m.usage_count}×</span>
+                <span className="font-mono text-muted-foreground shrink-0">{m.usage_tracked === false ? "—" : `${m.usage_count ?? 0}×`}</span>
               </div>
             ))}
         </div>

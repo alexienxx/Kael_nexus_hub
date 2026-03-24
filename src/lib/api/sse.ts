@@ -49,7 +49,7 @@ export async function obtainSSEToken(): Promise<string> {
  * Build the full EventSource URL with token query param.
  *
  * @example buildSSEUrl("abc123")
- * // → "http://192.168.178.78:8002/chat/events?token=abc123"
+ * // → "<baseUrl>/chat/events?token=abc123"
  */
 export function buildSSEUrl(token: string): string {
   const config = getApiConfig();

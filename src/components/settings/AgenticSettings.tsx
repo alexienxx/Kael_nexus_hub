@@ -106,7 +106,7 @@ const AgenticSettings = () => {
         <div>
           <p className="text-sm font-medium text-foreground">Backend non raggiungibile</p>
           <p className="text-xs text-muted-foreground mt-1">
-            Le funzioni agentiche richiedono il backend attivo su porta 8002
+            Le funzioni agentiche richiedono il backend Kael attivo
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={fetchRepos}>

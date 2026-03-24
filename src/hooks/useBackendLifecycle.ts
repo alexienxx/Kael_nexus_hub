@@ -1,77 +1,163 @@
 /**
- * useBackendLifecycle — orchestrates backend discovery and auto-start.
+ * useBackendLifecycle — CLIENT-ONLY reconnection to backend.
  *
- * On mount:
- *   1. Probe main backend (port 8002) via probeAndResolveBackend()
- *   2. If backend healthy → state = "online", done.
- *   3. If backend down → probe sentinel (port 8099)
- *   4. If sentinel reachable → POST /start → state = "starting"
- *   5. Poll /health until backend is alive or timeout → "online" | "start_failed"
- *   6. If sentinel unreachable → state = "offline" (remote machine or sentinel not running)
+ * ARCHITECTURAL RULE: This hook NEVER launches bootstrap, sentinel,
+ * cleanup, or any server-side process.  It only probes and reconnects.
+ * Server restart is a separate action (useServerRestart + Settings UI).
+ *
+ * On mount / retry:
+ *   1. Check navigator.onLine — if device offline → state = "offline_network"
+ *   2. Probe backend URLs via probeWithRetry() (robust: 3 attempts per URL, 4s timeout, 2s delay)
+ *   3. If backend found → state = "online", start periodic recheck
+ *   4. If all probes fail → state = "backend_unreachable"
+ *
+ * On visibility change (app resume / task-kill reopen):
+ *   - If stale or not online → re-probe
+ *
+ * On navigator "online" event:
+ *   - Auto-retry when device regains connectivity
  *
  * Guarantees:
- *   - Only ONE bootstrap attempt per mount (no infinite loops)
- *   - Anti-concurrency: runLifecycle() is a no-op if already running
- *   - Health grace period: 2 consecutive failures required before going offline
- *   - visibilityChange: skips retry if probe already in flight
+ *   - ZERO sentinel calls, ZERO bootstrap calls, ZERO process kills
+ *   - Anti-concurrency: probe is a no-op if already running
+ *   - Health grace period: 4 consecutive failures before declaring offline
  *   - UI stays responsive (all async, no blocking)
- *   - Exposes lifecycle state for ConnectionBadge / KaelHeader
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { checkHealth, probeAndResolveBackend, getApiConfig } from "@/lib/api/client";
-import { probeSentinel, requestBootstrap } from "@/lib/api/sentinel";
+import { checkHealth, probeAndResolveBackend, probeHealthPayload } from "@/lib/api/client";
 
-export type BackendLifecycleState =
-  | "checking"       // Initial health probe in progress
-  | "online"         // Backend healthy and reachable
-  | "starting"       // Sentinel triggered bootstrap, waiting
-  | "waiting"        // Bootstrap launched, polling for health
-  | "start_failed"   // Bootstrap timed out or failed
-  | "offline";       // No backend, no sentinel (remote or sentinel not installed)
+// Re-export the type from the canonical types module
+import type { BackendLifecycleState } from "@/types";
+export type { BackendLifecycleState };
 
-/** How long to wait after sentinel triggers bootstrap before giving up. */
-const STARTUP_TIMEOUT_MS = 120_000; // 2 minutes
-/** Interval between health polls after bootstrap trigger. */
-const POLL_INTERVAL_MS = 3_000; // 3 seconds
+// ── Constants ────────────────────────────────────────────────────────────
+
 /** Periodic health re-check when online. */
 const ONLINE_RECHECK_MS = 30_000; // 30 seconds
+
 /**
  * After task-kill + resume, retry if the last successful check is older than this.
  * Avoids hammering backend if user just briefly backgrounds the app.
  */
 const RESUME_STALE_THRESHOLD_MS = 5_000; // 5 seconds
+
 /**
  * Number of consecutive health-check failures required before declaring offline.
- * Grace period prevents a single transient 503 from flipping the indicator.
+ * 6 failures × 30s interval = 3 minutes of tolerance.
+ * Prevents false-offline from transient network hitch, single 503,
+ * or Android sleep/wake cycle dropping adb reverse tunnels.
  */
-const HEALTH_FAIL_GRACE = 2;
+const HEALTH_FAIL_GRACE = 6;
+
+/** Max probe attempts per URL candidate. */
+const PROBE_MAX_ATTEMPTS = 3;
+
+/** Timeout per individual probe fetch (ms). */
+const PROBE_TIMEOUT_MS = 4_000;
+
+/** Delay between probe retry attempts (ms). */
+const PROBE_RETRY_DELAY_MS = 2_000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function probeOnceWithTimeout(timeoutMs: number): Promise<string | null> {
+  return await Promise.race<string | null>([
+    probeAndResolveBackend(),
+    new Promise<string | null>((resolve) => {
+      window.setTimeout(() => resolve(null), timeoutMs);
+    }),
+  ]);
+}
+
+// ── Types ────────────────────────────────────────────────────────────────
 
 export interface BackendLifecycleResult {
   /** Current lifecycle state. */
   state: BackendLifecycleState;
   /** Human-readable status message. */
   message: string;
-  /** Force a retry (re-runs the full flow). */
+  /** Current retry attempt (0 when idle, 1..N during active retry). */
+  retryAttempt: number;
+  /** Total retry attempts configured (constant). */
+  retryTotal: number;
+  /** Force a retry (re-runs probe flow). Never launches bootstrap. */
   retry: () => void;
 }
+
+// ── Robust probe with retry ─────────────────────────────────────────────
+
+/**
+ * Try to reach the backend with multiple attempts.
+ * Uses probeAndResolveBackend internally but wraps it with retries.
+ * Returns the resolved URL or null.
+ */
+async function probeWithRetry(
+  attempts: number,
+  timeoutMs: number,
+  delayMs: number,
+  mountedRef: React.MutableRefObject<boolean>,
+  onAttempt?: (attempt: number) => void,
+  minAttemptDurationMs?: number,
+): Promise<string | null> {
+  for (let i = 0; i < attempts; i++) {
+    if (!mountedRef.current) return null;
+
+    const attemptNum = i + 1;
+    onAttempt?.(attemptNum);
+    console.log(`[KAEL] Reconnect attempt ${attemptNum}/${attempts}`);
+
+    const attemptStart = Date.now();
+    const url = await probeOnceWithTimeout(timeoutMs);
+
+    // Ensure minimum visibility per attempt (meaningful for manual retries)
+    if (minAttemptDurationMs) {
+      const elapsed = Date.now() - attemptStart;
+      const remaining = minAttemptDurationMs - elapsed;
+      if (remaining > 0) {
+        await delay(remaining);
+      }
+    }
+
+    if (url) {
+      console.log(`[KAEL] Reconnect OK on attempt ${attemptNum}: ${url}`);
+      return url;
+    }
+
+    console.warn(`[KAEL] Reconnect attempt ${attemptNum}/${attempts} FAILED or TIMED OUT`);
+
+    // Not last attempt — wait before retrying
+    if (i < attempts - 1) {
+      await delay(delayMs);
+    }
+  }
+  console.error(`[KAEL] All ${attempts} reconnect attempts exhausted`);
+  return null;
+}
+
+// ── Hook ─────────────────────────────────────────────────────────────────
 
 export function useBackendLifecycle(): BackendLifecycleResult {
   const [state, setState] = useState<BackendLifecycleState>("checking");
   const [message, setMessage] = useState("Connessione in corso...");
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const mountedRef = useRef(true);
-  const attemptedRef = useRef(false);
   const onlineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastOnlineAtRef = useRef<number>(0);
 
   /** Mirrors `state` in a ref so stable callbacks can read the current value. */
   const stateRef = useRef<BackendLifecycleState>("checking");
 
-  /** Concurrency lock — prevents two parallel runLifecycle() calls. */
+  /** Concurrency lock — prevents two parallel probes. */
   const isRunningRef = useRef(false);
 
   /** Counts consecutive health-check failures (reset on success or retry). */
   const healthFailCountRef = useRef(0);
+
+  /** Last known boot_id from the backend — detects silent server restarts. */
+  const lastBootIdRef = useRef<string | null>(null);
 
   /** Thin setState wrapper that also keeps stateRef in sync. */
   const setStateSynced = useCallback((s: BackendLifecycleState) => {
@@ -79,118 +165,11 @@ export function useBackendLifecycle(): BackendLifecycleResult {
     setState(s);
   }, []);
 
-  const runLifecycle = useCallback(async () => {
-    if (!mountedRef.current) return;
-    // Concurrency guard: bail out if a lifecycle run is already in progress.
-    if (isRunningRef.current) return;
-    isRunningRef.current = true;
-
-    try {
-      attemptedRef.current = true;
-      setStateSynced("checking");
-      setMessage("Verifica backend...");
-
-      // Step 1: Try to find the main backend
-      const backendUrl = await probeAndResolveBackend();
-      if (!mountedRef.current) return;
-
-      if (backendUrl) {
-        // Backend is already up
-        setStateSynced("online");
-        setMessage("Online");
-        startOnlineRecheck();
-        return;
-      }
-
-      // Step 2: Backend is down — try sentinel
-      setMessage("Backend non raggiungibile, ricerca sentinel...");
-      const sentinelUrl = await probeSentinel();
-      if (!mountedRef.current) return;
-
-      if (!sentinelUrl) {
-        // No sentinel available — remote machine or sentinel not running
-        setStateSynced("offline");
-        setMessage("Backend non disponibile");
-        return;
-      }
-
-      // Step 3: Sentinel found — request bootstrap
-      setStateSynced("starting");
-      setMessage("Server in avvio...");
-
-      try {
-        const result = await requestBootstrap(sentinelUrl);
-        if (!mountedRef.current) return;
-
-        if (!result.started && result.reason === "backend_already_running") {
-          // Race condition: backend came up between our check and sentinel call
-          // Re-probe to get the URL cached
-          await probeAndResolveBackend();
-          setStateSynced("online");
-          setMessage("Online");
-          startOnlineRecheck();
-          return;
-        }
-
-        if (!result.started && result.reason === "bootstrap_already_in_progress") {
-          // Another client already triggered start — just wait
-          setStateSynced("waiting");
-          setMessage("Avvio già in corso, attesa...");
-        } else if (!result.started) {
-          setStateSynced("start_failed");
-          setMessage(`Avvio fallito: ${result.reason || "errore sconosciuto"}`);
-          return;
-        } else {
-          setStateSynced("waiting");
-          setMessage("Preflight cleanup in corso...");
-        }
-      } catch (err) {
-        if (!mountedRef.current) return;
-        setStateSynced("start_failed");
-        setMessage("Impossibile contattare il sentinel");
-        return;
-      }
-
-      // Step 4: Poll health until backend is alive or timeout
-      const startTime = Date.now();
-
-      const poll = async (): Promise<void> => {
-        while (mountedRef.current && Date.now() - startTime < STARTUP_TIMEOUT_MS) {
-          const elapsed = Math.round((Date.now() - startTime) / 1000);
-          setMessage(`Server in avvio... (${elapsed}s)`);
-
-          // Also re-probe to cache the URL
-          const url = await probeAndResolveBackend();
-          if (url) {
-            setStateSynced("online");
-            setMessage("Online");
-            startOnlineRecheck();
-            return;
-          }
-
-          await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
-        }
-
-        // Timeout
-        if (mountedRef.current) {
-          setStateSynced("start_failed");
-          setMessage("Timeout avvio server");
-        }
-      };
-
-      await poll();
-    } finally {
-      // Always release the concurrency lock, even on exception.
-      isRunningRef.current = false;
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ── Start periodic health recheck (when online) ────────────────────
 
   const startOnlineRecheck = useCallback(() => {
-    // Record when we last confirmed "online"
     lastOnlineAtRef.current = Date.now();
     healthFailCountRef.current = 0;
-    // Clear any existing timer
     if (onlineTimerRef.current) {
       clearInterval(onlineTimerRef.current);
     }
@@ -200,71 +179,220 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       if (ok) {
         healthFailCountRef.current = 0;
         lastOnlineAtRef.current = Date.now();
+
+        // ── Session integrity: detect silent server restart via boot_id ──
+        try {
+          const payload = await probeHealthPayload();
+          if (payload?.boot_id) {
+            const prev = lastBootIdRef.current;
+            if (prev && prev !== payload.boot_id) {
+              console.warn(
+                "[KAEL] Server restarted! boot_id changed: %s → %s",
+                prev,
+                payload.boot_id,
+              );
+              window.dispatchEvent(
+                new CustomEvent("kael-server-restarted", {
+                  detail: { oldBootId: prev, newBootId: payload.boot_id },
+                }),
+              );
+            }
+            lastBootIdRef.current = payload.boot_id;
+          }
+        } catch {
+          // boot_id check is best-effort — never block health loop
+        }
+
+        // If we were in a degraded state, restore online
+        if (stateRef.current !== "online") {
+          setStateSynced("online");
+          setMessage("Online");
+        }
       } else {
         healthFailCountRef.current++;
-        // Grace period: require HEALTH_FAIL_GRACE consecutive failures before going offline.
-        // This prevents a single transient error from flipping the connection indicator.
-        if (healthFailCountRef.current >= HEALTH_FAIL_GRACE && mountedRef.current) {
-          setStateSynced("offline");
-          setMessage("Connessione persa");
+
+        // Fast failover: if device is still online but cached URL fails,
+        // network topology likely changed (e.g. WiFi dropped, Tailscale VPN
+        // still up). Use reduced grace (2 × 30s = 60s) instead of full
+        // grace (6 × 30s = 180s) to trigger re-discovery sooner.
+        const effectiveGrace = navigator.onLine ? 2 : HEALTH_FAIL_GRACE;
+
+        if (healthFailCountRef.current >= effectiveGrace && mountedRef.current) {
+          // Cached URL is stale — try full re-discovery before giving up.
+          // Backend may have restarted on a different port, or network
+          // changed (LAN → Tailscale VPN).
+          console.warn("[KAEL] Health grace exhausted (%d/%d) — running full re-discovery...",
+            healthFailCountRef.current, effectiveGrace);
           if (onlineTimerRef.current) {
             clearInterval(onlineTimerRef.current);
             onlineTimerRef.current = null;
+          }
+          const rediscovered = await probeAndResolveBackend();
+          if (rediscovered && mountedRef.current) {
+            console.log("[KAEL] Re-discovery found backend →", rediscovered);
+            healthFailCountRef.current = 0;
+            setStateSynced("online");
+            setMessage("Riconnesso");
+            startOnlineRecheck(); // restart periodic check with new URL
+          } else if (mountedRef.current) {
+            setStateSynced("offline");
+            setMessage("Connessione persa");
           }
         }
       }
     }, ONLINE_RECHECK_MS);
   }, [setStateSynced]);
 
+  // ── Main probe flow (NEVER touches sentinel or bootstrap) ──────────
+
+  const runProbe = useCallback(async (manual = false) => {
+    if (!mountedRef.current) return;
+    if (isRunningRef.current) return;
+    isRunningRef.current = true;
+
+    try {
+      // Step 0: Check device connectivity
+      if (!navigator.onLine) {
+        setStateSynced("offline_network");
+        setMessage("Dispositivo offline");
+        setRetryAttempt(0);
+        return;
+      }
+
+      setStateSynced("checking");
+      setRetryAttempt(0);
+      setMessage(manual ? "Riconnessione..." : "Verifica backend...");
+
+      // Step 1: Robust probe with retries
+      const backendUrl = await probeWithRetry(
+        PROBE_MAX_ATTEMPTS,
+        PROBE_TIMEOUT_MS,
+        PROBE_RETRY_DELAY_MS,
+        mountedRef,
+        // For manual retry: report each attempt so UI shows progress
+        manual
+          ? (attempt) => {
+              setRetryAttempt(attempt);
+              setMessage(`Tentativo ${attempt}/${PROBE_MAX_ATTEMPTS}...`);
+            }
+          : undefined,
+        // For manual retry: each attempt visible for at least 1.2s
+        manual ? 1200 : undefined,
+      );
+      if (!mountedRef.current) return;
+
+      setRetryAttempt(0);
+
+      if (backendUrl) {
+        setStateSynced("online");
+        setMessage(manual ? "Riconnesso" : "Connesso");
+        // Capture initial boot_id for session integrity tracking
+        try {
+          const payload = await probeHealthPayload();
+          if (payload?.boot_id) {
+            lastBootIdRef.current = payload.boot_id;
+          }
+        } catch {
+          // best-effort
+        }
+        startOnlineRecheck();
+        return;
+      }
+
+      // Step 2: All probes exhausted — backend unreachable
+      // NOTE: We do NOT call sentinel, do NOT launch bootstrap.
+      // The user can manually restart the server from Settings > Avanzate.
+      setStateSynced("backend_unreachable");
+      setMessage(`Backend irraggiungibile dopo ${PROBE_MAX_ATTEMPTS} tentativi`);
+    } finally {
+      isRunningRef.current = false;
+      setRetryAttempt(0);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startOnlineRecheck, setStateSynced]);
+
+  // ── Retry (manual from button or auto from events) ─────────────────
+
   const retry = useCallback(() => {
-    attemptedRef.current = false;
-    // Reset concurrency lock and health counters so runLifecycle proceeds.
     isRunningRef.current = false;
     healthFailCountRef.current = 0;
     if (onlineTimerRef.current) {
       clearInterval(onlineTimerRef.current);
       onlineTimerRef.current = null;
     }
-    runLifecycle();
-  }, [runLifecycle]);
+    runProbe(true);
+  }, [runProbe]);
+
+  // ── Mount / Unmount / Events ───────────────────────────────────────
 
   useEffect(() => {
     mountedRef.current = true;
-    runLifecycle();
+    runProbe();
 
-    // App resume: when Android brings the WebView back to foreground (task-kill → reopen,
-    // or background → foreground), document.visibilityState changes to "visible".
-    // If the backend was lost or the last-known-online timestamp is stale, re-probe.
+    // Visibility change: app resume / task-kill reopen
     const handleVisibilityChange = () => {
       if (document.visibilityState !== "visible" || !mountedRef.current) return;
-
-      // Skip if a probe is already in flight.
       if (isRunningRef.current) return;
 
       const staleMs = Date.now() - lastOnlineAtRef.current;
       const isStale = staleMs > RESUME_STALE_THRESHOLD_MS;
 
-      // If last-known state is offline/failed → always retry.
-      // If online but stale (suspended > threshold) → retry.
-      // If online and fresh → skip (backend is likely fine).
       const currentState = stateRef.current;
-      if (currentState === "offline" || currentState === "start_failed" || isStale) {
+      if (
+        currentState === "offline" ||
+        currentState === "offline_network" ||
+        currentState === "backend_unreachable" ||
+        currentState === "start_failed" ||
+        isStale
+      ) {
         retry();
       }
     };
 
+    // Network restored: auto-retry when device comes back online
+    const handleOnline = () => {
+      if (!mountedRef.current) return;
+      if (isRunningRef.current) return;
+      const currentState = stateRef.current;
+      if (currentState === "offline_network" || currentState === "backend_unreachable" || currentState === "offline") {
+        retry();
+      }
+    };
+
+    // Network topology change (WiFi ↔ cellular/VPN): near-instant failover.
+    // When WiFi drops but Tailscale VPN keeps the device "online",
+    // navigator "online" event does NOT fire. The NetworkInformation API
+    // does fire a "change" event, allowing us to detect the switch and
+    // immediately verify/re-discover the backend.
+    const conn = (navigator as any).connection as EventTarget | undefined;
+    const handleConnectionChange = () => {
+      if (!mountedRef.current || isRunningRef.current) return;
+      if (stateRef.current !== "online") return;
+      console.log("[KAEL] Network type changed — verifying cached backend URL...");
+      checkHealth().then((ok) => {
+        if (!ok && mountedRef.current && !isRunningRef.current) {
+          console.warn("[KAEL] Network changed + cached URL dead → fast re-discovery");
+          retry();
+        }
+      });
+    };
+
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("online", handleOnline);
+    if (conn) conn.addEventListener("change", handleConnectionChange);
 
     return () => {
       mountedRef.current = false;
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("online", handleOnline);
+      if (conn) conn.removeEventListener("change", handleConnectionChange);
       if (onlineTimerRef.current) {
         clearInterval(onlineTimerRef.current);
         onlineTimerRef.current = null;
       }
     };
-  }, [runLifecycle, retry]);
+  }, [runProbe, retry]);
 
-  return { state, message, retry };
+  return { state, message, retryAttempt, retryTotal: PROBE_MAX_ATTEMPTS, retry };
 }
 

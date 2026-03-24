@@ -1,4 +1,4 @@
-import { apiRequest, apiUpload } from "./client";
+import { apiRequest, apiUpload, ensureBackendAlive } from "./client";
 import type { ChatMessage, FeedbackPayload } from "@/types";
 
 /**
@@ -83,7 +83,7 @@ export async function regenerateResponse(turnId: string, sessionId: string) {
 export async function submitFeedback(
   turnId: string,
   type: "like" | "dislike"
-) {
+): Promise<{ ok: boolean; cap_reached: boolean; feedback_count: number; score: number }> {
   return apiRequest("/feedback", {
     method: "POST",
     // Backend FeedbackRequest model uses "feedback_type", not "type"
@@ -97,6 +97,9 @@ export async function sendImage(
   sessionId: string,
   conversationId?: string
 ) {
+  if (!(await ensureBackendAlive())) {
+    throw new Error("Backend non raggiungibile — riprova tra poco");
+  }
   const formData = new FormData();
   formData.append("image", file);
   formData.append("session_id", sessionId);
@@ -106,6 +109,9 @@ export async function sendImage(
 
 /** Send a voice note and get Kael's reply */
 export async function sendVoiceNote(audioBlob: Blob, sessionId: string) {
+  if (!(await ensureBackendAlive())) {
+    throw new Error("Backend non raggiungibile — riprova tra poco");
+  }
   const formData = new FormData();
   formData.append("audio", audioBlob, "voice-note.webm");
   formData.append("session_id", sessionId);

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pencil, Download, Share2 } from "lucide-react";
+import { Pencil, Download, Share2, Save } from "lucide-react";
 import { useLongPress } from "@/hooks/useLongPress";
 import type { ChatMessage } from "@/types";
 
@@ -9,6 +9,7 @@ interface BubbleContextMenuProps {
   onEditMessage?: (id: string, currentText: string) => void;
   onDownloadImage?: (url: string) => void;
   onDownloadAudio?: (url: string) => void;
+  onSaveToGallery?: (type: "image" | "video", dataUrl: string) => void;
 }
 
 interface MenuPosition {
@@ -22,16 +23,19 @@ const BubbleContextMenu = ({
   onEditMessage,
   onDownloadImage,
   onDownloadAudio,
+  onSaveToGallery,
 }: BubbleContextMenuProps) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<MenuPosition>({ x: 0, y: 0 });
 
   const isUser = message.sender === "user";
   const hasImage = !!message.image && !isUser;
+  const hasVideo = !!message.videoUrl && !isUser;
   const hasAudio = !!message.audioUrl && !isUser;
+  const canSaveToGallery = hasImage || hasVideo;
 
   // Only enable if there's something to show
-  const hasActions = (isUser && !!message.text) || hasImage || hasAudio;
+  const hasActions = (isUser && !!message.text) || hasImage || hasAudio || hasVideo;
 
   const longPressHandlers = useLongPress({
     onLongPress: (e) => {
@@ -124,6 +128,22 @@ const BubbleContextMenu = ({
               >
                 <Download size={15} className="text-neon-blue" />
                 Scarica audio
+              </button>
+            )}
+            {canSaveToGallery && (
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  if (hasImage && message.image) {
+                    onSaveToGallery?.("image", message.image);
+                  } else if (hasVideo && message.videoUrl) {
+                    onSaveToGallery?.("video", message.videoUrl);
+                  }
+                }}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-accent"
+              >
+                <Save size={15} className="text-neon-purple" />
+                Salva in galleria
               </button>
             )}
           </div>

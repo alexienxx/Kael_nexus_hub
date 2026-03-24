@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, Image, Mic, Square, Camera, Plug, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 interface ChatInputProps {
   onSend: (text: string) => void;
@@ -10,6 +11,7 @@ interface ChatInputProps {
 }
 
 const ChatInput = ({ onSend, onImageUpload, onVoiceNote, onOpenServices, disabled }: ChatInputProps) => {
+  const navigate = useNavigate();
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [showMediaMenu, setShowMediaMenu] = useState(false);
@@ -97,7 +99,7 @@ const ChatInput = ({ onSend, onImageUpload, onVoiceNote, onOpenServices, disable
               <span>Scatta foto</span>
             </button>
             <button
-              onClick={() => { setShowMediaMenu(false); onOpenServices?.(); }}
+              onClick={() => { setShowMediaMenu(false); onOpenServices ? onOpenServices() : navigate("/workspace"); }}
               className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-foreground/5 active:bg-foreground/10"
             >
               <Plug size={18} className="text-teal-400" />

@@ -9,12 +9,16 @@
 
 const SENTINEL_PORT = 8099;
 
-/** Known sentinel URLs — same hosts as the main backend but on :8099. */
-const KNOWN_SENTINEL_URLS = [
-  `http://127.0.0.1:${SENTINEL_PORT}`,      // USB via adb reverse
-  `http://192.168.178.78:${SENTINEL_PORT}`,  // Home LAN
-  `http://100.89.31.50:${SENTINEL_PORT}`,    // Tailscale VPN
+/**
+ * Known hosts — shared with the main backend discovery (client.ts).
+ * Sentinel always runs on SENTINEL_PORT on these same hosts.
+ */
+const KNOWN_HOSTS = [
+  "127.0.0.1",          // USB via adb reverse / localhost
+  "192.168.178.78",     // Home LAN
+  "100.89.31.50",       // Tailscale VPN
 ];
+const KNOWN_SENTINEL_URLS = KNOWN_HOSTS.map(h => `http://${h}:${SENTINEL_PORT}`);
 
 const SENTINEL_TIMEOUT = 3000; // 3 seconds
 

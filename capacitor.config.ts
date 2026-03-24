@@ -15,7 +15,7 @@ const config: CapacitorConfig = {
   appName: 'Kael',
   webDir: 'dist',
   server: {
-    androidScheme: 'https',
+    androidScheme: 'http',
     cleartext: true,
   },
 };

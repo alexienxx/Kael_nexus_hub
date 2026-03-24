@@ -11,6 +11,7 @@ export interface ChatMessage {
   trackCard?: TrackCard;
   playlistCard?: PlaylistCard;
   feedback?: "like" | "dislike" | null;
+  feedbackCapReached?: boolean;
   isProcessingImage?: boolean;
   isGenerating?: boolean;
   // External agent metadata (when sender === "external_agent")
@@ -125,12 +126,14 @@ export type ConnectionStatus = "connected" | "disconnected" | "connecting" | "er
 
 // ===== Backend Lifecycle =====
 export type BackendLifecycleState =
-  | "checking"       // Initial health probe in progress
-  | "online"         // Backend healthy and reachable
-  | "starting"       // Sentinel triggered bootstrap, waiting
-  | "waiting"        // Bootstrap launched, polling for health
-  | "start_failed"   // Bootstrap timed out or failed
-  | "offline";       // No backend, no sentinel
+  | "checking"            // Health probe in progress
+  | "online"              // Backend healthy and reachable
+  | "starting"            // Sentinel triggered bootstrap (only from Settings > Riavvia)
+  | "waiting"             // Bootstrap launched, polling for health
+  | "start_failed"        // Bootstrap timed out or failed
+  | "offline"             // Backend was online but health checks failed
+  | "offline_network"     // Device has no network connectivity
+  | "backend_unreachable"; // All probe attempts exhausted, backend not reachable
 
 // ===== Backend Config =====
 export interface BackendConfig {

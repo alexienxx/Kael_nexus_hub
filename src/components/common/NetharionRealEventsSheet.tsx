@@ -1,14 +1,10 @@
-import { useEffect, useState, useCallback } from "react";
-import { X, RefreshCw, Shield, ArrowDown } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { X, RefreshCw, Shield, ArrowDown, Database } from "lucide-react";
 import {
   getNetharionDebug,
   filterRealEvents,
   type NetharionAuditEntry,
 } from "@/lib/api/netharion";
-
-// ---------------------------------------------------------------------------
-// Color mapping — 1:1 with backend new_color, no reinterpretation
-// ---------------------------------------------------------------------------
 
 const COLOR_DOT: Record<string, string> = {
   green: "bg-green-500",
@@ -56,9 +52,10 @@ function formatTs(ts: number | null | undefined): string {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+function formatList(values: string[] | undefined): string {
+  if (!values || values.length === 0) return "—";
+  return values.join(", ");
+}
 
 interface NetharionRealEventsSheetProps {
   open: boolean;
@@ -67,17 +64,21 @@ interface NetharionRealEventsSheetProps {
 
 const NetharionRealEventsSheet = ({ open, onClose }: NetharionRealEventsSheetProps) => {
   const [events, setEvents] = useState<NetharionAuditEntry[]>([]);
+  const [allEvents, setAllEvents] = useState<NetharionAuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     try {
       const data = await getNetharionDebug();
-      const real = filterRealEvents(data.audit_log ?? []);
-      // Most recent first
-      setEvents(real.reverse());
+      const log = data.audit_log ?? [];
+      const real = filterRealEvents(log);
+      setEvents([...real].reverse());
+      setAllEvents([...log].reverse());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore caricamento eventi");
     } finally {
@@ -86,46 +87,67 @@ const NetharionRealEventsSheet = ({ open, onClose }: NetharionRealEventsSheetPro
   }, []);
 
   useEffect(() => {
-    if (open) fetchEvents();
+    if (open) {
+      void fetchEvents();
+    }
   }, [open, fetchEvents]);
 
   if (!open) return null;
 
   return (
     <>
-      {/* Backdrop — tap to close */}
       <div
         className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
         onClick={onClose}
       />
 
-      {/* Sheet */}
-      <div className="fixed inset-x-0 bottom-0 z-[101] max-h-[80vh] flex flex-col rounded-t-2xl bg-background/95 border-t border-border shadow-2xl animate-in slide-in-from-bottom duration-300">
-        {/* Drag handle */}
-        <div className="flex justify-center pt-2 pb-1">
+      <div className="fixed inset-x-0 bottom-0 z-[101] flex max-h-[80vh] flex-col rounded-t-2xl border-t border-border bg-background/95 shadow-2xl animate-in slide-in-from-bottom duration-300">
+        <div className="flex justify-center pb-1 pt-2">
           <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
         </div>
 
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 pb-3">
-          <div className="flex items-center gap-2">
-            <Shield size={16} className="text-neon-purple" />
-            <h2 className="font-display text-sm font-bold text-foreground">
-              Netharion Real Events
-            </h2>
+        <div className="flex items-start justify-between gap-3 px-4 pb-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Shield size={16} className="text-neon-purple" />
+              <h2 className="font-display text-sm font-bold text-foreground">
+                Netharion Real Events
+              </h2>
+            </div>
+            <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <Database size={11} />
+              <span className="truncate">
+                Fonte reale: /cognition/netharion/heartbeat/debug → audit_log filtrato per cambio stato
+              </span>
+            </div>
           </div>
+
           <div className="flex items-center gap-2">
             <button
-              onClick={fetchEvents}
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className={`flex h-7 items-center gap-1 rounded-full px-2 text-[10px] transition-all ${
+                showAll
+                  ? "bg-neon-purple/20 text-neon-purple"
+                  : "text-muted-foreground hover:bg-muted/30 hover:text-foreground"
+              }`}
+              aria-label={showAll ? "Solo transizioni" : "Mostra tutti"}
+            >
+              {showAll ? "Tutti" : "Solo Δ"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void fetchEvents()}
               disabled={loading}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all active:scale-90 disabled:opacity-50"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-all hover:bg-muted/30 hover:text-foreground active:scale-90 disabled:opacity-50"
               aria-label="Aggiorna"
             >
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             </button>
             <button
+              type="button"
               onClick={onClose}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all active:scale-90"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-all hover:bg-muted/30 hover:text-foreground active:scale-90"
               aria-label="Chiudi"
             >
               <X size={16} />
@@ -133,7 +155,6 @@ const NetharionRealEventsSheet = ({ open, onClose }: NetharionRealEventsSheetPro
           </div>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-y-auto px-4 pb-6 overscroll-contain">
           {error && (
             <div className="mb-3 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -141,84 +162,104 @@ const NetharionRealEventsSheet = ({ open, onClose }: NetharionRealEventsSheetPro
             </div>
           )}
 
-          {loading && events.length === 0 && (
-            <div className="flex items-center justify-center py-8 text-muted-foreground text-xs">
-              <RefreshCw size={14} className="animate-spin mr-2" /> Caricamento...
+          {loading && events.length === 0 && allEvents.length === 0 && (
+            <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
+              <RefreshCw size={14} className="mr-2 animate-spin" />
+              Caricamento eventi reali...
             </div>
           )}
 
-          {!loading && !error && events.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-              <Shield size={28} className="mb-2 opacity-40" />
-              <p className="text-xs">Nessun evento reale registrato</p>
-              <p className="text-[10px] mt-1 opacity-60">
-                Le transizioni di colore/modo appariranno qui
-              </p>
-            </div>
-          )}
-
-          {events.length > 0 && (
-            <div className="space-y-2">
-              {events.map((ev, i) => (
-                <EventCard key={`${ev.ts}-${i}`} event={ev} />
-              ))}
-            </div>
-          )}
+          {(() => {
+            const displayEvents = showAll ? allEvents : events;
+            if (!loading && !error && displayEvents.length === 0) {
+              return (
+                <div className="rounded-xl border border-border/50 bg-muted/10 px-3 py-3 text-xs text-muted-foreground">
+                  {showAll
+                    ? "Nessun evento nel audit_log backend."
+                    : "Nessuna transizione di colore/modo. Prova \"Tutti\" per vedere tutti gli eventi processati."}
+                </div>
+              );
+            }
+            if (displayEvents.length > 0) {
+              return (
+                <div className="space-y-2">
+                  {displayEvents.map((ev, i) => {
+                    const isTransition =
+                      (ev.old_color ?? "") !== (ev.new_color ?? "") ||
+                      (ev.old_mode ?? "") !== (ev.new_mode ?? "");
+                    return (
+                      <EventCard
+                        key={`${ev.ts}-${i}`}
+                        event={ev}
+                        highlight={showAll && isTransition}
+                      />
+                    );
+                  })}
+                </div>
+              );
+            }
+            return null;
+          })()}
         </div>
       </div>
     </>
   );
 };
 
-// ---------------------------------------------------------------------------
-// Single event card
-// ---------------------------------------------------------------------------
-
-function EventCard({ event }: { event: NetharionAuditEntry }) {
+function EventCard({ event, highlight }: { event: NetharionAuditEntry; highlight?: boolean }) {
   const oldColor = event.old_color ?? null;
   const newColor = event.new_color ?? null;
   const oldMode = event.old_mode ?? "—";
   const newMode = event.new_mode ?? "—";
 
   return (
-    <div className="rounded-xl bg-muted/20 border border-border/50 px-3 py-2.5">
-      {/* Timestamp */}
-      <div className="text-[10px] text-muted-foreground mb-1.5">
-        {formatTs(event.ts)}
-      </div>
+    <div
+      className={`rounded-xl border px-3 py-2.5 ${
+        highlight
+          ? "border-neon-purple/50 bg-neon-purple/10"
+          : "border-border/50 bg-muted/20"
+      }`}
+    >
+      <div className="mb-1.5 text-[10px] text-muted-foreground">{formatTs(event.ts)}</div>
 
-      {/* Color transition row */}
-      <div className="flex items-center gap-2 mb-1">
+      <div className="mb-1 flex items-center gap-2">
         <div className="flex items-center gap-1">
           <span className={`inline-block h-2.5 w-2.5 rounded-full ${colorDot(oldColor)}`} />
-          <span className={`text-xs font-medium ${colorText(oldColor)}`}>
-            {colorLabel(oldColor)}
-          </span>
+          <span className={`text-xs font-medium ${colorText(oldColor)}`}>{colorLabel(oldColor)}</span>
         </div>
-        <ArrowDown size={10} className="text-muted-foreground rotate-[-90deg]" />
+        <ArrowDown size={10} className="rotate-[-90deg] text-muted-foreground" />
         <div className="flex items-center gap-1">
           <span className={`inline-block h-2.5 w-2.5 rounded-full ${colorDot(newColor)}`} />
-          <span className={`text-xs font-medium ${colorText(newColor)}`}>
-            {colorLabel(newColor)}
-          </span>
+          <span className={`text-xs font-medium ${colorText(newColor)}`}>{colorLabel(newColor)}</span>
         </div>
       </div>
 
-      {/* Mode transition row */}
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
         <span>Modo: {oldMode}</span>
         <span>→</span>
         <span>{newMode}</span>
       </div>
 
-      {/* Scores */}
-      <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground/70">
+      <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground/70">
         <span>R: {typeof event.resonance_score === "number" ? event.resonance_score.toFixed(3) : "—"}</span>
         <span>S: {typeof event.stability_score === "number" ? event.stability_score.toFixed(3) : "—"}</span>
         <span>P: {typeof event.pulse_strength === "number" ? event.pulse_strength.toFixed(3) : "—"}</span>
-        {event.admitted && (
-          <span className="text-red-400 font-semibold">ADMITTED</span>
-        )}
+        {event.admitted && <span className="font-semibold text-red-400">ADMITTED</span>}
+      </div>
+
+      <div className="mt-2 grid gap-1 text-[10px] text-muted-foreground/80">
+        <div>
+          <span className="font-semibold text-foreground/80">Reason:</span> {event.reason || "—"}
+        </div>
+        <div>
+          <span className="font-semibold text-foreground/80">Passed:</span> {formatList(event.thresholds_passed)}
+        </div>
+        <div>
+          <span className="font-semibold text-foreground/80">Failed:</span> {formatList(event.thresholds_failed)}
+        </div>
+        <div>
+          <span className="font-semibold text-foreground/80">Trace refs:</span> {formatList(event.trace_refs)}
+        </div>
       </div>
     </div>
   );

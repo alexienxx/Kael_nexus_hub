@@ -40,6 +40,26 @@ export function useServices() {
     fetchServices();
   }, [fetchServices]);
 
+  // Listen for OAuth callback completion (from ServiceCallback page)
+  useEffect(() => {
+    function handleStorage(e: StorageEvent) {
+      if (e.key === "kael-service-connected") {
+        fetchServices();
+      }
+    }
+    function handleMessage(e: MessageEvent) {
+      if (e.data?.type === "kael-service-connected") {
+        fetchServices();
+      }
+    }
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("message", handleMessage);
+    };
+  }, [fetchServices]);
+
   const connectService = useCallback(
     async (serviceId: string) => {
       if (!isBackendAvailable) {
