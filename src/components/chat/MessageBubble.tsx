@@ -14,7 +14,6 @@ interface MessageBubbleProps {
   message: ChatMessage;
   onLike?: (id: string) => void;
   onDislike?: (id: string) => void;
-  onRegenerate?: (id: string) => void;
   onPlayTTS?: (text: string) => void;
   onImageClick?: (url: string) => void;
   onEditMessage?: (id: string, currentText: string) => void;
@@ -84,7 +83,6 @@ const MessageBubble = ({
   message,
   onLike,
   onDislike,
-  onRegenerate,
   onPlayTTS,
   onImageClick,
   onEditMessage,
@@ -256,7 +254,6 @@ const MessageBubble = ({
           message={message}
           onLike={onLike}
           onDislike={onDislike}
-          onRegenerate={onRegenerate}
           onPlayTTS={onPlayTTS}
         />
       </div>

@@ -7,18 +7,13 @@ import type { Service } from "@/types";
  * Handles generic service operations for the Services hub.
  * This provides a backend contract for managing third-party service integrations.
  *
- * ⚠️ CRITICAL: These endpoints are NOT yet implemented in the backend.
- * This API layer is a contract definition that REQUIRES backend completion before use.
- * DO NOT treat these endpoints as stable until backend implementation is verified.
+ * Backend: services_hub/router.py (Drive, GitHub, Calendar, Slack integrations).
  *
- * Expected endpoints (PENDING BACKEND IMPLEMENTATION):
+ * Active endpoints:
  * - GET /services - List available services and their connection status
  * - GET /services/:serviceId - Get details of a specific service
  * - POST /services/:serviceId/connect - Connect a service
  * - POST /services/:serviceId/disconnect - Disconnect a service
- *
- * The UI MUST fail gracefully if these endpoints are unavailable.
- * The UI MUST NOT fake service connection states or break chat functionality.
  */
 
 export interface ServicesResponse {

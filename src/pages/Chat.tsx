@@ -583,44 +583,6 @@ const Chat = () => {
     [messages]
   );
 
-  const handleRegenerate = useCallback(
-    async (id: string) => {
-      const message = messages.find((m) => m.id === id);
-      if (!message?.backend_turn_id) return;
-
-      setIsTyping(true);
-      try {
-        const startTime = Date.now();
-        const response = await chatApi.regenerateResponse(message.backend_turn_id, sessionId);
-        const latency = Date.now() - startTime;
-
-        setIsTyping(false);
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === id
-              ? {
-                  ...m,
-                  text: response.reply,
-                  sender: response.sender || m.sender,
-                  backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
-                  latency,
-                  meta: response.meta,
-                  audioUrl: response.voice_audio,
-                  agent_id: response.agent_id,
-                  agent_name: response.agent_name,
-                  agent_avatar: response.agent_avatar,
-                }
-              : m
-          )
-        );
-      } catch (error) {
-        setIsTyping(false);
-        toast.error(error instanceof Error ? error.message : "Failed to regenerate response");
-      }
-    },
-    [messages, sessionId]
-  );
-
   const handlePlayTTS = useCallback(async (text: string) => {
     try {
       const audioBlob = await requestTTS(text);
@@ -699,7 +661,6 @@ const Chat = () => {
             message={msg}
             onLike={(id) => handleFeedback(id, "like")}
             onDislike={(id) => handleFeedback(id, "dislike")}
-            onRegenerate={handleRegenerate}
             onPlayTTS={handlePlayTTS}
             onImageClick={setViewerImage}
             onEditMessage={handleEditMessage}

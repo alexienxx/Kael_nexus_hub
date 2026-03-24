@@ -5,6 +5,17 @@
 
 ---
 
+## [Unreleased] — 2026-03-25
+
+### 🧹 Eradicazione Codice Non Canonico
+- **`src/lib/api/chat.ts`**: Rimossa `regenerateResponse()` — endpoint `/chat/regenerate` inesistente nel backend.
+- **`src/pages/Chat.tsx`**: Rimosso `handleRegenerate` callback e prop `onRegenerate` da `<MessageBubble>`.
+- **`src/components/chat/MessageActions.tsx`**: Rimosso bottone Rigenera (RefreshCw icon), rimossa prop `onRegenerate`.
+- **`src/components/chat/MessageBubble.tsx`**: Rimossa prop `onRegenerate` da interfaccia e destructuring.
+- **`src/lib/api/services.ts`**: Rimosso commento stale "⚠️ CRITICAL: These endpoints are NOT yet implemented" — il backend `services_hub/router.py` È implementato.
+
+---
+
 ## [Unreleased] — 2026-03-23b
 
 ### 🏗️ Build System — Dual-mode Capacitor (Lovable + Prod)

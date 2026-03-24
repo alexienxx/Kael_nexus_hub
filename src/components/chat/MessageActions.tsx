@@ -1,15 +1,14 @@
-import { ThumbsUp, ThumbsDown, RefreshCw, Volume2, Download } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Volume2, Download } from "lucide-react";
 import type { ChatMessage } from "@/types";
 
 interface MessageActionsProps {
   message: ChatMessage;
   onLike?: (id: string) => void;
   onDislike?: (id: string) => void;
-  onRegenerate?: (id: string) => void;
   onPlayTTS?: (text: string) => void;
 }
 
-const MessageActions = ({ message, onLike, onDislike, onRegenerate, onPlayTTS }: MessageActionsProps) => {
+const MessageActions = ({ message, onLike, onDislike, onPlayTTS }: MessageActionsProps) => {
   // Show actions for Kael and external agent messages, but not for user messages
   if (message.sender === "user") return null;
 
@@ -41,13 +40,6 @@ const MessageActions = ({ message, onLike, onDislike, onRegenerate, onPlayTTS }:
           </button>
         </>
       )}
-      <button
-        onClick={() => onRegenerate?.(message.id)}
-        className="rounded-full p-1 text-muted-foreground transition-all hover:scale-110 hover:text-foreground"
-        title="Rigenera"
-      >
-        <RefreshCw size={12} />
-      </button>
       {message.text && (
         <button
           onClick={() => onPlayTTS?.(message.text)}

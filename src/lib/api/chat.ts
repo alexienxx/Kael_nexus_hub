@@ -6,7 +6,6 @@ import type { ChatMessage, FeedbackPayload } from "@/types";
  *
  * VERIFIED ENDPOINTS (in active use):
  * - POST /chat - Send text message and get reply
- * - POST /chat/regenerate - Regenerate last response
  * - POST /feedback - Submit RLHF feedback
  * - POST /chat/image - Upload image for analysis
  * - POST /chat/voice - Send voice note
@@ -52,7 +51,7 @@ export interface VoiceResponse extends ChatResponse {
 }
 
 /**
- * Timeout for LLM-backed requests (chat, regenerate, voice).
+ * Timeout for LLM-backed requests (chat, voice).
  * Ollama inference can take 40-55s depending on model load.
  */
 const CHAT_TIMEOUT = 90_000;
@@ -66,15 +65,6 @@ export async function sendMessage(
   return apiRequest<ChatResponse>("/chat", {
     method: "POST",
     body: JSON.stringify({ text, session_id: sessionId }),
-    timeout: CHAT_TIMEOUT,
-  });
-}
-
-/** Regenerate last Kael response */
-export async function regenerateResponse(turnId: string, sessionId: string) {
-  return apiRequest<ChatResponse>("/chat/regenerate", {
-    method: "POST",
-    body: JSON.stringify({ turn_id: turnId, session_id: sessionId }),
     timeout: CHAT_TIMEOUT,
   });
 }
