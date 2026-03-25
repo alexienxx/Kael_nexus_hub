@@ -35,16 +35,48 @@ export default function MemorySection() {
             <SubsystemStatusDot status={d.db_status} />
             <span className="text-sm font-semibold text-foreground capitalize">{d.db_status}</span>
           </div>
+          {d.db_disk_usage_mb != null && (
+            <p className="text-[9px] text-muted-foreground mt-1">{d.db_disk_usage_mb.toFixed(1)} MB</p>
+          )}
         </div>
         <div className="rounded-lg border border-border bg-secondary/20 p-3">
           <div className="flex items-center gap-2 mb-2">
             <HardDrive size={14} className="text-muted-foreground" />
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Saturazione</span>
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Pressione Memoria</span>
           </div>
           <p className={`text-lg font-bold font-mono ${satColor}`}>{d.saturation_pct.toFixed(0)}%</p>
           <Progress value={d.saturation_pct} className="h-1.5 mt-1" />
         </div>
       </div>
+
+      {/* 3-metric breakdown */}
+      {(d.db_fragmentation_pct != null || d.memory_pressure_score != null) && (
+        <div className="rounded-lg border border-border bg-secondary/20 p-3">
+          <h3 className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
+            <HardDrive size={12} /> Metriche DB
+          </h3>
+          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+            {d.db_disk_usage_mb != null && (
+              <div>
+                <p className="text-muted-foreground text-[9px]">Disco</p>
+                <p className="font-mono font-semibold">{d.db_disk_usage_mb.toFixed(1)} MB</p>
+              </div>
+            )}
+            {d.db_fragmentation_pct != null && (
+              <div>
+                <p className="text-muted-foreground text-[9px]">Frammentazione</p>
+                <p className={`font-mono font-semibold ${d.db_fragmentation_pct > 20 ? "text-amber-400" : ""}`}>{d.db_fragmentation_pct.toFixed(0)}%</p>
+              </div>
+            )}
+            {d.memory_pressure_score != null && (
+              <div>
+                <p className="text-muted-foreground text-[9px]">Pressione</p>
+                <p className={`font-mono font-semibold ${d.memory_pressure_score > 0.8 ? "text-red-400" : d.memory_pressure_score > 0.6 ? "text-amber-400" : ""}`}>{(d.memory_pressure_score * 100).toFixed(0)}%</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Timestamps */}
       <div className="grid grid-cols-2 gap-3">

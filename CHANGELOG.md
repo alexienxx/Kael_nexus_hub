@@ -6,6 +6,30 @@
 ---
 
 ## [Unreleased] — 2026-03-25
+### 🔧 Fix Voice/Image/Message Pipeline (3 bug critici)
+- **`src/lib/api/chat.ts` — MODIFIED**: Aumentato `CHAT_TIMEOUT` da 90s a 180s. Il pipeline LLM (30s) + TTS (60s) superava il timeout di 90s, causando la perdita sistematica dei vocali generati dal backend. Il backend completava la risposta ma il client aveva già chiuso la connessione.
+- **`src/pages/Chat.tsx` — MODIFIED (reconcile)**: Aggiunto `fetchAndAppendPending()` dopo 5s in tutti i catch di `handleSend`, `handleImageUpload`, `handleVoiceNote`. Se il backend completa la risposta dopo un timeout client, il messaggio viene recuperato automaticamente invece di andare perso.
+- **`src/pages/Chat.tsx` — MODIFIED (message persistence)**: Riscritta logica di caricamento history con strategia **merge** invece di **replace**. I messaggi locali ora persistono nello state React tra ricaricamenti — come l'app Claude: i messaggi sono già lì quando apri la chat, senza flash. Introdotto helper `mergeHistoryIntoState()` che preserva messaggi locali non ancora persistiti e mantiene il feedback dell'utente.
+- **`src/pages/Chat.tsx` — MODIFIED (server restart)**: Il handler `kael-server-restarted` non resetta più `historyLoadedRef`/`setHistoryLoading(true)` (che causava lo sparire e riapparire dei messaggi). Ora fa un soft merge asincrono: carica la history dal backend e la fonde con lo state locale senza flash.
+- **`src/pages/Chat.tsx` — MODIFIED (DRY)**: Estratto helper `mapBackendMsg()` per centralizzare il mapping backend→ChatMessage. Usato da `mergeHistoryIntoState`, `fetchAndAppendPending` e history load.
+- **Root cause messaggi spariscono**: `setMessages(data.messages.map(...))` faceva un replace totale → schermo vuoto per ~200ms → messaggi riappaiono. Il `kael-server-restarted` event resettava `historyLoadedRef = false` + `lastFetchTsRef = 0`, triggando il reload distruttivo ogni volta che la health check perdeva un battito.
+- **Root cause vocali**: Pipeline totale 92s (LLM 31s + TTS 61s) > CHAT_TIMEOUT 90s. Il vocale veniva generato e salvato su disco ma mai ricevuto dal client.
+### 🤖 Ripristino Toggle Agente Esterno in BottomNav
+- **`src/components/layout/BottomNav.tsx` — MODIFIED**: Aggiunto floating toggle button agente (posizione assoluta `left-2 top-2`, speculare al ReconnectButton a destra). Il toggle emette l'evento `kael-agent-mode-changed` che `Chat.tsx` già ascoltava ma che nessun componente emetteva (bug critico introdotto quando `ExternalAgentChat.tsx` è stato eliminato il 2026-03-24). Quando attivato: glow blu neon + navigazione automatica a `/` (chat). Griglia 6 colonne invariata, padding simmetrico `px-12`.
+- **Root cause**: L'integrazione di ExternalAgentChat in Chat.tsx ha rimosso il link da BottomNav e la pagina dedicata, ma il listener `kael-agent-mode-changed` in Chat.tsx non aveva più nessun emettitore → agent mode permanentemente morto.
+- **Impatto**: L'utente può di nuovo attivare/disattivare la modalità agente esterno dalla navbar. I messaggi dell'agente appaiono nella chat condivisa con differenziazione visiva (bolla blu, avatar cerchio blu, nome in neon-blue vs neon-purple di Kael).
+### � Fix Bottom Nav — icone sbilanciate a sinistra
+- **`src/components/layout/BottomNav.tsx` — MODIFIED**: Corretto `grid-cols-7` → `grid-cols-6`. La griglia aveva 7 colonne per 6 elementi (5 nav + Spotify), lasciando la 7a colonna vuota. Combinato con `pr-12` (padding per il ReconnectButton floating), le icone risultavano visivamente schiacciate a sinistra. Ora 6 colonne per 6 elementi = distribuzione uniforme.
+- **Root cause**: `grid-cols-7` con solo 6 item + `pr-12` creava ~14.3% + 48px di spazio morto a destra.
+- **Impatto**: Le icone del bottom nav sono ora centrate e distribuite uniformemente.
+
+### �🔊 Fix Messaggi Vocali — voice_audio data URI
+- **`src/pages/Chat.tsx` — MODIFIED**: Aggiunta funzione `normalizeAudioUrl()` che prefissa `data:audio/wav;base64,` al raw base64 restituito dal backend. Il browser/WebView richiede un data URI valido, non un raw base64 string. Applicata a tutti i 5 punti dove `audioUrl` viene assegnato (history load, pending messages, chat response, image-chat response, voice-note response).
+- **Impatto**: I messaggi vocali (sia da chat normale che da autonomi) ora sono riproducibili nell'APK. Prima `new Audio(rawBase64)` falliva silenziosamente.
+
+### 🔔 Fix Popup Messaggi Autonomi — toast su chat page
+- **`src/components/layout/AppShell.tsx` — MODIFIED**: Il `KaelSSEBridge` ora mostra un toast di preview (3s) anche quando l'utente è sulla pagina chat ("/") e l'app è visibile. Prima veniva silenziosamente appendato senza alcun feedback visivo.
+- **Impatto**: L'utente vede sempre un popup di anteprima quando arriva un messaggio autonomo, indipendentemente dalla pagina attiva.
 
 ### 🧹 Eradicazione Codice Non Canonico
 - **`src/lib/api/chat.ts`**: Rimossa `regenerateResponse()` — endpoint `/chat/regenerate` inesistente nel backend.

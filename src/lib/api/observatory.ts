@@ -56,8 +56,14 @@ export interface CoreOverview {
   uptime_seconds: number;
   last_turn_id: number | null;
   last_turn_ts: number | null;
+  last_successful_chat_ts: number | null;
+  last_autonomy_tick_ts: number | null;
+  last_autonomy_delivery_ts: number | null;
   last_autonomous_action_ts: number | null;
+  pending_autonomous_count: number;
   tick_count: number;
+  chat_stale: boolean;
+  autonomy_stale: boolean;
   subsystems: SubsystemEntry[];
   warnings: string[];
 }
@@ -203,6 +209,10 @@ export interface MemoryStats {
   failed_retrievals: number | null; // null = not tracked
   failed_retrievals_available?: boolean;
   saturation_pct: number;
+  db_disk_usage_mb?: number;
+  db_fragmentation_pct?: number;
+  memory_pressure_score?: number;
+  db_maintenance_status?: Record<string, unknown>;
   backlog_count: number | null; // null = not tracked
   backlog_available?: boolean;
 }

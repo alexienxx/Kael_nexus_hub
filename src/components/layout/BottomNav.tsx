@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink as RouterNavLink } from "react-router-dom";
+import { NavLink as RouterNavLink, useNavigate } from "react-router-dom";
 import {
   MessageCircle,
   Paperclip,
@@ -7,6 +7,7 @@ import {
   Settings,
   RefreshCw,
   BrainCircuit,
+  Bot,
 } from "lucide-react";
 import NetharionButton from "@/components/common/NetharionButton";
 import NetharionRealEventsSheet from "@/components/common/NetharionRealEventsSheet";
@@ -67,6 +68,17 @@ const BottomNav = () => {
   const { state: backendState } = useBackendConnection();
   const { state: netharionState } = useNetharion(5000, backendState === "online");
   const [showRealEvents, setShowRealEvents] = useState(false);
+  const [agentActive, setAgentActive] = useState(false);
+  const navigate = useNavigate();
+
+  const handleAgentToggle = () => {
+    const next = !agentActive;
+    setAgentActive(next);
+    window.dispatchEvent(
+      new CustomEvent("kael-agent-mode-changed", { detail: { active: next } }),
+    );
+    if (next) navigate("/");
+  };
 
   const handleSpotifyPress = () => {
     const spotifyDeepLink = "spotify://";
@@ -90,9 +102,23 @@ const BottomNav = () => {
 
       <ReconnectButton />
 
+      {/* Agent mode toggle — floating left, mirrors ReconnectButton on right */}
+      <button
+        type="button"
+        onClick={handleAgentToggle}
+        className={`absolute left-2 top-2 z-30 flex h-10 w-10 items-center justify-center rounded-full border shadow-sm transition-all active:scale-95 ${
+          agentActive
+            ? "border-neon-blue/40 bg-neon-blue/20 text-neon-blue shadow-neon-blue/20"
+            : "border-white/10 bg-black/20 text-muted-foreground hover:text-foreground"
+        }`}
+        aria-label={agentActive ? "Disattiva agente esterno" : "Attiva agente esterno"}
+      >
+        <Bot size={18} />
+      </button>
+
       <NetharionRealEventsSheet open={showRealEvents} onClose={() => setShowRealEvents(false)} />
 
-      <div className="grid grid-cols-7 gap-1 pr-12 pt-4">
+      <div className="grid grid-cols-6 gap-1 px-12 pt-4">
         {navItems.map(({ to, icon: Icon, label }) => (
           <RouterNavLink
             key={to}

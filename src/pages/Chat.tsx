@@ -4,6 +4,7 @@ import { useTheme } from "@/lib/store/theme";
 import { useSession } from "@/hooks/useSession";
 import { useAgenticActions } from "@/hooks/useAgenticActions";
 import { useBackendConnection } from "@/context/BackendConnectionContext";
+import { useServiceHealthToast } from "@/hooks/useServiceHealthToast";
 import { useChatWallpaper } from "@/hooks/useChatWallpaper";
 import { useLongPress } from "@/hooks/useLongPress";
 import chatBg from "@/assets/chat-bg.jpg";
@@ -52,6 +53,16 @@ const pollAndFetchAvatarVideo = async (jobId: string): Promise<string | null> =>
 import { getApiConfig, probeAndResolveBackend } from "@/lib/api/client";
 import { sendExternalAgentMessage, getSelectedModel, type ExternalChatMessage } from "@/lib/externalAgent";
 
+/**
+ * Normalize voice_audio: backend returns raw base64 (no prefix).
+ * AudioMessage needs a playable URL (data URI or http).
+ */
+function normalizeAudioUrl(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  if (raw.startsWith("data:") || raw.startsWith("http")) return raw;
+  return `data:audio/wav;base64,${raw}`;
+}
+
 // Default conversation ID for the main Kael chat
 const DEFAULT_CONVERSATION_ID = "kael-main";
 
@@ -65,6 +76,7 @@ const Chat = () => {
   const { sessionId } = useSession();
   const { activeContext, clearContext } = useAgenticActions();
   const { state: lifecycleState, message: lifecycleMessage } = useBackendConnection();
+  useServiceHealthToast(lifecycleState);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const historyLoadedRef = useRef(false);
@@ -152,7 +164,55 @@ const Chat = () => {
     toast.success("Sfondo rimosso");
   }, [removeWallpaperFromStore]);
 
-  // Load real chat history from backend once lifecycle reaches "online"
+  // Helper: convert backend message object to local ChatMessage
+  const mapBackendMsg = useCallback((m: any): ChatMessage => ({
+    id: String(m.id ?? m.turn_id ?? Date.now() + Math.random()),
+    text: m.text ?? m.content ?? "",
+    time: m.time ?? new Date(m.timestamp ?? Date.now()).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
+    sender: (m.sender ?? (m.role === "user" ? "user" : "kael")) as ChatMessage["sender"],
+    feedback: m.feedback ?? null,
+    backend_turn_id: String(m.id ?? m.turn_id ?? m.backend_turn_id ?? ""),
+    audioUrl: normalizeAudioUrl(m.tts_url ?? m.voice_audio ?? m.audioUrl),
+    image: m.image,
+    meta: m.meta,
+    agent_id: m.agent_id,
+    agent_name: m.agent_name,
+    agent_avatar: m.agent_avatar,
+  }), []);
+
+  // Merge backend history into local state without losing local-only messages.
+  // This is a soft merge: backend messages are added/updated by backend_turn_id,
+  // local-only messages (no backend_turn_id) are preserved at the end.
+  const mergeHistoryIntoState = useCallback((backendMessages: any[]) => {
+    const incoming = backendMessages.map(mapBackendMsg);
+    setMessages((prev) => {
+      if (prev.length === 0) return incoming;
+
+      // Build set of backend_turn_ids from incoming
+      const incomingIds = new Set(
+        incoming.map((m) => m.backend_turn_id).filter(Boolean)
+      );
+      // Local-only messages: those without backend_turn_id (user msgs not yet persisted)
+      const localOnly = prev.filter(
+        (m) => !m.backend_turn_id && m.sender === "user"
+      );
+      // Preserve feedback from existing messages
+      const existingFeedback = new Map(
+        prev.filter((m) => m.backend_turn_id && m.feedback).map((m) => [m.backend_turn_id, m.feedback])
+      );
+
+      const merged = incoming.map((m) => {
+        const fb = existingFeedback.get(m.backend_turn_id);
+        return fb ? { ...m, feedback: fb } : m;
+      });
+
+      // Append local-only user messages that aren't in backend yet
+      return [...merged, ...localOnly];
+    });
+  }, [mapBackendMsg]);
+
+  // Load real chat history from backend once lifecycle reaches "online".
+  // Uses merge strategy: existing local messages are preserved, not replaced.
   useEffect(() => {
     if (lifecycleState !== "online" || historyLoadedRef.current) {
       if (lifecycleState !== "online" && lifecycleState !== "checking") {
@@ -171,35 +231,19 @@ const Chat = () => {
       try {
         const data = await chatApi.getChatHistory(sessionId);
         if (!cancelled && data?.messages?.length) {
-          setMessages(
-            data.messages.map((m: any) => ({
-              id: m.id ?? m.turn_id ?? String(Date.now() + Math.random()),
-              text: m.text ?? m.content ?? "",
-              time: m.time ?? new Date(m.timestamp ?? Date.now()).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
-              sender: m.sender ?? (m.role === "user" ? "user" : "kael"),
-              feedback: m.feedback ?? null,
-              backend_turn_id: m.id ?? m.turn_id ?? m.backend_turn_id,
-              audioUrl: m.tts_url ?? m.voice_audio ?? m.audioUrl,
-              image: m.image,
-              meta: m.meta,
-              agent_id: m.agent_id,
-              agent_name: m.agent_name,
-              agent_avatar: m.agent_avatar,
-            }))
-          );
+          mergeHistoryIntoState(data.messages);
         }
       } catch (err) {
         console.warn("[Chat] History load failed:", err);
       } finally {
         if (!cancelled) {
           setHistoryLoading(false);
-          // Set SSE watermark so autonomous message handler knows history is loaded
           lastFetchTsRef.current = Date.now() / 1000;
         }
       }
     })();
     return () => { cancelled = true; };
-  }, [lifecycleState, sessionId]);
+  }, [lifecycleState, sessionId, mergeHistoryIntoState]);
 
   const scrollToBottom = useCallback((instant?: boolean) => {
     const doScroll = () => {
@@ -261,25 +305,7 @@ const Chat = () => {
             const id = String(m.id ?? m.turn_id ?? "");
             return id && !existingIds.has(id);
           })
-          .map((m: any) => ({
-            id: String(m.id ?? m.turn_id ?? Date.now() + Math.random()),
-            text: m.text ?? m.content ?? "",
-            time:
-              m.time ??
-              new Date(m.timestamp ?? Date.now()).toLocaleTimeString("it-IT", {
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-            sender: (m.sender ?? (m.role === "user" ? "user" : "kael")) as ChatMessage["sender"],
-            feedback: m.feedback ?? null,
-            backend_turn_id: String(m.id ?? m.turn_id ?? ""),
-            audioUrl: m.tts_url ?? m.voice_audio ?? m.audioUrl,
-            image: m.image,
-            meta: m.meta,
-            agent_id: m.agent_id,
-            agent_name: m.agent_name,
-            agent_avatar: m.agent_avatar,
-          }));
+          .map(mapBackendMsg);
 
         if (newMsgs.length === 0) return prev;
         return [...prev, ...newMsgs];
@@ -289,7 +315,7 @@ const Chat = () => {
     } catch (err) {
       console.warn("[Chat] Failed to fetch pending messages:", err);
     }
-  }, [sessionId]);
+  }, [sessionId, mapBackendMsg]);
 
   useEffect(() => {
     if (lifecycleState !== "online") return;
@@ -304,11 +330,20 @@ const Chat = () => {
     };
 
     const handleServerRestarted = () => {
-      // Server silently restarted — force full history reload
-      console.warn("[Chat] Server restarted detected, reloading history...");
-      historyLoadedRef.current = false;
-      setHistoryLoading(true);
-      lastFetchTsRef.current = 0;
+      // Server silently restarted — soft merge: keep local messages visible,
+      // fetch full history and merge (no flash/disappearance).
+      console.warn("[Chat] Server restarted detected, soft-merging history...");
+      (async () => {
+        try {
+          const data = await chatApi.getChatHistory(sessionId);
+          if (data?.messages?.length) {
+            mergeHistoryIntoState(data.messages);
+          }
+          lastFetchTsRef.current = Date.now() / 1000;
+        } catch (err) {
+          console.warn("[Chat] History merge after restart failed:", err);
+        }
+      })();
     };
 
     window.addEventListener("kael-autonomous-message", handleAutonomous);
@@ -319,7 +354,7 @@ const Chat = () => {
       window.removeEventListener("kael-sse-connected", handleReconnect);
       window.removeEventListener("kael-server-restarted", handleServerRestarted);
     };
-  }, [lifecycleState, fetchAndAppendPending]);
+  }, [lifecycleState, fetchAndAppendPending, mergeHistoryIntoState, sessionId]);
 
   // Listen for agent mode toggle from BottomNav
   useEffect(() => {
@@ -360,7 +395,7 @@ const Chat = () => {
           backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
           latency,
           meta: response.meta,
-          audioUrl: response.voice_audio,
+          audioUrl: normalizeAudioUrl(response.voice_audio),
           image: response.image_base64
             ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
             : undefined,
@@ -418,6 +453,9 @@ const Chat = () => {
         // Do NOT invalidateBackendCache — user URL is source of truth.
         // Just trigger re-discovery which will probe without overwriting.
         probeAndResolveBackend().catch(() => {});
+        // Reconcile: backend may have completed the reply after client timeout.
+        // Wait a few seconds then fetch any pending messages we missed.
+        setTimeout(() => fetchAndAppendPending(), 5000);
       }
     },
     [sessionId, agentMode, messages]
@@ -462,7 +500,7 @@ const Chat = () => {
             backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
             latency,
             meta: response.meta,
-            audioUrl: response.voice_audio,
+            audioUrl: normalizeAudioUrl(response.voice_audio),
             // Image generation: if backend generated an image, embed it.
             image: response.image_base64
               ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
@@ -487,6 +525,8 @@ const Chat = () => {
         } catch (error) {
           setIsTyping(false);
           toast.error(error instanceof Error ? error.message : "Failed to send image");
+          // Reconcile: fetch pending in case backend completed after timeout
+          setTimeout(() => fetchAndAppendPending(), 5000);
         }
       };
       reader.readAsDataURL(file);
@@ -525,7 +565,7 @@ const Chat = () => {
           backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
           latency,
           meta: response.meta,
-          audioUrl: response.voice_audio,
+          audioUrl: normalizeAudioUrl(response.voice_audio),
           // Image generation: if backend generated an image, embed it.
           image: response.image_base64
             ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
@@ -550,6 +590,8 @@ const Chat = () => {
       } catch (error) {
         setIsTyping(false);
         toast.error(error instanceof Error ? error.message : "Failed to send voice note");
+        // Reconcile: fetch pending in case backend completed after timeout
+        setTimeout(() => fetchAndAppendPending(), 5000);
       }
     },
     [sessionId]

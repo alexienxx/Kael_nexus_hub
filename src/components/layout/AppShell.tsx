@@ -42,8 +42,13 @@ const KaelSSEBridge = () => {
           description: preview,
           duration: 5000,
         });
+      } else {
+        // On chat page and visible → show brief preview toast
+        toast("Kael", {
+          description: preview,
+          duration: 3000,
+        });
       }
-      // On chat page ("/") and visible → Chat.tsx handles it, no notification
     };
     window.addEventListener("kael-autonomous-message", handler);
     return () => window.removeEventListener("kael-autonomous-message", handler);

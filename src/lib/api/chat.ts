@@ -52,9 +52,9 @@ export interface VoiceResponse extends ChatResponse {
 
 /**
  * Timeout for LLM-backed requests (chat, voice).
- * Ollama inference can take 40-55s depending on model load.
+ * Ollama inference + TTS can take 60-120s depending on model load and voice synthesis.
  */
-const CHAT_TIMEOUT = 90_000;
+const CHAT_TIMEOUT = 180_000;
 
 /** Send a text message and get Kael's reply */
 export async function sendMessage(

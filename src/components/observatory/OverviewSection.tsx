@@ -48,7 +48,18 @@ export default function OverviewSection() {
       {/* Autonomy + Last activity */}
       <div className="grid grid-cols-2 gap-3">
         <StatCard icon={<Zap size={16} />} label="Autonomy" value={d.autonomy_status} />
-        <StatCard icon={<Activity size={16} />} label="Turn" value={d.last_turn_id?.toString() ?? "—"} subtitle={d.last_turn_ts ? new Date(d.last_turn_ts * 1000).toLocaleTimeString("it-IT") : undefined} />
+        <StatCard icon={<Activity size={16} />} label="Pending Auto" value={`${d.pending_autonomous_count ?? 0}`} />
+      </div>
+
+      {/* Timestamps */}
+      <div className="rounded-lg border border-border bg-secondary/20 p-3">
+        <h3 className="text-xs font-semibold text-muted-foreground mb-2">Attività Recente</h3>
+        <div className="space-y-1.5 text-xs">
+          <TimestampRow label="Ultimo chat" ts={d.last_successful_chat_ts} stale={d.chat_stale} />
+          <TimestampRow label="Ultimo tick autonomia" ts={d.last_autonomy_tick_ts} stale={d.autonomy_stale} />
+          <TimestampRow label="Ultima delivery autonoma" ts={d.last_autonomy_delivery_ts} />
+          <TimestampRow label="Tick count" ts={null} count={d.tick_count} />
+        </div>
       </div>
 
       {/* Subsystems grid */}
@@ -76,6 +87,27 @@ function StatCard({ icon, label, value, subtitle }: { icon: React.ReactNode; lab
       </div>
       <p className="text-sm font-semibold text-foreground truncate">{value}</p>
       {subtitle && <p className="text-[10px] text-muted-foreground">{subtitle}</p>}
+    </div>
+  );
+}
+
+function TimestampRow({ label, ts, stale, count }: { label: string; ts: number | null | undefined; stale?: boolean; count?: number }) {
+  if (count !== undefined) {
+    return (
+      <div className="flex items-center justify-between">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-mono text-foreground">{count}</span>
+      </div>
+    );
+  }
+  const timeStr = ts ? new Date(ts * 1000).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={`font-mono ${stale ? "text-amber-400" : "text-foreground"}`}>
+        {timeStr}
+        {stale && <span className="ml-1 text-[9px]">(stale)</span>}
+      </span>
     </div>
   );
 }
