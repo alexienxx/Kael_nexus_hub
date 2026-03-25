@@ -270,6 +270,43 @@ export async function getModuleHealth(): Promise<ObservatoryResponse<ModulesOver
   return apiRequest<ObservatoryResponse<ModulesOverview>>("/observatory/modules");
 }
 
+// ─── 8b. Canonical Service Health ───
+
+export interface CanonicalService {
+  name: string;
+  state: "starting" | "healthy" | "degraded" | "offline" | "broken";
+  reachable: boolean;
+  connected: boolean;
+  pid: number | null;
+  port: number | null;
+  last_transition_ts: number | null;
+  last_error: string | null;
+  degraded_reason: string | null;
+  offline_since: number | null;
+  broken_since: number | null;
+  source: string;
+  is_real_service: boolean;
+}
+
+export interface ServiceSummary {
+  total: number;
+  healthy: number;
+  degraded: number;
+  offline: number;
+  broken: number;
+  starting: number;
+}
+
+export interface CanonicalServicesData {
+  services: Record<string, CanonicalService>;
+  service_summary: ServiceSummary;
+  diagnostics: Record<string, unknown>;
+}
+
+export async function getCanonicalServices(): Promise<ObservatoryResponse<CanonicalServicesData>> {
+  return apiRequest<ObservatoryResponse<CanonicalServicesData>>("/observatory/services");
+}
+
 // ─── 9. Events / Trace / Recent Shifts ───
 
 export interface InternalEvent {

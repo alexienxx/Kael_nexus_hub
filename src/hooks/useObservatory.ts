@@ -39,6 +39,10 @@ export function useModuleHealth(): LiveResult<obs.ObservatoryResponse<obs.Module
   return useObservatoryLive(() => obs.getModuleHealth());
 }
 
+export function useServiceHealth(): LiveResult<obs.ObservatoryResponse<obs.CanonicalServicesData>> {
+  return useObservatoryLive(() => obs.getCanonicalServices());
+}
+
 export function useRecentEvents(): LiveResult<obs.ObservatoryResponse<obs.RecentEvents>> {
   return useObservatoryLive(() => obs.getRecentEvents());
 }
