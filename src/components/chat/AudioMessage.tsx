@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { Play, Pause, Download } from "lucide-react";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { Play, Pause, MoreVertical, Download, Share2 } from "lucide-react";
 import { useTheme } from "@/lib/store/theme";
 
 interface AudioMessageProps {
@@ -8,25 +8,46 @@ interface AudioMessageProps {
   sender: "user" | "kael" | "external_agent";
 }
 
+/** Stable random-ish bar heights seeded by index */
+const generateBars = (count: number) =>
+  Array.from({ length: count }, (_, i) => {
+    const seed = Math.sin(i * 12.9898 + 78.233) * 43758.5453;
+    return ((seed - Math.floor(seed)) * 0.6 + 0.4); // 0.4–1.0
+  });
+
 const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [totalDuration, setTotalDuration] = useState(duration || 0);
+  const [menuOpen, setMenuOpen] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const barsRef = useRef<HTMLDivElement | null>(null);
   const { theme } = useTheme();
+
+  const barCount = 32;
+  const barHeights = useMemo(() => generateBars(barCount), []);
 
   useEffect(() => {
     const audio = new Audio(src);
     audioRef.current = audio;
 
+    audio.addEventListener("loadedmetadata", () => {
+      if (audio.duration && isFinite(audio.duration)) {
+        setTotalDuration(audio.duration);
+      }
+    });
+
     audio.addEventListener("timeupdate", () => {
-      setProgress(audio.duration ? (audio.currentTime / audio.duration) * 100 : 0);
+      const dur = audio.duration || 1;
+      setProgress(audio.currentTime / dur);
       setCurrentTime(audio.currentTime);
     });
 
     audio.addEventListener("ended", () => {
       setIsPlaying(false);
       setProgress(0);
+      setCurrentTime(0);
     });
 
     return () => {
@@ -45,21 +66,21 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
     setIsPlaying(!isPlaying);
   };
 
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!audioRef.current || !barsRef.current) return;
+    const rect = barsRef.current.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    audioRef.current.currentTime = ratio * (audioRef.current.duration || 0);
+  };
+
   const formatTime = (s: number) => {
     const mins = Math.floor(s / 60);
     const secs = Math.floor(s % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Generate visualization bars
-  const barCount = 24;
-  const bars = Array.from({ length: barCount }, (_, i) => {
-    const filled = (i / barCount) * 100 < progress;
-    const height = Math.random() * 60 + 40; // 40-100%
-    return { height, filled };
-  });
-
   const handleDownload = () => {
+    setMenuOpen(false);
     const a = document.createElement("a");
     a.href = src;
     a.download = `kael-audio-${Date.now()}.webm`;
@@ -68,73 +89,82 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
     document.body.removeChild(a);
   };
 
+  const isUser = sender === "user";
+
   return (
-    <div className="flex items-center gap-2 py-1">
+    <div className="flex items-center gap-2.5 py-1 min-w-[200px]">
+      {/* Play / Pause button */}
       <button
         onClick={togglePlay}
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neon-purple/20 text-neon-purple transition-all hover:scale-110"
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all active:scale-95 ${
+          isUser
+            ? "bg-primary-foreground/20 text-primary-foreground"
+            : "bg-neon-purple/20 text-neon-purple"
+        }`}
       >
-        {isPlaying ? <Pause size={14} /> : <Play size={14} className="ml-0.5" />}
+        {isPlaying ? <Pause size={16} /> : <Play size={16} className="ml-0.5" />}
       </button>
 
-      <div className="flex flex-1 items-end gap-[2px] h-6">
-        {theme.audioBarStyle === "bars" &&
-          bars.map((bar, i) => (
-            <div
-              key={i}
-              className={`w-[3px] rounded-full transition-colors ${
-                bar.filled ? "bg-neon-purple" : "bg-foreground/15"
-              }`}
-              style={{ height: `${bar.height}%` }}
-            />
-          ))}
-        {theme.audioBarStyle === "wave" && (
-          <div className="relative flex-1 h-full">
-            <div
-              className="absolute inset-y-0 left-0 rounded-full bg-neon-purple/30"
-              style={{ width: `${progress}%` }}
-            />
-            <svg viewBox="0 0 100 20" className="h-full w-full" preserveAspectRatio="none">
-              <path
-                d="M0,10 Q5,2 10,10 Q15,18 20,10 Q25,2 30,10 Q35,18 40,10 Q45,2 50,10 Q55,18 60,10 Q65,2 70,10 Q75,18 80,10 Q85,2 90,10 Q95,18 100,10"
-                fill="none"
-                stroke="hsl(var(--neon-purple))"
-                strokeWidth="1.5"
-                opacity={0.5}
+      {/* Waveform + time */}
+      <div className="flex flex-1 flex-col gap-1 min-w-0">
+        {/* Bars */}
+        <div
+          ref={barsRef}
+          className="flex items-end gap-[1.5px] h-7 cursor-pointer"
+          onClick={handleSeek}
+        >
+          {barHeights.map((h, i) => {
+            const filled = i / barCount < progress;
+            return (
+              <div
+                key={i}
+                className={`flex-1 rounded-full transition-colors duration-150 ${
+                  filled
+                    ? isUser
+                      ? "bg-primary-foreground/90"
+                      : "bg-neon-purple"
+                    : isUser
+                      ? "bg-primary-foreground/25"
+                      : "bg-foreground/15"
+                }`}
+                style={{ height: `${h * 100}%` }}
               />
-            </svg>
-          </div>
-        )}
-        {theme.audioBarStyle === "dots" &&
-          bars.map((bar, i) => (
-            <div
-              key={i}
-              className={`h-2 w-2 rounded-full transition-colors ${
-                bar.filled ? "bg-neon-purple" : "bg-foreground/15"
-              }`}
-            />
-          ))}
-        {theme.audioBarStyle === "minimal" && (
-          <div className="flex-1 h-1 rounded-full bg-foreground/10 overflow-hidden">
-            <div
-              className="h-full rounded-full bg-neon-purple transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        )}
+            );
+          })}
+        </div>
+
+        {/* Time */}
+        <span className="text-[10px] text-muted-foreground leading-none">
+          {isPlaying || currentTime > 0
+            ? formatTime(currentTime)
+            : formatTime(totalDuration)}
+        </span>
       </div>
 
-      <span className="text-[10px] text-muted-foreground shrink-0">
-        {formatTime(currentTime || duration || 0)}
-      </span>
+      {/* 3-dot menu */}
+      <div className="relative shrink-0">
+        <button
+          onClick={() => setMenuOpen(!menuOpen)}
+          className="flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-all hover:bg-foreground/10 active:scale-95"
+        >
+          <MoreVertical size={14} />
+        </button>
 
-      <button
-        onClick={handleDownload}
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-all hover:scale-110 hover:text-neon-blue"
-        title="Scarica audio"
-      >
-        <Download size={12} />
-      </button>
+        {menuOpen && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+            <div className="absolute right-0 bottom-8 z-50 min-w-[140px] rounded-lg border border-border bg-popover p-1 shadow-lg animate-in fade-in-0 zoom-in-95">
+              <button
+                onClick={handleDownload}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-xs text-foreground hover:bg-accent transition-colors"
+              >
+                <Download size={13} />
+                Scarica audio
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 };
