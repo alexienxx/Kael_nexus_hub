@@ -162,7 +162,7 @@ async function probeHealthValidated(
  * or rejects if all reject.  Safe for older Android WebView (< Chrome 85).
  */
 function promiseAny<T>(promises: Promise<T>[]): Promise<T> {
-  if (typeof Promise.any === "function") return Promise.any(promises);
+  if (typeof (Promise as any).any === "function") return (Promise as any).any(promises);
   return new Promise<T>((resolve, reject) => {
     let remaining = promises.length;
     if (remaining === 0) return reject(new Error("All promises rejected"));

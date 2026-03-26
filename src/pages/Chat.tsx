@@ -484,12 +484,12 @@ const Chat = () => {
 
           setIsTyping(false);
           // Warn user if vision failed (Kael replied without seeing the image)
-          if (response.vision_ok === false && response.failure_kind) {
+          if ((response as any).vision_ok === false && (response as any).failure_kind) {
             const msgs: Record<string, string> = {
               vision_error: "Kael non è riuscito ad analizzare l'immagine",
               not_configured: "La visione non è configurata",
             };
-            toast.warning(msgs[response.failure_kind] ?? "Visione non disponibile");
+            toast.warning(msgs[(response as any).failure_kind] ?? "Visione non disponibile");
           }
           const responseMsg: ChatMessage = {
             id: (Date.now() + 1).toString(),
