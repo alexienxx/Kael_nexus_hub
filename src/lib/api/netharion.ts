@@ -82,3 +82,30 @@ export function filterRealEvents(entries: NetharionAuditEntry[]): NetharionAudit
     return colorChanged || modeChanged;
   });
 }
+
+/**
+ * Filter audit entries to only RELEVANT events that passed Netharion
+ * relevance threshold ("nota" della segnaletica).
+ *
+ * An event is relevant when:
+ *   - admitted === true, OR
+ *   - resonance_score >= 0.50 (recognized or above), OR
+ *   - a real state transition occurred (color OR mode changed)
+ *     AND resonance_score >= 0.30
+ *
+ * NOTE: thresholds_passed is NOT used as a relevance indicator because
+ * the backend always populates it with 4 coherence checks (not_noisy,
+ * not_contradictory, drift_risk_acceptable, system_compatible) even
+ * for routine heartbeats — making it useless for filtering.
+ */
+export function filterRelevantEvents(entries: NetharionAuditEntry[]): NetharionAuditEntry[] {
+  return entries.filter((e) => {
+    if (e.admitted) return true;
+    if (e.resonance_score >= 0.50) return true;
+    const hasRealTransition =
+      (e.old_color ?? "") !== (e.new_color ?? "") ||
+      (e.old_mode ?? "") !== (e.new_mode ?? "");
+    if (hasRealTransition && e.resonance_score >= 0.30) return true;
+    return false;
+  });
+}

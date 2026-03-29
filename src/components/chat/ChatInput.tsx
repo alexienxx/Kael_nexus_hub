@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, Image, Mic, Square, Camera, Plug, X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 interface ChatInputProps {
   onSend: (text: string) => void;
@@ -74,6 +75,7 @@ const ChatInput = ({ onSend, onImageUpload, onVoiceNote, onOpenServices, disable
       setIsRecording(true);
     } catch (err) {
       console.error("Microphone access denied:", err);
+      toast.error("Accesso al microfono negato. Abilita il permesso nelle impostazioni.");
     }
   };
 

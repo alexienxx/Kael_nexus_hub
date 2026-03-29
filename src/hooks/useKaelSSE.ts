@@ -24,6 +24,7 @@
 
 import { useEffect, useRef } from "react";
 import { obtainSSEToken, buildSSEUrl } from "@/lib/api/sse";
+import { App as CapApp } from "@capacitor/app";
 
 /** Shape of the SSE new_message event data. */
 export interface KaelSSENewMessage {
@@ -147,6 +148,37 @@ export function useKaelSSE(enabled: boolean): void {
       }
     }
 
+    // ── Force-reconnect when app resumes from background ──
+    // No enabledRef gate here: health state may not have recovered yet,
+    // but connect() will validate independently. This prevents the SSE
+    // from staying dead when the health probe races the visibility event.
+    const onVisibilityChange = () => {
+      if (
+        document.visibilityState === "visible" &&
+        mountedRef.current &&
+        !esRef.current
+      ) {
+        console.log("[KaelSSE] App visible again, reconnecting immediately");
+        backoffRef.current = 1000;
+        connect();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    // Capacitor appStateChange — fires more reliably on Android than visibilitychange
+    let capListener: { remove: () => void } | null = null;
+    CapApp.addListener("appStateChange", ({ isActive }) => {
+      if (
+        isActive &&
+        mountedRef.current &&
+        !esRef.current
+      ) {
+        console.log("[KaelSSE] Capacitor appStateChange → active, reconnecting");
+        backoffRef.current = 1000;
+        connect();
+      }
+    }).then((h) => { capListener = h; }).catch(() => {});
+
     if (enabled) {
       connect();
     } else {
@@ -156,6 +188,8 @@ export function useKaelSSE(enabled: boolean): void {
     return () => {
       mountedRef.current = false;
       cleanup();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      capListener?.remove();
     };
   }, [enabled]);
 }

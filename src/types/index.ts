@@ -1,3 +1,5 @@
+export type DeliveryMode = "text" | "voice_note" | "image" | "video_message" | "voice_call";
+
 // ===== Chat Types =====
 export interface ChatMessage {
   id: string;
@@ -14,6 +16,8 @@ export interface ChatMessage {
   feedbackCapReached?: boolean;
   isProcessingImage?: boolean;
   isGenerating?: boolean;
+  /** Canonical delivery mode from backend — drives render priority */
+  delivery_mode?: DeliveryMode;
   // External agent metadata (when sender === "external_agent")
   agent_id?: string;
   agent_name?: string;

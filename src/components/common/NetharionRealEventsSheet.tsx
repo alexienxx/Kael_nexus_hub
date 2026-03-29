@@ -3,6 +3,7 @@ import { X, RefreshCw, Shield, ArrowDown, Database } from "lucide-react";
 import {
   getNetharionDebug,
   filterRealEvents,
+  filterRelevantEvents,
   type NetharionAuditEntry,
 } from "@/lib/api/netharion";
 
@@ -67,7 +68,8 @@ const NetharionRealEventsSheet = ({ open, onClose }: NetharionRealEventsSheetPro
   const [allEvents, setAllEvents] = useState<NetharionAuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
+  // 0 = relevant (threshold), 1 = transitions, 2 = all raw
+  const [viewMode, setViewMode] = useState<0 | 1 | 2>(0);
 
   const fetchEvents = useCallback(async () => {
     setLoading(true);
@@ -76,8 +78,8 @@ const NetharionRealEventsSheet = ({ open, onClose }: NetharionRealEventsSheetPro
     try {
       const data = await getNetharionDebug();
       const log = data.audit_log ?? [];
-      const real = filterRealEvents(log);
-      setEvents([...real].reverse());
+      const relevant = filterRelevantEvents(log);
+      setEvents([...relevant].reverse());
       setAllEvents([...log].reverse());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Errore caricamento eventi");
@@ -111,13 +113,15 @@ const NetharionRealEventsSheet = ({ open, onClose }: NetharionRealEventsSheetPro
             <div className="flex items-center gap-2">
               <Shield size={16} className="text-neon-purple" />
               <h2 className="font-display text-sm font-bold text-foreground">
-                Netharion Real Events
+                Netharion — Eventi Rilevanti
               </h2>
             </div>
             <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground">
               <Database size={11} />
               <span className="truncate">
-                Fonte reale: /cognition/netharion/heartbeat/debug → audit_log filtrato per cambio stato
+                {viewMode === 0 && "Filtro: eventi sopra soglia (admitted / resonance ≥ 0.50 / transizione reale)"}
+                {viewMode === 1 && "Filtro: solo transizioni colore/modo"}
+                {viewMode === 2 && "Tutti gli eventi raw senza filtro"}
               </span>
             </div>
           </div>
@@ -125,15 +129,15 @@ const NetharionRealEventsSheet = ({ open, onClose }: NetharionRealEventsSheetPro
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setShowAll((v) => !v)}
+              onClick={() => setViewMode((v) => ((v + 1) % 3) as 0 | 1 | 2)}
               className={`flex h-7 items-center gap-1 rounded-full px-2 text-[10px] transition-all ${
-                showAll
+                viewMode > 0
                   ? "bg-neon-purple/20 text-neon-purple"
                   : "text-muted-foreground hover:bg-muted/30 hover:text-foreground"
               }`}
-              aria-label={showAll ? "Solo transizioni" : "Mostra tutti"}
+              aria-label="Cambia filtro eventi"
             >
-              {showAll ? "Tutti" : "Solo Δ"}
+              {viewMode === 0 ? "Rilevanti" : viewMode === 1 ? "Δ Trans" : "Tutti"}
             </button>
             <button
               type="button"
@@ -170,13 +174,24 @@ const NetharionRealEventsSheet = ({ open, onClose }: NetharionRealEventsSheetPro
           )}
 
           {(() => {
-            const displayEvents = showAll ? allEvents : events;
+            const displayEvents =
+              viewMode === 0
+                ? events
+                : viewMode === 1
+                  ? allEvents.filter(
+                      (e) =>
+                        (e.old_color ?? "") !== (e.new_color ?? "") ||
+                        (e.old_mode ?? "") !== (e.new_mode ?? ""),
+                    )
+                  : allEvents;
             if (!loading && !error && displayEvents.length === 0) {
               return (
                 <div className="rounded-xl border border-border/50 bg-muted/10 px-3 py-3 text-xs text-muted-foreground">
-                  {showAll
-                    ? "Nessun evento nel audit_log backend."
-                    : "Nessuna transizione di colore/modo. Prova \"Tutti\" per vedere tutti gli eventi processati."}
+                  {viewMode === 0
+                    ? "Nessun evento sopra soglia di rilevanza."
+                    : viewMode === 1
+                      ? "Nessuna transizione di colore/modo."
+                      : "Nessun evento nel audit_log backend."}
                 </div>
               );
             }
@@ -184,14 +199,12 @@ const NetharionRealEventsSheet = ({ open, onClose }: NetharionRealEventsSheetPro
               return (
                 <div className="space-y-2">
                   {displayEvents.map((ev, i) => {
-                    const isTransition =
-                      (ev.old_color ?? "") !== (ev.new_color ?? "") ||
-                      (ev.old_mode ?? "") !== (ev.new_mode ?? "");
+                    const isRelevant = ev.admitted || ev.resonance_score >= 0.50;
                     return (
                       <EventCard
                         key={`${ev.ts}-${i}`}
                         event={ev}
-                        highlight={showAll && isTransition}
+                        highlight={viewMode !== 0 && isRelevant}
                       />
                     );
                   })}

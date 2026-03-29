@@ -31,6 +31,14 @@ import { checkHealth, probeAndResolveBackend, probeHealthPayload } from "@/lib/a
 import type { BackendLifecycleState } from "@/types";
 export type { BackendLifecycleState };
 
+export type DisconnectReason =
+  | "health_fail_grace_exceeded"
+  | "resume_probe_failed"
+  | "network_offline"
+  | "rediscovery_failed"
+  | "manual_disconnect"
+  | null;
+
 // ── Constants ────────────────────────────────────────────────────────────
 
 /** Periodic health re-check when online. */
@@ -59,6 +67,10 @@ const PROBE_TIMEOUT_MS = 4_000;
 /** Delay between probe retry attempts (ms). */
 const PROBE_RETRY_DELAY_MS = 2_000;
 
+/** Warmup delay before probing after app resumes from background (ms).
+ * Android needs time to restore DNS/TCP after sleep. */
+const RESUME_WARMUP_MS = 800;
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -85,6 +97,8 @@ export interface BackendLifecycleResult {
   retryTotal: number;
   /** Force a retry (re-runs probe flow). Never launches bootstrap. */
   retry: () => void;
+  /** Reason for the last disconnect (null if never disconnected). */
+  disconnectReason: DisconnectReason;
 }
 
 // ── Robust probe with retry ─────────────────────────────────────────────
@@ -153,6 +167,9 @@ export function useBackendLifecycle(): BackendLifecycleResult {
   /** Concurrency lock — prevents two parallel probes. */
   const isRunningRef = useRef(false);
 
+  /** Reason for the last disconnection — for diagnostics. */
+  const disconnectReasonRef = useRef<DisconnectReason>(null);
+
   /** Counts consecutive health-check failures (reset on success or retry). */
   const healthFailCountRef = useRef(0);
 
@@ -213,9 +230,10 @@ export function useBackendLifecycle(): BackendLifecycleResult {
 
         // Fast failover: if device is still online but cached URL fails,
         // network topology likely changed (e.g. WiFi dropped, Tailscale VPN
-        // still up). Use reduced grace (2 × 30s = 60s) instead of full
+        // still up). Use reduced grace (4 × 30s = 120s) instead of full
         // grace (6 × 30s = 180s) to trigger re-discovery sooner.
-        const effectiveGrace = navigator.onLine ? 2 : HEALTH_FAIL_GRACE;
+        // 120s covers long LLM responses + transient Android network hiccups.
+        const effectiveGrace = navigator.onLine ? 4 : HEALTH_FAIL_GRACE;
 
         if (healthFailCountRef.current >= effectiveGrace && mountedRef.current) {
           // Cached URL is stale — try full re-discovery before giving up.
@@ -235,6 +253,9 @@ export function useBackendLifecycle(): BackendLifecycleResult {
             setMessage("Riconnesso");
             startOnlineRecheck(); // restart periodic check with new URL
           } else if (mountedRef.current) {
+            disconnectReasonRef.current = "rediscovery_failed";
+            console.warn("[KAEL] Disconnect reason: rediscovery_failed (grace=%d, fails=%d)",
+              effectiveGrace, healthFailCountRef.current);
             setStateSynced("offline");
             setMessage("Connessione persa");
           }
@@ -253,6 +274,8 @@ export function useBackendLifecycle(): BackendLifecycleResult {
     try {
       // Step 0: Check device connectivity
       if (!navigator.onLine) {
+        disconnectReasonRef.current = "network_offline";
+        console.warn("[KAEL] Disconnect reason: network_offline");
         setStateSynced("offline_network");
         setMessage("Dispositivo offline");
         setRetryAttempt(0);
@@ -302,6 +325,8 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       // Step 2: All probes exhausted — backend unreachable
       // NOTE: We do NOT call sentinel, do NOT launch bootstrap.
       // The user can manually restart the server from Settings > Avanzate.
+      disconnectReasonRef.current = "resume_probe_failed";
+      console.warn("[KAEL] Disconnect reason: resume_probe_failed (attempts=%d)", PROBE_MAX_ATTEMPTS);
       setStateSynced("backend_unreachable");
       setMessage(`Backend irraggiungibile dopo ${PROBE_MAX_ATTEMPTS} tentativi`);
     } finally {
@@ -345,7 +370,10 @@ export function useBackendLifecycle(): BackendLifecycleResult {
         currentState === "start_failed" ||
         isStale
       ) {
-        retry();
+        // Android needs time to restore network after background
+        setTimeout(() => {
+          if (mountedRef.current && !isRunningRef.current) retry();
+        }, RESUME_WARMUP_MS);
       }
     };
 
@@ -393,6 +421,6 @@ export function useBackendLifecycle(): BackendLifecycleResult {
     };
   }, [runProbe, retry]);
 
-  return { state, message, retryAttempt, retryTotal: PROBE_MAX_ATTEMPTS, retry };
+  return { state, message, retryAttempt, retryTotal: PROBE_MAX_ATTEMPTS, retry, disconnectReason: disconnectReasonRef.current };
 }
 

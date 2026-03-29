@@ -175,6 +175,7 @@ const Chat = () => {
     audioUrl: normalizeAudioUrl(m.tts_url ?? m.voice_audio ?? m.audioUrl),
     image: m.image,
     meta: m.meta,
+    delivery_mode: m.delivery_mode ?? (m.message_type === "voice_note" ? "voice_note" : undefined),
     agent_id: m.agent_id,
     agent_name: m.agent_name,
     agent_avatar: m.agent_avatar,
@@ -395,6 +396,7 @@ const Chat = () => {
           backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
           latency,
           meta: response.meta,
+          delivery_mode: response.delivery_mode ?? undefined,
           audioUrl: normalizeAudioUrl(response.voice_audio),
           image: response.image_base64
             ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`

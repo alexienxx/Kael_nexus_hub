@@ -194,6 +194,12 @@ const MessageBubble = ({
             </p>
           )}
 
+          {/* Render priority based on delivery_mode:
+              voice_note → audio first, hide text
+              image → image first, text below
+              video_message → video first, text below
+              text (default) → show all present media + text */}
+
           {message.image && (
             <ImageMessage
               src={message.image}
@@ -237,7 +243,7 @@ const MessageBubble = ({
             </div>
           )}
 
-          {message.text && (
+          {message.text && !(message.delivery_mode === "voice_note" && message.audioUrl) && (
             isUser ? (
               <p className="text-sm leading-relaxed text-foreground">{message.text}</p>
             ) : (

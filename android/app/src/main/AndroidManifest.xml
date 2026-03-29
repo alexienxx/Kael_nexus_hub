@@ -43,4 +43,11 @@
     <!-- Local notifications for Kael autonomous messages (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- Voice recording (microphone) — requested at first voice use -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Camera — requested at first photo/video capture -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Location — requested at first location-aware feature use -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 </manifest>

@@ -4,6 +4,67 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [Unreleased] — 2026-03-28
+
+### 🔊 Fix: Voice pipeline — delivery_mode fallback
+- **`src/pages/Chat.tsx` — MODIFIED**: `mapBackendMsg()` — `delivery_mode` ora fallback a `message_type` quando il backend fornisce `message_type === "voice_note"` ma non `delivery_mode` esplicito. Garantisce che i vocali da history/pending vengano visualizzati come voice_note (solo player audio, testo nascosto).
+
+---
+## [Unreleased] — 2026-07-11
+
+### �️ Fix: Netharion filtro eventi rilevanti (BUG A)
+- **`src/lib/api/netharion.ts` — MODIFIED**: `filterRelevantEvents()` — rimossa condizione `thresholds_passed.length > 0` (backend popola SEMPRE 4 coherence checks, rendendo il filtro inutile). Sostituita con check di transizione reale (`old_color !== new_color || old_mode !== new_mode`) + `resonance_score >= 0.30`. Ora viewMode 0 mostra SOLO eventi salienti; se non ce ne sono, mostra "Nessun evento sopra soglia".
+- **`src/components/common/NetharionRealEventsSheet.tsx` — MODIFIED**: Aggiornata descrizione viewMode 0 per riflettere i nuovi criteri di filtro.
+
+### �🔌 Fix: Disconnessioni APK (Grace + Warmup + SSE Gate + Logging)
+- **`src/hooks/useBackendLifecycle.ts` — MODIFIED**:
+  - **2A**: `effectiveGrace` da 2 a 4 (120s tolleranza, copre risposte LLM lunghe).
+  - **2B**: Aggiunto `RESUME_WARMUP_MS = 800` — delay prima di probe dopo resume da background (Android DNS/TCP restore).
+  - **2B**: `handleVisibilityChange` → `retry()` wrappato in `setTimeout(..., RESUME_WARMUP_MS)` con guard `mountedRef + !isRunningRef`.
+  - **Logging**: Aggiunto tipo `DisconnectReason`, `disconnectReasonRef`, e `console.warn` a ogni transizione offline/unreachable con motivo specifico.
+  - **Interface**: `BackendLifecycleResult.disconnectReason` esposto nel return.
+- **`src/hooks/useKaelSSE.ts` — MODIFIED**:
+  - **2C**: Rimosso gate `enabledRef.current` da `onVisibilityChange` e Capacitor `appStateChange` — SSE si riconnette al resume indipendentemente dallo stato health.
+  - Aggiunto commento esplicativo sulla rimozione del gate.
+
+---
+
+## [Unreleased] — 2026-03-26
+
+### 🎯 Fix A: Netharion Long-Press — Filtro Rilevanza
+- **`src/lib/api/netharion.ts` — MODIFIED**: Aggiunta `filterRelevantEvents()` — filtra eventi sopra soglia (admitted OR resonance ≥ 0.50 OR thresholds+resonance ≥ 0.30) invece di mostrare solo transizioni colore/modo.
+- **`src/components/common/NetharionRealEventsSheet.tsx` — MODIFIED**: 3 modalità vista: Rilevanti (default) / Transizioni / Tutti. Il toggle cicla tra le 3 modalità. Descrizione dinamica sotto il titolo. Highlight su eventi rilevanti quando si è in vista Transizioni/Tutti.
+
+### 🔊 Fix B: Delivery Mode Contract
+- **`src/types/index.ts` — MODIFIED**: Aggiunto tipo `DeliveryMode` (`"text" | "voice_note" | "image" | "video_message" | "voice_call"`) e campo `delivery_mode?: DeliveryMode` a `ChatMessage`.
+- **`src/pages/Chat.tsx` — MODIFIED**: `mapBackendMsg()` mappa `delivery_mode` dal backend. Response handler include `delivery_mode`.
+- **`src/components/chat/MessageBubble.tsx` — MODIFIED**: Testo nascosto quando `delivery_mode === "voice_note"` e `audioUrl` presente — evita testo ridondante sotto il player vocale.
+
+### 🔄 Fix F: SSE Reconnect su Resume App
+- **`src/hooks/useKaelSSE.ts` — MODIFIED**: Aggiunto listener `visibilitychange` + Capacitor `appStateChange` per riconnessione SSE immediata quando l'app torna in primo piano. Reset backoff a 1s al resume.
+
+### 🔐 Fix G: Permessi Android Runtime
+- **`android/app/src/main/AndroidManifest.xml` — MODIFIED**: Aggiunti `RECORD_AUDIO`, `CAMERA`, `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION`.
+- **`src/lib/permissions.ts` — CREATED**: Helper runtime per richiedere permessi microfono, camera, posizione via getUserMedia/Geolocation API. Trigger nativo Android al primo uso.
+- **`src/components/chat/ChatInput.tsx` — MODIFIED**: Toast errore su mic permission denial: "Accesso al microfono negato. Abilita il permesso nelle impostazioni."
+
+### 🎵 AudioMessage — Upgrade da Git
+- **`src/components/chat/AudioMessage.tsx` — REPLACED**: Sostituito con versione migliorata dal repo remoto:
+  - `useMemo` per barre stabili (no re-render su ogni cambio stato)
+  - 32 barre (era 24), seeded random heights via `Math.sin`
+  - Click-to-seek sulle barre (`handleSeek`)
+  - `loadedmetadata` listener per durata reale audio
+  - Menu 3-dot `MoreVertical` con dropdown "Scarica audio" (sostituisce bottone download fisso)
+  - Stili distinti user/kael (primary-foreground vs neon-purple)
+  - `min-w-[200px]` per layout stabile
+
+### 👎 Conferma Feedback Negativo
+- **`src/components/chat/MessageActions.tsx` — MODIFIED**: Popup di conferma "Sei sicura del feedback negativo?" con bottoni Sì/No prima di inviare il dislike. Previene feedback negativi accidentali.
+
+### 📝 Impact
+- **Tailscale failover**: Verificato — IP `100.89.31.50` corrisponde a KNOWN_HOSTS in `client.ts`. Il codice di failover è corretto (parallel scan, fast grace 60s). Il problema è lato telefono: Tailscale Android non si attiva automaticamente quando WiFi cade. Soluzione: attivare "Always-on VPN" nelle impostazioni Android.
+
+---
 
 ## [Unreleased] — 2026-03-25
 ### 🔧 Fix Voice/Image/Message Pipeline (3 bug critici)
