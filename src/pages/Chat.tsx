@@ -173,7 +173,7 @@ const Chat = () => {
     feedback: m.feedback ?? null,
     backend_turn_id: String(m.id ?? m.turn_id ?? m.backend_turn_id ?? ""),
     audioUrl: normalizeAudioUrl(m.tts_url ?? m.voice_audio ?? m.audioUrl),
-    image: m.image,
+    image: m.image ?? (m.image_asset_id ? `__asset__:${m.image_asset_id}` : undefined),
     meta: m.meta,
     delivery_mode: m.delivery_mode ?? (m.message_type === "voice_note" ? "voice_note" : undefined),
     agent_id: m.agent_id,
@@ -184,6 +184,7 @@ const Chat = () => {
   // Merge backend history into local state without losing local-only messages.
   // This is a soft merge: backend messages are added/updated by backend_turn_id,
   // local-only messages (no backend_turn_id) are preserved at the end.
+  // Image messages with backend_turn_id are reconstructed from the asset marker.
   const mergeHistoryIntoState = useCallback((backendMessages: any[]) => {
     const incoming = backendMessages.map(mapBackendMsg);
     setMessages((prev) => {
@@ -194,17 +195,27 @@ const Chat = () => {
         incoming.map((m) => m.backend_turn_id).filter(Boolean)
       );
       // Local-only messages: those without backend_turn_id (user msgs not yet persisted)
+      // Keep image messages too — they may have local data URLs
       const localOnly = prev.filter(
         (m) => !m.backend_turn_id && m.sender === "user"
       );
-      // Preserve feedback from existing messages
+      // Preserve feedback and local image data URLs from existing messages
       const existingFeedback = new Map(
         prev.filter((m) => m.backend_turn_id && m.feedback).map((m) => [m.backend_turn_id, m.feedback])
+      );
+      const existingImages = new Map(
+        prev.filter((m) => m.backend_turn_id && m.image && !m.image.startsWith("__asset__")).map((m) => [m.backend_turn_id, m.image])
       );
 
       const merged = incoming.map((m) => {
         const fb = existingFeedback.get(m.backend_turn_id);
-        return fb ? { ...m, feedback: fb } : m;
+        const localImg = existingImages.get(m.backend_turn_id);
+        let result = fb ? { ...m, feedback: fb } : m;
+        // If backend returns an asset marker but we have the real data URL locally, use the local one
+        if (localImg && (!m.image || m.image.startsWith("__asset__"))) {
+          result = { ...result, image: localImg };
+        }
+        return result;
       });
 
       // Append local-only user messages that aren't in backend yet
@@ -467,8 +478,9 @@ const Chat = () => {
     async (file: File) => {
       const reader = new FileReader();
       reader.onload = async (ev) => {
+        const imgMsgId = Date.now().toString();
         const imgMsg: ChatMessage = {
-          id: Date.now().toString(),
+          id: imgMsgId,
           text: "",
           time: now(),
           sender: "user",
@@ -493,6 +505,19 @@ const Chat = () => {
             };
             toast.warning(msgs[(response as any).failure_kind] ?? "Visione non disponibile");
           }
+
+          // Assign backend_turn_id to the user image message so it persists across reloads
+          const userTurnId = (response as any).user_turn_id;
+          if (userTurnId != null) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === imgMsgId
+                  ? { ...m, backend_turn_id: String(userTurnId) }
+                  : m
+              )
+            );
+          }
+
           const responseMsg: ChatMessage = {
             id: (Date.now() + 1).toString(),
             text: response.reply,
@@ -567,6 +592,7 @@ const Chat = () => {
           backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
           latency,
           meta: response.meta,
+          delivery_mode: response.voice_audio ? "voice_note" : undefined,
           audioUrl: normalizeAudioUrl(response.voice_audio),
           // Image generation: if backend generated an image, embed it.
           image: response.image_base64

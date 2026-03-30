@@ -26,6 +26,7 @@ export interface ChatResponse {
   message_id?: string;
   message_type?: string;
   assistant_turn_id?: number;
+  user_turn_id?: number;
   voice_audio?: string;
   voice_used?: boolean;
   voice_reason?: string;
@@ -33,6 +34,7 @@ export interface ChatResponse {
   bubbles?: string[];
   image_base64?: string;
   image_mime?: string;
+  image_asset_id?: string;
   meta?: Record<string, unknown>;
   // Sender information for multi-agent conversations
   sender?: "user" | "kael" | "external_agent";
@@ -44,6 +46,9 @@ export interface ChatResponse {
   // then fetch /avatar/live/video/{id}/base64 for the MP4 data URL.
   // See src/lib/api/avatar.ts fetchAvatarVideo().
   avatar_job_id?: string;
+  // Vision
+  vision_ok?: boolean;
+  failure_kind?: string;
 }
 
 export interface VoiceResponse extends ChatResponse {

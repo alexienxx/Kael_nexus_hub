@@ -4,6 +4,15 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [Unreleased] — 2026-03-30
+
+### 🔊 Fix: Voice response — delivery_mode missing in handleVoiceNote
+- **`src/pages/Chat.tsx` — MODIFIED**: `handleVoiceNote()` — aggiunto `delivery_mode: "voice_note"` al `responseMsg` quando il backend risponde con `voice_audio`. Prima il campo era assente → la bolla mostrava sia audio player che testo ridondante sotto.
+
+### 🎙️ Fix: Microphone permission — richiesta esplicita prima della registrazione
+- **`src/components/chat/ChatInput.tsx` — MODIFIED**: Importato `requestMicrophonePermission()` da `@/lib/permissions`. `toggleRecording()` ora richiede permesso esplicito PRIMA di `getUserMedia`. Se negato, mostra toast e non tenta la registrazione. Risolve il problema su Android dove il dialogo di permesso non appariva.
+
+---
 ## [Unreleased] — 2026-03-28
 
 ### 🔊 Fix: Voice pipeline — delivery_mode fallback
