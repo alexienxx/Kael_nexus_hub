@@ -24,6 +24,8 @@ export interface ChatResponse {
   reply: string;
   session_id: string;
   message_id?: string;
+  /** Echo of the client_message_id sent in the request — used for reconciliation. */
+  client_message_id?: string;
   message_type?: string;
   assistant_turn_id?: number;
   user_turn_id?: number;
@@ -35,6 +37,8 @@ export interface ChatResponse {
   image_base64?: string;
   image_mime?: string;
   image_asset_id?: string;
+  /** Canonical delivery mode: "text" | "voice_note" | "image" | "video_message" | "voice_call" */
+  delivery_mode?: string;
   meta?: Record<string, unknown>;
   // Sender information for multi-agent conversations
   sender?: "user" | "kael" | "external_agent";
@@ -57,19 +61,27 @@ export interface VoiceResponse extends ChatResponse {
 
 /**
  * Timeout for LLM-backed requests (chat, voice).
- * Ollama inference + TTS can take 60-120s depending on model load and voice synthesis.
+ * Ollama inference + TTS can take 60-180s for long replies.
+ * Set to 5min to avoid killing long responses when connected via USB/adb-reverse.
  */
-const CHAT_TIMEOUT = 180_000;
+const CHAT_TIMEOUT = 300_000;
 
 /** Send a text message and get Kael's reply */
 export async function sendMessage(
   text: string,
   sessionId: string,
-  conversationId?: string
+  conversationId?: string,
+  clientMessageId?: string,
 ) {
   return apiRequest<ChatResponse>("/chat", {
     method: "POST",
-    body: JSON.stringify({ text, session_id: sessionId }),
+    body: JSON.stringify({
+      text,
+      session_id: sessionId,
+      // Stable client-generated UUID for server-side idempotency and
+      // frontend reconciliation of the optimistic message on history reload.
+      ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
+    }),
     timeout: CHAT_TIMEOUT,
   });
 }
@@ -90,7 +102,7 @@ export async function submitFeedback(
 export async function sendImage(
   file: File,
   sessionId: string,
-  conversationId?: string
+  text?: string,
 ) {
   if (!(await ensureBackendAlive())) {
     throw new Error("Backend non raggiungibile — riprova tra poco");
@@ -98,18 +110,39 @@ export async function sendImage(
   const formData = new FormData();
   formData.append("image", file);
   formData.append("session_id", sessionId);
-  if (conversationId) formData.append("conversationId", conversationId);
-  return apiUpload<ChatResponse>("/chat/image", formData);
+  if (text && text.trim()) formData.append("text", text.trim());
+  return apiUpload<ChatResponse>("/chat/image", formData, { timeout: CHAT_TIMEOUT });
+}
+
+/** Upload wallpaper image for Kael to analyse and use as chat context */
+export async function sendWallpaper(
+  file: File,
+  sessionId: string,
+  mode: "share_once" | "persistent_context",
+) {
+  if (!(await ensureBackendAlive())) {
+    throw new Error("Backend non raggiungibile — riprova tra poco");
+  }
+  const formData = new FormData();
+  formData.append("image", file);
+  formData.append("session_id", sessionId);
+  formData.append("mode", mode);
+  return apiUpload<import("@/types/wallpaper").WallpaperAnalysisResponse>(
+    "/chat/wallpaper",
+    formData,
+    { timeout: CHAT_TIMEOUT },
+  );
 }
 
 /** Send a voice note and get Kael's reply */
-export async function sendVoiceNote(audioBlob: Blob, sessionId: string) {
+export async function sendVoiceNote(audioBlob: Blob, sessionId: string, clientMessageId: string) {
   if (!(await ensureBackendAlive())) {
     throw new Error("Backend non raggiungibile — riprova tra poco");
   }
   const formData = new FormData();
   formData.append("audio", audioBlob, "voice-note.webm");
   formData.append("session_id", sessionId);
+  formData.append("client_message_id", clientMessageId);
   return apiUpload<VoiceResponse>("/chat/voice", formData, { timeout: CHAT_TIMEOUT });
 }
 

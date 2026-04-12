@@ -41,6 +41,30 @@ export interface WallpaperVisualContext {
   asset_reference?: string;
 }
 
+/** Backend response from POST /chat/wallpaper */
+export interface WallpaperAnalysisResponse {
+  ok: boolean;
+  visual_summary: string;
+  people_count: number;
+  objects: string[];
+  scene_type: string;
+  text_detected?: string;
+  identity_context: {
+    alexien_present: boolean;
+    kael_present: boolean;
+    unknown_people_present: boolean;
+    face_count: number;
+    face_matching_available: boolean;
+    match_details: Array<{ identity: string; distance: number; confident: boolean }>;
+  };
+  image_hash: string;
+  mode: string;
+  provider: string;
+  elapsed_s: number;
+  error?: string;
+  trace_id?: string;
+}
+
 /** Structured visual context that Kael can derive (future) */
 export interface WallpaperAmbientContext {
   scene?: string;

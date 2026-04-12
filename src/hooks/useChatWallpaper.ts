@@ -101,6 +101,24 @@ export function useChatWallpaper(conversationId: string) {
     [conversationId]
   );
 
+  const updateSyncStatus = useCallback(
+    (status: import("@/types/wallpaper").WallpaperSyncStatus) => {
+      setAllWallpapers((prev) => {
+        const current = prev[conversationId];
+        if (!current) return prev;
+        return {
+          ...prev,
+          [conversationId]: {
+            ...current,
+            syncStatus: status,
+            lastUpdatedAt: new Date().toISOString(),
+          },
+        };
+      });
+    },
+    [conversationId]
+  );
+
   const removeWallpaper = useCallback(() => {
     setAllWallpapers((prev) => {
       const next = { ...prev };
@@ -118,6 +136,7 @@ export function useChatWallpaper(conversationId: string) {
     setWallpaper,
     updateDisplaySettings,
     updateKaelMode,
+    updateSyncStatus,
     removeWallpaper,
     resetDisplaySettings,
     hasWallpaper: !!wallpaper,

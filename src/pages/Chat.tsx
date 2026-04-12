@@ -51,6 +51,7 @@ const pollAndFetchAvatarVideo = async (jobId: string): Promise<string | null> =>
   return null; // timeout
 };
 import { getApiConfig, probeAndResolveBackend } from "@/lib/api/client";
+import { getGalleryFileUrl } from "@/lib/api/media";
 import { sendExternalAgentMessage, getSelectedModel, type ExternalChatMessage } from "@/lib/externalAgent";
 
 /**
@@ -94,6 +95,7 @@ const Chat = () => {
     wallpaper,
     setWallpaper,
     updateDisplaySettings,
+    updateSyncStatus,
     removeWallpaper: removeWallpaperFromStore,
     resetDisplaySettings,
     hasWallpaper,
@@ -105,6 +107,7 @@ const Chat = () => {
   const [showKaelModeSheet, setShowKaelModeSheet] = useState(false);
   const [showDisplaySettings, setShowDisplaySettings] = useState(false);
   const [pendingWallpaperUri, setPendingWallpaperUri] = useState<string | null>(null);
+  const [pendingWallpaperFile, setPendingWallpaperFile] = useState<File | null>(null);
   const [pendingDisplaySettings, setPendingDisplaySettings] = useState<Partial<WallpaperDisplaySettings> | null>(null);
 
   // Long press on background
@@ -122,6 +125,7 @@ const Chat = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setPendingWallpaperFile(file);
     const reader = new FileReader();
     reader.onload = (ev) => {
       const uri = ev.target?.result as string;
@@ -156,8 +160,27 @@ const Chat = () => {
       share_once: "Sfondo condiviso con Kael 📸",
       persistent_context: "Contesto visivo attivo aggiornato 👁️",
     };
-    toast.success(modeMessages[mode]);
-  }, [pendingWallpaperUri, pendingDisplaySettings, setWallpaper]);
+
+    // Backend sync: send image if Kael should see it
+    if (mode !== "wallpaper_only" && pendingWallpaperFile) {
+      updateSyncStatus("pending_upload");
+      chatApi
+        .sendWallpaper(pendingWallpaperFile, sessionId, mode as "share_once" | "persistent_context")
+        .then(() => {
+          updateSyncStatus("uploaded");
+          toast.success(modeMessages[mode]);
+        })
+        .catch((err) => {
+          console.error("[Wallpaper] backend sync failed:", err);
+          updateSyncStatus("failed");
+          toast.error("Sfondo impostato localmente, ma sync con Kael fallita");
+        });
+    } else {
+      toast.success(modeMessages[mode]);
+    }
+
+    setPendingWallpaperFile(null);
+  }, [pendingWallpaperUri, pendingWallpaperFile, pendingDisplaySettings, setWallpaper, sessionId, updateSyncStatus]);
 
   const handleRemoveWallpaper = useCallback(() => {
     removeWallpaperFromStore();
@@ -165,61 +188,103 @@ const Chat = () => {
   }, [removeWallpaperFromStore]);
 
   // Helper: convert backend message object to local ChatMessage
-  const mapBackendMsg = useCallback((m: any): ChatMessage => ({
-    id: String(m.id ?? m.turn_id ?? Date.now() + Math.random()),
-    text: m.text ?? m.content ?? "",
-    time: m.time ?? new Date(m.timestamp ?? Date.now()).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
-    sender: (m.sender ?? (m.role === "user" ? "user" : "kael")) as ChatMessage["sender"],
-    feedback: m.feedback ?? null,
-    backend_turn_id: String(m.id ?? m.turn_id ?? m.backend_turn_id ?? ""),
-    audioUrl: normalizeAudioUrl(m.tts_url ?? m.voice_audio ?? m.audioUrl),
-    image: m.image ?? (m.image_asset_id ? `__asset__:${m.image_asset_id}` : undefined),
-    meta: m.meta,
-    delivery_mode: m.delivery_mode ?? (m.message_type === "voice_note" ? "voice_note" : undefined),
-    agent_id: m.agent_id,
-    agent_name: m.agent_name,
-    agent_avatar: m.agent_avatar,
-  }), []);
+  const mapBackendMsg = useCallback((m: any): ChatMessage => {
+    // Resolve image: prefer inline data URL, then resolve asset ID to backend URL.
+    // "__asset__:ID" placeholders are replaced with the actual /media/gallery/{id}/file URL
+    // so images load correctly after reload without needing a local cache.
+    let imageUrl: string | undefined = m.image;
+    if (!imageUrl && m.image_asset_id) {
+      imageUrl = getGalleryFileUrl(m.image_asset_id);
+    } else if (imageUrl?.startsWith("__asset__:")) {
+      const assetId = imageUrl.slice("__asset__:".length);
+      imageUrl = getGalleryFileUrl(assetId);
+    }
+
+    return {
+      id: String(m.id ?? m.turn_id ?? Date.now() + Math.random()),
+      text: m.text ?? m.content ?? "",
+      time: m.time ?? new Date((m.timestamp != null ? m.timestamp * 1000 : Date.now())).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
+      sender: (m.sender ?? (m.role === "user" ? "user" : "kael")) as ChatMessage["sender"],
+      feedback: m.feedback ?? null,
+      backend_turn_id: String(m.id ?? m.turn_id ?? m.backend_turn_id ?? ""),
+      // client_message_id is hoisted from meta_json by the backend history endpoint.
+      // Present on user turns where the frontend sent a client_message_id at send time.
+      client_message_id: m.client_message_id ?? m.metadata?.client_message_id ?? undefined,
+      audioUrl: normalizeAudioUrl(m.tts_url ?? m.voice_audio ?? m.audioUrl),
+      image: imageUrl,
+      meta: m.meta,
+      delivery_mode: m.delivery_mode ?? (m.message_type === "voice_note" ? "voice_note" : undefined),
+      agent_id: m.agent_id,
+      agent_name: m.agent_name,
+      agent_avatar: m.agent_avatar,
+    };
+  }, []);
 
   // Merge backend history into local state without losing local-only messages.
-  // This is a soft merge: backend messages are added/updated by backend_turn_id,
-  // local-only messages (no backend_turn_id) are preserved at the end.
-  // Image messages with backend_turn_id are reconstructed from the asset marker.
+  //
+  // Reconciliation order (no text-based heuristics):
+  //   1. backend_turn_id  — for Kael messages and fully-persisted user turns
+  //   2. client_message_id — for optimistic user messages whose backend_turn_id
+  //      is not yet known locally (race between response ACK and history reload)
+  //   3. No match → message is local-only (in-flight or not yet ACKed)
+  //
+  // This eliminates the optimistic-duplicate problem at the architectural level:
+  // when history reload returns a user turn that the client sent with a known
+  // client_message_id, the optimistic local copy is merged into the backend
+  // record rather than appended as a separate entry.
   const mergeHistoryIntoState = useCallback((backendMessages: any[]) => {
     const incoming = backendMessages.map(mapBackendMsg);
     setMessages((prev) => {
       if (prev.length === 0) return incoming;
 
-      // Build set of backend_turn_ids from incoming
-      const incomingIds = new Set(
-        incoming.map((m) => m.backend_turn_id).filter(Boolean)
+      // Index incoming by both reconciliation keys.
+      const incomingByBackendTurnId = new Map(
+        incoming.filter((m) => m.backend_turn_id).map((m) => [m.backend_turn_id, m])
       );
-      // Local-only messages: those without backend_turn_id (user msgs not yet persisted)
-      // Keep image messages too — they may have local data URLs
-      const localOnly = prev.filter(
-        (m) => !m.backend_turn_id && m.sender === "user"
+      const incomingByClientMsgId = new Map(
+        incoming.filter((m) => m.client_message_id).map((m) => [m.client_message_id, m])
       );
-      // Preserve feedback and local image data URLs from existing messages
+
+      // Preserve feedback and local image data URLs keyed by backend_turn_id.
       const existingFeedback = new Map(
         prev.filter((m) => m.backend_turn_id && m.feedback).map((m) => [m.backend_turn_id, m.feedback])
       );
       const existingImages = new Map(
-        prev.filter((m) => m.backend_turn_id && m.image && !m.image.startsWith("__asset__")).map((m) => [m.backend_turn_id, m.image])
+        prev
+          .filter((m) => m.backend_turn_id && m.image && !m.image.startsWith("__asset__"))
+          .map((m) => [m.backend_turn_id, m.image])
       );
 
       const merged = incoming.map((m) => {
         const fb = existingFeedback.get(m.backend_turn_id);
         const localImg = existingImages.get(m.backend_turn_id);
         let result = fb ? { ...m, feedback: fb } : m;
-        // If backend returns an asset marker but we have the real data URL locally, use the local one
         if (localImg && (!m.image || m.image.startsWith("__asset__"))) {
           result = { ...result, image: localImg };
         }
         return result;
       });
 
-      // Append local-only user messages that aren't in backend yet
-      return [...merged, ...localOnly];
+      // Local-only: messages that don't match any incoming record by either key.
+      // An optimistic user message that now has a backend_turn_id (ACKed before
+      // this reload) or a matching client_message_id is already in `merged`
+      // and must NOT be appended again.
+      const localOnly = prev.filter((m) => {
+        if (m.backend_turn_id && incomingByBackendTurnId.has(m.backend_turn_id)) return false;
+        if (m.client_message_id && incomingByClientMsgId.has(m.client_message_id)) return false;
+        return true;
+      });
+
+      const combined = [...merged, ...localOnly];
+      combined.sort((a, b) => {
+        const aId = a.backend_turn_id ? Number(a.backend_turn_id) : NaN;
+        const bId = b.backend_turn_id ? Number(b.backend_turn_id) : NaN;
+        if (!isNaN(aId) && !isNaN(bId)) return aId - bId;
+        if (!isNaN(aId)) return -1;
+        if (!isNaN(bId)) return 1;
+        return 0;
+      });
+      return combined;
     });
   }, [mapBackendMsg]);
 
@@ -309,18 +374,33 @@ const Chat = () => {
       lastFetchTsRef.current = Date.now() / 1000;
 
       setMessages((prev) => {
-        const existingIds = new Set(
+        const existingBackendIds = new Set(
           prev.map((m) => m.backend_turn_id).filter(Boolean)
+        );
+        const existingClientIds = new Set(
+          prev.map((m) => m.client_message_id).filter(Boolean)
         );
         const newMsgs: ChatMessage[] = result.messages
           .filter((m: any) => {
             const id = String(m.id ?? m.turn_id ?? "");
-            return id && !existingIds.has(id);
+            if (id && existingBackendIds.has(id)) return false;
+            const clientId = m.client_message_id ?? m.metadata?.client_message_id;
+            if (clientId && existingClientIds.has(clientId)) return false;
+            return !!id;
           })
           .map(mapBackendMsg);
 
         if (newMsgs.length === 0) return prev;
-        return [...prev, ...newMsgs];
+        const combined = [...prev, ...newMsgs];
+        combined.sort((a, b) => {
+          const aId = a.backend_turn_id ? Number(a.backend_turn_id) : NaN;
+          const bId = b.backend_turn_id ? Number(b.backend_turn_id) : NaN;
+          if (!isNaN(aId) && !isNaN(bId)) return aId - bId;
+          if (!isNaN(aId)) return -1;
+          if (!isNaN(bId)) return 1;
+          return 0;
+        });
+        return combined;
       });
 
       scrollToBottom();
@@ -342,18 +422,26 @@ const Chat = () => {
     };
 
     const handleServerRestarted = () => {
-      // Server silently restarted — soft merge: keep local messages visible,
-      // fetch full history and merge (no flash/disappearance).
-      console.warn("[Chat] Server restarted detected, soft-merging history...");
+      // Server restarted — reset the guard so the history effect can fire again,
+      // then soft-merge: keep local messages visible without flash/disappearance.
+      console.warn("[Chat] Server restarted detected — reloading history...");
+      // Reset the load guard: without this, historyLoadedRef.current stays true
+      // and the useEffect for initial load never fires again, leaving the chat
+      // showing stale (or no) messages after a backend restart.
+      historyLoadedRef.current = false;
       (async () => {
         try {
           const data = await chatApi.getChatHistory(sessionId);
           if (data?.messages?.length) {
             mergeHistoryIntoState(data.messages);
           }
+          // Mark loaded so the useEffect doesn't double-fire on the same state tick
+          historyLoadedRef.current = true;
           lastFetchTsRef.current = Date.now() / 1000;
         } catch (err) {
           console.warn("[Chat] History merge after restart failed:", err);
+          // Leave historyLoadedRef.current = false so a future lifecycle
+          // state change retriggers the initial load effect
         }
       })();
     };
@@ -380,12 +468,28 @@ const Chat = () => {
 
   const handleSend = useCallback(
     async (text: string) => {
+      // If editing a previous message, remove it (and its Kael reply) before re-sending
+      setMessages((prev) => {
+        const editingIdx = prev.findIndex((m) => m.isEditing);
+        if (editingIdx >= 0) {
+          // Remove the edited user message and all subsequent messages
+          // (they belong to the old conversation branch)
+          return prev.slice(0, editingIdx);
+        }
+        return prev;
+      });
+
+      // Stable UUID for this send — survives restarts and is used to reconcile
+      // the optimistic message with the backend-persisted turn on history reload.
+      const clientMsgId = crypto.randomUUID();
+
       const userMsg: ChatMessage = {
-        id: Date.now().toString(),
+        id: clientMsgId,
         text,
         time: now(),
         sender: "user",
         feedback: null,
+        client_message_id: clientMsgId,
       };
       setMessages((prev) => [...prev, userMsg]);
       scrollToBottom();
@@ -394,10 +498,24 @@ const Chat = () => {
       setIsTyping(true);
       try {
         const startTime = Date.now();
-        const response = await chatApi.sendMessage(text, sessionId);
+        const response = await chatApi.sendMessage(text, sessionId, undefined, clientMsgId);
         const latency = Date.now() - startTime;
 
         setIsTyping(false);
+
+        // ACK: promote the optimistic user message with its backend_turn_id now
+        // that the server has confirmed persistence. This prevents mergeHistoryIntoState
+        // from treating it as "local-only" and appending it again on history reload.
+        if (response.user_turn_id != null) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.client_message_id === clientMsgId
+                ? { ...m, backend_turn_id: String(response.user_turn_id) }
+                : m
+            )
+          );
+        }
+
         const responseMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           text: response.reply,
@@ -461,31 +579,48 @@ const Chat = () => {
         }
       } catch (error) {
         setIsTyping(false);
-        const errorMsg = error instanceof Error ? error.message : "Failed to send message";
-        toast.error(errorMsg);
-        // Do NOT invalidateBackendCache — user URL is source of truth.
-        // Just trigger re-discovery which will probe without overwriting.
-        probeAndResolveBackend().catch(() => {});
-        // Reconcile: backend may have completed the reply after client timeout.
-        // Wait a few seconds then fetch any pending messages we missed.
-        setTimeout(() => fetchAndAppendPending(), 5000);
+        const isTimeout =
+          error instanceof Error &&
+          (error.name === "AbortError" || error.message.includes("timeout"));
+
+        if (isTimeout) {
+          // Timeout doesn't mean the backend failed — long replies (60-180s) can
+          // exceed the client AbortController window. Show a softer message and
+          // keep polling for the response.
+          toast.error("Risposta in ritardo — Kael sta elaborando...", { duration: 6000 });
+          // Poll aggressively: try at 5s, 15s, 30s after timeout
+          setTimeout(() => fetchAndAppendPending(), 5_000);
+          setTimeout(() => fetchAndAppendPending(), 15_000);
+          setTimeout(() => fetchAndAppendPending(), 30_000);
+        } else {
+          const errorMsg = error instanceof Error ? error.message : "Failed to send message";
+          toast.error(errorMsg);
+          // Do NOT invalidateBackendCache — user URL is source of truth.
+          // Just trigger re-discovery which will probe without overwriting.
+          probeAndResolveBackend().catch(() => {});
+          // Reconcile: backend may have completed the reply after client timeout.
+          setTimeout(() => fetchAndAppendPending(), 5_000);
+        }
       }
     },
-    [sessionId, agentMode, messages]
+    [sessionId, agentMode, messages, fetchAndAppendPending]
   );
 
   const handleImageUpload = useCallback(
-    async (file: File) => {
+    async (file: File, caption?: string) => {
       const reader = new FileReader();
       reader.onload = async (ev) => {
         const imgMsgId = Date.now().toString();
+        const clientMsgId = crypto.randomUUID();
         const imgMsg: ChatMessage = {
           id: imgMsgId,
-          text: "",
+          // Show the caption text in the user message bubble (like Telegram/ChatGPT)
+          text: caption ?? "",
           time: now(),
           sender: "user",
           image: ev.target?.result as string,
           feedback: null,
+          client_message_id: clientMsgId,
         };
         setMessages((prev) => [...prev, imgMsg]);
         scrollToBottom();
@@ -493,17 +628,23 @@ const Chat = () => {
         setIsTyping(true);
         try {
           const startTime = Date.now();
-          const response = await chatApi.sendImage(file, sessionId);
+          const response = await chatApi.sendImage(file, sessionId, caption);
           const latency = Date.now() - startTime;
 
           setIsTyping(false);
           // Warn user if vision failed (Kael replied without seeing the image)
           if ((response as any).vision_ok === false && (response as any).failure_kind) {
-            const msgs: Record<string, string> = {
-              vision_error: "Kael non è riuscito ad analizzare l'immagine",
-              not_configured: "La visione non è configurata",
+            const failureKind: string = (response as any).failure_kind ?? "";
+            const visionErrorMsgs: Record<string, string> = {
+              not_configured: "La visione non è configurata — assicurati che Moondream sia installato in Ollama",
+              ollama_unreachable: "Ollama non è raggiungibile",
+              moondream_error: "Kael non è riuscito ad analizzare l'immagine",
+              empty_response: "Moondream ha restituito una risposta vuota",
             };
-            toast.warning(msgs[(response as any).failure_kind] ?? "Visione non disponibile");
+            const msg = Object.entries(visionErrorMsgs).find(([key]) =>
+              failureKind.startsWith(key)
+            )?.[1] ?? "Visione non disponibile";
+            toast.warning(msg);
           }
 
           // Assign backend_turn_id to the user image message so it persists across reloads
@@ -551,21 +692,31 @@ const Chat = () => {
           }
         } catch (error) {
           setIsTyping(false);
-          toast.error(error instanceof Error ? error.message : "Failed to send image");
-          // Reconcile: fetch pending in case backend completed after timeout
-          setTimeout(() => fetchAndAppendPending(), 5000);
+          const isTimeout =
+            error instanceof Error &&
+            (error.name === "AbortError" || error.message.includes("timeout"));
+          if (isTimeout) {
+            toast.error("Risposta in ritardo — Kael sta elaborando l'immagine...", { duration: 6000 });
+            setTimeout(() => fetchAndAppendPending(), 5_000);
+            setTimeout(() => fetchAndAppendPending(), 20_000);
+          } else {
+            toast.error(error instanceof Error ? error.message : "Failed to send image");
+            setTimeout(() => fetchAndAppendPending(), 5000);
+          }
         }
       };
       reader.readAsDataURL(file);
     },
-    [sessionId]
+    [sessionId, fetchAndAppendPending]
   );
 
   const handleVoiceNote = useCallback(
     async (blob: Blob) => {
+      const clientMessageId = crypto.randomUUID();
       const url = URL.createObjectURL(blob);
       const voiceMsg: ChatMessage = {
-        id: Date.now().toString(),
+        id: clientMessageId,
+        client_message_id: clientMessageId,
         text: "",
         time: now(),
         sender: "user",
@@ -579,10 +730,22 @@ const Chat = () => {
       setIsTyping(true);
       try {
         const startTime = Date.now();
-        const response = await chatApi.sendVoiceNote(blob, sessionId);
+        const response = await chatApi.sendVoiceNote(blob, sessionId, clientMessageId);
         const latency = Date.now() - startTime;
 
         setIsTyping(false);
+
+        // ACK: Update the optimistic message with the backend turn ID
+        if (response.user_turn_id != null) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.client_message_id === clientMessageId
+                ? { ...m, backend_turn_id: String(response.user_turn_id) }
+                : m
+            )
+          );
+        }
+        
         const responseMsg: ChatMessage = {
           id: (Date.now() + 1).toString(),
           text: response.reply,
@@ -622,7 +785,7 @@ const Chat = () => {
         setTimeout(() => fetchAndAppendPending(), 5000);
       }
     },
-    [sessionId]
+    [sessionId, fetchAndAppendPending]
   );
 
   const handleFeedback = useCallback(
@@ -666,13 +829,24 @@ const Chat = () => {
 
   const handleEditMessage = useCallback(
     (id: string, currentText: string) => {
-      // Remove the message and pre-fill the input by sending a custom event
-      setMessages((prev) => prev.filter((m) => m.id !== id));
-      // Dispatch event so ChatInput can pick up the text
-      window.dispatchEvent(new CustomEvent("kael-edit-message", { detail: { text: currentText } }));
+      // Mark the message as being edited (dimmed in UI) instead of removing it immediately
+      setMessages((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, isEditing: true } : m))
+      );
+      // Dispatch event so ChatInput can pick up the text and the messageId
+      window.dispatchEvent(
+        new CustomEvent("kael-edit-message", { detail: { text: currentText, messageId: id } })
+      );
     },
     []
   );
+
+  const handleCancelEdit = useCallback(() => {
+    // Restore all messages marked as editing back to normal
+    setMessages((prev) =>
+      prev.map((m) => (m.isEditing ? { ...m, isEditing: false } : m))
+    );
+  }, []);
 
   // Bubble wallpaper style props
   const bubbleWallpaperStyle = wallpaper?.displaySettings ?? null;
@@ -753,6 +927,7 @@ const Chat = () => {
         onImageUpload={handleImageUpload}
         onVoiceNote={handleVoiceNote}
         onOpenServices={() => navigate("/workspace")}
+        onCancelEdit={handleCancelEdit}
         disabled={lifecycleState !== "online"}
       />
 
