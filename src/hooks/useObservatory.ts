@@ -50,3 +50,19 @@ export function useRecentEvents(): LiveResult<obs.ObservatoryResponse<obs.Recent
 export function useRawDebug(): LiveResult<obs.ObservatoryResponse<obs.RawDebugData>> {
   return useObservatoryLive(() => obs.getRawDebug());
 }
+
+export function useWebAudit(): LiveResult<obs.AuditResponse<obs.WebAuditEntry>> {
+  return useObservatoryLive(() => obs.getWebAudit());
+}
+
+export function useAdvisorAudit(): LiveResult<obs.AuditResponse<obs.AdvisorAuditEntry>> {
+  return useObservatoryLive(() => obs.getAdvisorAudit());
+}
+
+export function useProbeAudit(): LiveResult<obs.AuditResponse<obs.ProbeAuditEntry>> {
+  return useObservatoryLive(() => obs.getProbeAudit());
+}
+
+export function useInnerSheets(): LiveResult<obs.ObservatoryResponse<obs.InnerSheetsData>> {
+  return useObservatoryLive(() => obs.getInnerSheets());
+}

@@ -19,16 +19,19 @@ import { useBootUpdateCheck } from "@/hooks/useBootUpdateCheck";
 import UpdateDialog from "@/components/updates/UpdateDialog";
 import { initNativeNotifications } from "@/lib/nativeNotifications";
 import ClickInspector from "@/components/dev/ClickInspector";
-
-// Initialize native notification channel & permissions on app boot.
-// Safe no-op when running in browser (non-Capacitor).
-initNativeNotifications();
+import { useEffect } from "react";
 
 const queryClient = new QueryClient();
 
 /** Inner component that uses hooks (must be inside providers) */
 const AppRoutes = () => {
   const { result, showDialog, setShowDialog } = useBootUpdateCheck();
+
+  // Initialize native notifications inside a React component so Capacitor
+  // is fully ready (avoids race conditions at module-level execution).
+  useEffect(() => {
+    initNativeNotifications();
+  }, []);
 
   return (
     <>

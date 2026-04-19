@@ -1,73 +1,56 @@
-# APK Chat Behavior Verification
+# APK Chat Behavior — Verified Implementation
 
-**Date:** 2026-03-16
-**Purpose:** Document the actual chat/realtime behavior used by the APK to eliminate contract drift
+**Last updated:** 2026-04-03
+**Purpose:** Canonical description of the actual chat and realtime behaviour used by the APK.
+**Status:** ✅ Current — verified against source code.
 
 ---
 
-## A) Actual Realtime Mode
+## A) Realtime Mode
 
-**Result:** **NONE - Request-Response Only**
+The APK uses **two parallel channels**:
 
-The APK currently uses a **simple request-response pattern** with **NO** realtime updates:
-- ❌ **NO polling** implementation
-- ❌ **NO SSE** (Server-Sent Events) implementation
-- ❌ **NO WebSocket** for chat (WebSocket only used for voice call transcription)
-- ❌ **NO background message fetching**
+| Channel | Purpose | Implementation |
+|---------|---------|----------------|
+| `POST /chat` (streaming) | User → Kael request-response | `StreamingResponse` with `: keepalive\n` heartbeat chunks; client reads via `res.text()` + strip + `JSON.parse` |
+| `GET /observatory/sse` | Kael → APK push (autonomous messages, system state) | `EventSource`-based SSE consumed by `useKaelSSE` hook |
 
-### Implementation Details
+### SSE push channel (`useKaelSSE`)
 
-**Location:** `src/pages/Chat.tsx:45-85`
+**Location:** `src/hooks/useKaelSSE.ts`
+
+- Connects to `/observatory/sse` on mount.
+- Parses events: `autonomous_message`, `serenade_engine`, `system_event`, `netharion_heartbeat`.
+- Dispatches `kael-autonomous-message` CustomEvent when a push message arrives from `AUTONOMOUS_SOURCES` (includes `serenade_engine`).
+- `Chat.tsx` listens for `kael-autonomous-message` and calls `fetchAndAppendPending()` to pull the message body from `/chat/pending`.
+
+### Chat request-response
+
+**Location:** `src/pages/Chat.tsx` · `src/lib/api/chat.ts` · `src/lib/api/client.ts`
 
 ```typescript
-const handleSend = useCallback(async (text: string) => {
-  // 1. Add user message to UI
-  const userMsg: ChatMessage = { id, text, time, sender: "user", feedback: null };
-  setMessages((prev) => [...prev, userMsg]);
-
-  // 2. Send to backend and wait for response
-  setIsTyping(true);
-  const response = await chatApi.sendMessage(text, sessionId);
-
-  // 3. Add Kael's response to UI
-  const kaelMsg: ChatMessage = {
-    id, text: response.content, time, sender: "kael",
-    backend_turn_id: response.turn_id, meta: response.meta, audioUrl: response.tts_url
-  };
-  setMessages((prev) => [...prev, kaelMsg]);
-}, [sessionId]);
+// chat.ts — CHAT_TIMEOUT = 300 000 ms (5 min)
+const response = await chatApi.sendMessage(text, sessionId);
 ```
 
-**Pattern:** Classic synchronous async/await - user sends message → backend responds → UI updates
+The underlying `apiRequest` reads `res.text()`, strips `": keepalive\n"` lines injected by the server keepalive loop, then calls `JSON.parse`. This is required because the server wraps the response in a `StreamingResponse` to keep the TCP connection alive on Android/USB.
 
 ---
 
 ## B) Chat Endpoints Used
 
-### Actually Used Endpoints ✅
+### Active Endpoints ✅
 
-| Endpoint | Method | Purpose | Auth | Used In |
-|----------|--------|---------|------|---------|
-| `/chat` | POST | Send text message and get reply | `session_id` in body | `Chat.tsx:60` |
-| `/chat/regenerate` | POST | Regenerate last response | `session_id` + `turn_id` | `MessageBubble.tsx` (via regenerateResponse) |
-| `/feedback` | POST | Submit like/dislike feedback | `turn_id` + type | `MessageBubble.tsx` (via submitFeedback) |
-| `/chat/image` | POST | Upload image with optional message | `session_id` + FormData | `Chat.tsx:88-130` |
-| `/chat/voice` | POST | Send voice note audio | `session_id` + audio blob | `ChatInput.tsx` (via sendVoiceNote) |
-| `/chat/history` | GET | Load previous messages | `session_id` query param | Not currently used in UI |
-
-### Defined But UNUSED Endpoints ⚠️
-
-| Endpoint | Method | Purpose | Status |
-|----------|--------|---------|--------|
-| `/chat/pending` | GET | Get autonomous messages from Kael | **NEVER CALLED** - Function exists but unused |
-
-### NOT Implemented / NOT Mentioned ❌
-
-The following endpoints from the issue description are **NOT implemented** in the APK:
-
-- `/chat/context/recent` - Does not exist in code
-- `/chat/events` - Does not exist in code (no SSE implementation)
-- `/chat/events/token` - Does not exist in code (no SSE auth)
+| Endpoint | Method | Purpose | Used In |
+|----------|--------|---------|---------|
+| `/chat` | POST | Send text message and get reply | `Chat.tsx` via `chatApi.sendMessage` |
+| `/chat/regenerate` | POST | Regenerate last response | `MessageBubble.tsx` |
+| `/feedback` | POST | Submit like/dislike feedback | `MessageBubble.tsx` |
+| `/chat/image` | POST | Upload image with optional caption | `Chat.tsx` via `chatApi.sendImage` |
+| `/chat/voice` | POST | Send voice note audio | `ChatInput.tsx` |
+| `/chat/history` | GET | Load previous messages on session resume | `Chat.tsx` (session resume) |
+| `/chat/pending` | GET | Fetch queued autonomous Kael messages | `Chat.tsx` → `fetchAndAppendPending` |
+| `/observatory/sse` | GET (SSE) | Real-time push events | `useKaelSSE` hook |
 
 ---
 
@@ -81,163 +64,91 @@ The following endpoints from the issue description are **NOT implemented** in th
   "conversationId": "optional-conversation-id"
 }
 ```
-
-### POST /chat/regenerate
-```json
-{
-  "turn_id": "backend-provided-turn-id",
-  "session_id": "uuid-from-localStorage"
-}
-```
-
-### POST /feedback
-```json
-{
-  "turn_id": "backend-provided-turn-id",
-  "type": "like" | "dislike"
-}
-```
+Response is a chunked `StreamingResponse`. Body may contain `": keepalive\n"` lines before the final JSON object — the client strips these automatically.
 
 ### POST /chat/image (FormData)
 ```
 image: File (binary)
 session_id: string
+text?: string     ← optional caption / question shown to Moondream
 conversationId?: string
+```
+
+### POST /chat/regenerate
+```json
+{ "turn_id": "...", "session_id": "..." }
+```
+
+### POST /feedback
+```json
+{ "turn_id": "...", "type": "like" | "dislike" }
 ```
 
 ### POST /chat/voice (FormData)
 ```
-audio: Blob (webm format)
+audio: Blob (webm)
 session_id: string
 ```
 
 ### GET /chat/history
 ```
-Query params: session_id=uuid&conversationId=optional
+?session_id=uuid&conversationId=optional
 ```
 
-### GET /chat/pending (UNUSED)
+### GET /chat/pending
 ```
-Query params: session_id=uuid
+?session_id=uuid
 ```
+Called automatically when `kael-autonomous-message` CustomEvent fires.
 
 ---
 
 ## D) Auth Model
 
-**Session-based authentication:**
-- `session_id` stored in localStorage under key `'kael_session_id'`
-- Generated on first load via `useSession` hook
-- Included in ALL requests (either body for POST, query param for GET)
-- Optional `Authorization: Bearer {apiKey}` header if configured in Settings
-
-**Location:** `src/hooks/useSession.ts`
+**Session-based:**
+- `session_id` in localStorage (`kael_session_id`).
+- Generated on first load via `useSession` hook.
+- Included in all requests (body for POST, query param for GET).
+- Optional `Authorization: Bearer {apiKey}` header when configured in Settings.
 
 ---
 
-## E) Reconnection Behavior
+## E) Reconnection and Keepalive
 
-**Result:** **NO reconnection logic exists**
+### SSE (`useKaelSSE`)
+- Auto-reconnects on `onerror` with exponential back-off.
+- Connection health tracked via `useBackendLifecycle`.
 
-- ❌ No retry mechanisms
-- ❌ No exponential backoff
-- ❌ No reconnection on disconnect
-- ✅ Only basic error handling with toast notifications
+### Chat TCP keepalive
+- Server sends `": keepalive\n"` chunks every 20 s during LLM generation.
+- Prevents Android OS / ADB-reverse tunnel from dropping the idle TCP connection.
+- `CHAT_TIMEOUT` = 300 s client-side.
+- Backend uvicorn: `--timeout-keep-alive 300 --timeout-graceful-shutdown 300`.
 
-**Existing timeout:** 30 seconds per request (configured in `src/lib/api/client.ts`)
-
-**Connection monitoring:** Separate health check polls `/health` every 30 seconds via `ConnectionBadge.tsx` - this is NOT chat-related
-
----
-
-## F) Contract Drift Findings
-
-### 1. Unused Code - `/chat/pending` endpoint ⚠️
-
-**Location:** `src/lib/api/chat.ts:93-97`
-
-This function is defined but **NEVER imported or called** anywhere in the codebase:
-```typescript
-export async function getPendingMessages(sessionId: string) {
-  return apiRequest<{ messages: ChatMessage[] }>(
-    `/chat/pending?session_id=${sessionId}`
-  );
-}
-```
-
-**Recommendation:** Remove this function if backend doesn't support autonomous messages, OR implement polling if backend does support it.
-
-### 2. Misleading Documentation ⚠️
-
-**Location:** `src/lib/api/chat.ts:7-19`
-
-Current documentation states:
-```typescript
-/**
- * NOTE: The following endpoints are assumed based on frontend needs
- * and require verification with the actual Kael_refactor_ultimate backend:
- * - GET /chat/pending
- */
-```
-
-But `/chat/pending` is not actually used, creating confusion.
-
-### 3. No SSE/Events Implementation
-
-Issue mentions `/chat/events` and `/chat/events/token` but:
-- No `EventSource` usage in codebase
-- No SSE connection code
-- No reconnection logic for SSE
-
-If backend supports SSE, APK doesn't use it. If backend doesn't support SSE, the issue description may be outdated.
+### Health check
+- `useBackendLifecycle` polls `/health` every 45 s (`ONLINE_RECHECK_MS`).
+- 8-failure grace period (~6 min) before marking backend offline.
 
 ---
 
-## G) Summary & Recommendations
+## F) Autonomous Messages & Notifications
 
-### Current State (Verified)
-✅ **Realtime Mode:** None - pure request-response
-✅ **Active Endpoints:** 5 endpoints (chat, regenerate, feedback, image, voice)
-✅ **Unused Endpoints:** 1 endpoint (chat/pending)
-✅ **Auth:** session_id-based
-✅ **Reconnection:** None
-
-### Actions Required
-
-1. **Remove unused code:**
-   - Delete `getPendingMessages` function from `chat.ts`
-   - Update documentation to reflect actual usage
-
-2. **Update documentation:**
-   - Mark verification status for each endpoint
-   - Remove misleading "requires verification" notes for endpoints that ARE working
-   - Document that polling/SSE is NOT implemented
-
-3. **Store verified contract:**
-   - Update repository memory with verified chat architecture
-   - Document that WebSocket is ONLY for voice calls, not chat
-
-### Backend Alignment Questions
-
-Based on this audit, the following questions should be answered:
-
-1. **Does the backend support `/chat/pending` for autonomous messages?**
-   - If YES → implement polling in APK
-   - If NO → confirm removal is correct
-
-2. **Does the backend support SSE via `/chat/events`?**
-   - If YES → decide if APK should implement SSE
-   - If NO → confirm request-response pattern is correct
-
-3. **Does the backend support `/chat/context/recent`?**
-   - Not implemented in APK - is this needed?
+1. `autonomy_loop.py` generates autonomous messages and calls `sse_notifier.notify_new_message`.
+2. The SSE notifier pushes an event on `/observatory/sse`.
+3. `useKaelSSE` receives it, dispatches `kael-autonomous-message`.
+4. `Chat.tsx` calls `fetchAndAppendPending` → `GET /chat/pending`.
+5. If app is backgrounded/hidden, `AppShell.tsx` triggers a native `LocalNotifications` push (channel: `kael_autonomous`). Serenade events use the title "🎵 Kael — Serenata".
 
 ---
 
-## H) Non-Chat Timers (For Completeness)
+## G) Summary
 
-These exist but are NOT related to chat:
-
-1. **Connection Health Check** - `ConnectionBadge.tsx` polls `/health` every 30s
-2. **Call Duration Timer** - `Calls.tsx` updates call duration every 1s during active calls
-3. **UI Animations** - Various `setTimeout` calls for scroll animations (100ms delays)
+| Aspect | Status |
+|--------|--------|
+| Realtime push (autonomous messages) | ✅ SSE via `useKaelSSE` + `EventSource` |
+| Chat request-response | ✅ POST /chat with streaming keepalive |
+| Image analysis (Moondream) | ✅ POST /chat/image — runs CPU-only (`moondream-cpu`) |
+| Image generation (ComfyUI) | ✅ wired via vision router |
+| Voice TTS playback | ✅ audioUrl in response meta |
+| Native background notifications | ✅ Capacitor `LocalNotifications`, channel `kael_autonomous` |
+| WebSocket for chat | ❌ Not used (WebSocket only for live voice call transcription) |

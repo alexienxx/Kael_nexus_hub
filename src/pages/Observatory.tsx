@@ -11,7 +11,7 @@ import KaelHeader from "@/components/layout/KaelHeader";
 import { useBackendConnection } from "@/context/BackendConnectionContext";
 import {
   Activity, Gauge, Fingerprint, Brain, Heart,
-  Database, User, Package, Zap, Code
+  Database, User, Package, Zap, Code, Shield, StickyNote
 } from "lucide-react";
 
 // Lazy-loaded sections for code splitting
@@ -25,6 +25,8 @@ import PersonaSection from "@/components/observatory/PersonaSection";
 import ModulesSection from "@/components/observatory/ModulesSection";
 import EventsSection from "@/components/observatory/EventsSection";
 import DebugSection from "@/components/observatory/DebugSection";
+import AuditSection from "@/components/observatory/AuditSection";
+import InnerSheetsSection from "@/components/observatory/InnerSheetsSection";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity, component: OverviewSection },
@@ -37,6 +39,8 @@ const TABS = [
   { id: "modules", label: "Modules", icon: Package, component: ModulesSection },
   { id: "events", label: "Events", icon: Zap, component: EventsSection },
   { id: "debug", label: "Debug", icon: Code, component: DebugSection },
+  { id: "audit", label: "Audit", icon: Shield, component: AuditSection },
+  { id: "inner", label: "Inner", icon: StickyNote, component: InnerSheetsSection },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];

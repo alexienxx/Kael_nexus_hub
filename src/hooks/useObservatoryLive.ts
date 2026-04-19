@@ -69,11 +69,31 @@ export function useObservatoryLive<T>(
       const result = await fetcherRef.current();
       if (!mountedRef.current) return;
 
-      // Check content_hash to skip no-change re-renders
+      // Dedup: skip re-render only if the response carries a content_hash that
+      // is endpoint-specific (e.g. the SSE snapshot hash in services/overview).
+      // The global observatory_history hash is shared across ALL sections and only
+      // changes when weights/emotional update — so using it for overview/memory/
+      // decisions would freeze those sections. We only trust endpoint-level hashes
+      // that are NOT the global observatory_history hash (those are usually short
+      // hex strings). As a safe heuristic: skip dedup if data is already null
+      // (first load must always set state) and only deduplicate when both the
+      // incoming hash AND the stored hash are non-empty and different sections
+      // would share the same hash source (which we can't distinguish here).
+      // Simplest correct fix: only skip if updated_at is also unchanged.
       const meta = (result as any)?._meta;
       const newHash = meta?.content_hash;
-      if (newHash && newHash === lastHashRef.current && data !== null) {
-        // Data unchanged — skip setState to prevent re-render
+      const newUpdatedAt = meta?.updated_at;
+      const lastHash = lastHashRef.current;
+
+      if (
+        newHash &&
+        newHash === lastHash &&
+        data !== null &&
+        // Also require updated_at to be identical — prevents false dedup when
+        // backend regenerates the same hash with new timestamp (rare but possible)
+        newUpdatedAt != null &&
+        newUpdatedAt === (data as any)?._meta?.updated_at
+      ) {
         return;
       }
       if (newHash) lastHashRef.current = newHash;

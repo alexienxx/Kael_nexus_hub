@@ -42,21 +42,21 @@ export type DisconnectReason =
 // ── Constants ────────────────────────────────────────────────────────────
 
 /** Periodic health re-check when online. */
-const ONLINE_RECHECK_MS = 30_000; // 30 seconds
+const ONLINE_RECHECK_MS = 45_000; // 45 seconds — backend may be busy with LLM generation
 
 /**
  * After task-kill + resume, retry if the last successful check is older than this.
  * Avoids hammering backend if user just briefly backgrounds the app.
  */
-const RESUME_STALE_THRESHOLD_MS = 5_000; // 5 seconds
+const RESUME_STALE_THRESHOLD_MS = 10_000; // 10 seconds
 
 /**
  * Number of consecutive health-check failures required before declaring offline.
- * 6 failures × 30s interval = 3 minutes of tolerance.
- * Prevents false-offline from transient network hitch, single 503,
- * or Android sleep/wake cycle dropping adb reverse tunnels.
+ * 8 failures × 45s interval = 6 minutes of tolerance.
+ * Long Kael replies (60-180s) can make the backend temporarily slow to respond
+ * to /health — this prevents false-offline during long generations.
  */
-const HEALTH_FAIL_GRACE = 6;
+const HEALTH_FAIL_GRACE = 8;
 
 /** Max probe attempts per URL candidate. */
 const PROBE_MAX_ATTEMPTS = 3;
@@ -230,10 +230,10 @@ export function useBackendLifecycle(): BackendLifecycleResult {
 
         // Fast failover: if device is still online but cached URL fails,
         // network topology likely changed (e.g. WiFi dropped, Tailscale VPN
-        // still up). Use reduced grace (4 × 30s = 120s) instead of full
-        // grace (6 × 30s = 180s) to trigger re-discovery sooner.
-        // 120s covers long LLM responses + transient Android network hiccups.
-        const effectiveGrace = navigator.onLine ? 4 : HEALTH_FAIL_GRACE;
+        // still up). Use reduced grace (6 × 45s = 270s) instead of full
+        // grace (8 × 45s = 360s) to trigger re-discovery sooner.
+        // 270s covers long LLM responses + transient Android adb-reverse hiccups.
+        const effectiveGrace = navigator.onLine ? 6 : HEALTH_FAIL_GRACE;
 
         if (healthFailCountRef.current >= effectiveGrace && mountedRef.current) {
           // Cached URL is stale — try full re-discovery before giving up.
@@ -309,14 +309,30 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       if (backendUrl) {
         setStateSynced("online");
         setMessage(manual ? "Riconnesso" : "Connesso");
-        // Capture initial boot_id for session integrity tracking
+        // Capture / compare boot_id for session integrity tracking.
+        // This path handles offline→online transitions where the recheck
+        // setInterval is no longer running — emit kael-server-restarted here
+        // so Chat.tsx reloads history even after a long disconnection.
         try {
           const payload = await probeHealthPayload();
           if (payload?.boot_id) {
+            const prev = lastBootIdRef.current;
+            if (prev && prev !== payload.boot_id) {
+              console.warn(
+                "[KAEL] runProbe: server restarted (boot_id changed %s → %s)",
+                prev,
+                payload.boot_id,
+              );
+              window.dispatchEvent(
+                new CustomEvent("kael-server-restarted", {
+                  detail: { oldBootId: prev, newBootId: payload.boot_id },
+                }),
+              );
+            }
             lastBootIdRef.current = payload.boot_id;
           }
         } catch {
-          // best-effort
+          // best-effort — never block reconnect flow
         }
         startOnlineRecheck();
         return;

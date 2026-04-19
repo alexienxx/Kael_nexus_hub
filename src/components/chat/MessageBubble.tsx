@@ -152,7 +152,7 @@ const MessageBubble = ({
       }}
     >
     <div
-      className={`flex ${isUser ? "justify-end" : "justify-start"} group`}
+      className={`flex ${isUser ? "justify-end" : "justify-start"} group ${message.isEditing ? "opacity-40 scale-[0.98] transition-all duration-200" : ""}`}
       onTouchStart={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
     >

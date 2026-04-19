@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequest, getApiConfig } from "./client";
 import type { MediaItem } from "@/types";
 
 /**
@@ -67,6 +67,17 @@ export async function deleteGalleryItem(id: string) {
   return apiRequest<{ ok: boolean }>(`/media/gallery/${id}`, {
     method: "DELETE",
   });
+}
+
+/**
+ * Resolve a gallery asset ID to a usable image URL.
+ * The backend serves the file at /media/gallery/{id}/file.
+ * Returns the full URL string (not a data URL — lets the browser stream it).
+ */
+export function getGalleryFileUrl(assetId: string): string {
+  const config = getApiConfig();
+  if (!config.baseUrl) return "";
+  return `${config.baseUrl.replace(/\/$/, "")}/media/gallery/${assetId}/file`;
 }
 
 /** Request an avatar video from Kael */

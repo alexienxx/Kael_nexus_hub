@@ -340,3 +340,109 @@ export interface RawDebugData {
 export async function getRawDebug(): Promise<ObservatoryResponse<RawDebugData>> {
   return apiRequest<ObservatoryResponse<RawDebugData>>("/observatory/debug");
 }
+// ─── 11. Audit Trails ───
+
+export interface WebAuditEntry {
+  ts: string;
+  session_id: string;
+  trace_id: string;
+  trigger: string;
+  query_text: string;
+  query_fp: string;
+  category: string;
+  search_mode: string;
+  provider: string;
+  results_count: number;
+  used_in_generation: boolean;
+  persisted_to_memory: boolean;
+  learned: boolean;
+  ms: number;
+  error: string | null;
+}
+
+export interface AdvisorAuditEntry {
+  ts: string;
+  provider: string;
+  model: string;
+  trigger: string;
+  query_summary: string;
+  verdict: string;
+  score: number;
+  flags: string[];
+  edit_constraints: string[];
+  error: string | null;
+  latency_ms: number;
+  budget_remaining: number | null;
+}
+
+export interface ProbeAuditEntry {
+  ts: string;
+  pair_id: string;
+  trigger: string;
+  provider: string;
+  model: string;
+  delta_composite: number;
+  is_significant: boolean;
+  confidence: number;
+  resonance_score: number;
+  stability_score: number;
+  delta_embedding: number;
+  delta_logprob: number;
+  delta_structural: number;
+  latency_ms_trigger: number;
+  latency_ms_control: number;
+  tokens_trigger: number;
+  tokens_control: number;
+}
+
+export interface AuditResponse<T> {
+  data: T[];
+  count: number;
+  _meta: ObservatoryMeta;
+}
+
+export async function getWebAudit(): Promise<AuditResponse<WebAuditEntry>> {
+  return apiRequest<AuditResponse<WebAuditEntry>>("/observatory/web-audit");
+}
+
+export async function getAdvisorAudit(): Promise<AuditResponse<AdvisorAuditEntry>> {
+  return apiRequest<AuditResponse<AdvisorAuditEntry>>("/observatory/advisor-audit");
+}
+
+export async function getProbeAudit(): Promise<AuditResponse<ProbeAuditEntry>> {
+  return apiRequest<AuditResponse<ProbeAuditEntry>>("/observatory/probe-audit");
+}
+
+// ─── 12. Inner Sheets (Arrakis inner cognition) ───
+
+export type SheetType =
+  | "NOTE"
+  | "DREAM_FRAGMENT"
+  | "VISUAL_SKETCH"
+  | "SYMBOLIC_MOTIF"
+  | "UNRESOLVED_TENSION"
+  | "SELF_OBSERVATION"
+  | "ARCHITECTURE_IDEA";
+
+export interface InnerSheetEntry {
+  id: string;
+  sheet_type: SheetType;
+  title: string;
+  content: string;
+  tags: string[];
+  salience: number;
+  source: string;
+  created_at: string;
+  visibility: string;
+}
+
+export interface InnerSheetsData {
+  sheets: InnerSheetEntry[];
+  count_by_type: Record<string, number>;
+  total_count: number;
+  avg_salience: number;
+}
+
+export async function getInnerSheets(): Promise<ObservatoryResponse<InnerSheetsData>> {
+  return apiRequest<ObservatoryResponse<InnerSheetsData>>("/observatory/inner_sheets");
+}

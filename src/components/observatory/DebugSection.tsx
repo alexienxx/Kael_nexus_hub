@@ -4,9 +4,37 @@
 
 import { useState } from "react";
 import { useRawDebug } from "@/hooks/useObservatory";
-import { MetaBar, FreshnessBadge, SectionLoading, SectionError, SectionPending } from "./shared";
+import { MetaBar, SectionLoading, SectionError, SectionPending } from "./shared";
 import { Copy, Check, ChevronDown, ChevronRight, Code } from "lucide-react";
 import type { DataFreshness } from "@/lib/api/observatory";
+
+/**
+ * Map provenance strings from the backend ("runtime", "persisted", "computed", etc.)
+ * to DataFreshness values used by FreshnessBadge.
+ * The backend sends provenance strings that don't match DataFreshness directly.
+ */
+function provenanceToFreshness(prov: string): DataFreshness {
+  const p = (prov ?? "").toLowerCase();
+  if (p === "live" || p === "runtime") return "live";
+  if (p === "persisted" || p === "stale" || p === "cached") return "stale";
+  if (p === "computed" || p === "derived") return "computed";
+  return "unavailable";
+}
+
+function ProvenanceBadge({ provenance }: { provenance: string }) {
+  const freshness = provenanceToFreshness(provenance);
+  const STYLES: Record<DataFreshness, string> = {
+    live: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+    stale: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+    unavailable: "bg-red-500/20 text-red-400 border-red-500/30",
+    computed: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  };
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${STYLES[freshness]}`}>
+      {provenance}
+    </span>
+  );
+}
 
 export default function DebugSection() {
   const { state, data, error, retry } = useRawDebug();
@@ -55,7 +83,7 @@ export default function DebugSection() {
           {Object.entries(d.provenance).map(([key, prov]) => (
             <div key={key} className="flex items-center justify-between text-xs">
               <span className="font-mono text-foreground/70 truncate flex-1 mr-2">{key}</span>
-              <FreshnessBadge freshness={prov as DataFreshness} />
+              <ProvenanceBadge provenance={String(prov)} />
             </div>
           ))}
         </div>

@@ -4,6 +4,21 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [Unreleased] — 2026-04-12
+
+### � Fix: Message dedup, ordering, and image client_message_id
+- **`src/pages/Chat.tsx` — MODIFIED**: `fetchAndAppendPending` ora controlla sia `backend_turn_id` che `client_message_id` per la dedup (prima solo `backend_turn_id` → messaggi ottimistici duplicati dopo SSE reconnection). `handleImageUpload` ora assegna `client_message_id: crypto.randomUUID()` al messaggio immagine utente (prima assente → impossibile dedup prima dell'ACK). Aggiunto sort per `backend_turn_id` numerico in `mergeHistoryIntoState` e `fetchAndAppendPending` per garantire ordine cronologico stabile (messaggi local-only senza backend_turn_id restano in coda).
+
+### �📸 Feature: Staged photo preview — caption before send
+- **`src/components/chat/ChatInput.tsx` — MODIFIED**: Foto da galleria o fotocamera non vengono più inviate immediatamente. Viene mostrata un'anteprima (thumbnail 80x80) sopra l'input con pulsante X per rimuoverla. L'utente può scrivere un commento/caption prima di premere Send. Il placeholder cambia in "Commenta la foto..." quando una foto è staged. Il bottone Send è attivo anche senza testo se c'è una foto staged. Object URL revocato correttamente al cleanup.
+
+### ✏️ Feature: Edit message — long-press con feedback visivo
+- **`src/types/index.ts` — MODIFIED**: Aggiunto campo `isEditing?: boolean` a `ChatMessage`.
+- **`src/components/chat/ChatInput.tsx` — MODIFIED**: Nuovo stato `editingMessageId`. Banner viola "Modifica messaggio" con X per annullare. Evento `kael-edit-message` ora include `messageId`. Importata icona `Pencil`. Nuovo prop `onCancelEdit`.
+- **`src/pages/Chat.tsx` — MODIFIED**: `handleEditMessage` ora marca il messaggio come `isEditing` (dimmed) invece di rimuoverlo. Nuovo callback `handleCancelEdit` per ripristinare. `handleSend` rimuove il messaggio editato e le risposte successive al momento del re-invio. Prop `onCancelEdit` passato a `ChatInput`.
+- **`src/components/chat/MessageBubble.tsx` — MODIFIED**: Bubble con `isEditing=true` mostrata con opacità 40% e scala ridotta (0.98) con transizione animata.
+
+---
 ## [Unreleased] — 2026-03-30
 
 ### 🔊 Fix: Voice response — delivery_mode missing in handleVoiceNote

@@ -21,6 +21,7 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
   const [currentTime, setCurrentTime] = useState(0);
   const [totalDuration, setTotalDuration] = useState(duration || 0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const barsRef = useRef<HTMLDivElement | null>(null);
   const { theme } = useTheme();
@@ -39,9 +40,11 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
     });
 
     audio.addEventListener("timeupdate", () => {
-      const dur = audio.duration || 1;
-      setProgress(audio.currentTime / dur);
-      setCurrentTime(audio.currentTime);
+      if (!isDragging) {
+        const dur = audio.duration || 1;
+        setProgress(audio.currentTime / dur);
+        setCurrentTime(audio.currentTime);
+      }
     });
 
     audio.addEventListener("ended", () => {
@@ -54,7 +57,7 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
       audio.pause();
       audio.src = "";
     };
-  }, [src]);
+  }, [src, isDragging]);
 
   const togglePlay = () => {
     if (!audioRef.current) return;
@@ -66,12 +69,58 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
     setIsPlaying(!isPlaying);
   };
 
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+  const performSeek = (clientX: number) => {
     if (!audioRef.current || !barsRef.current) return;
     const rect = barsRef.current.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     audioRef.current.currentTime = ratio * (audioRef.current.duration || 0);
+    setProgress(ratio);
+    setCurrentTime(audioRef.current.currentTime);
   };
+
+  const handleSeekStart = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+    setIsDragging(true);
+    const clientX = "touches" in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    performSeek(clientX);
+  };
+
+  const handleSeekMove = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    const clientX = "touches" in e ? e.touches[0].clientX : (e as React.MouseEvent).clientX;
+    performSeek(clientX);
+  };
+
+  const handleSeekEnd = () => {
+    setIsDragging(false);
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      performSeek(e.clientX);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      performSeek(e.touches[0].clientX);
+    };
+
+    const handleEnd = () => {
+      setIsDragging(false);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("touchmove", handleTouchMove, { passive: true });
+    document.addEventListener("mouseup", handleEnd);
+    document.addEventListener("touchend", handleEnd);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("touchmove", handleTouchMove);
+      document.removeEventListener("mouseup", handleEnd);
+      document.removeEventListener("touchend", handleEnd);
+    };
+  }, [isDragging]);
 
   const formatTime = (s: number) => {
     const mins = Math.floor(s / 60);
@@ -79,14 +128,93 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     setMenuOpen(false);
-    const a = document.createElement("a");
-    a.href = src;
-    a.download = `kael-audio-${Date.now()}.webm`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    try {
+      // Dynamic import per Capacitor (solo se disponibile)
+      const { Filesystem, Directory } = await import("@capacitor/filesystem");
+      const { Toast } = await import("@capacitor/toast");
+
+      // Estrai il tipo di media e il timestamp
+      const mimeType = src.split(";")[0].replace("data:", "") || "audio/wav";
+      const ext = mimeType.split("/")[1] || "wav";
+      const filename = `kael-audio-${Date.now()}.${ext}`;
+
+      // Se è un data URI, converte a blob
+      if (src.startsWith("data:")) {
+        const response = await fetch(src);
+        const blob = await response.blob();
+
+        // Prova a salvare con Capacitor Filesystem (per mobile)
+        try {
+          const base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result as string;
+              resolve(result.split(",")[1]);
+            };
+            reader.readAsDataURL(blob);
+          });
+
+          await Filesystem.writeFile({
+            directory: Directory.Documents,
+            path: filename,
+            data: base64,
+          });
+
+          await Toast.show({
+            text: `Audio scaricato in Documenti: ${filename}`,
+            duration: "short",
+          });
+        } catch (capacitorErr) {
+          // Fallback: download nel browser
+          console.warn("Capacitor save failed, using browser download:", capacitorErr);
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(a.href);
+        }
+      } else if (src.startsWith("http")) {
+        // Se è un URL HTTP, fetch e salva
+        const response = await fetch(src);
+        const blob = await response.blob();
+
+        try {
+          const base64 = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = reader.result as string;
+              resolve(result.split(",")[1]);
+            };
+            reader.readAsDataURL(blob);
+          });
+
+          await Filesystem.writeFile({
+            directory: Directory.Documents,
+            path: filename,
+            data: base64,
+          });
+
+          await Toast.show({
+            text: `Audio scaricato in Documenti: ${filename}`,
+            duration: "short",
+          });
+        } catch (capacitorErr) {
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(a.href);
+        }
+      }
+    } catch (error) {
+      console.error("Download failed:", error);
+    }
   };
 
   const isUser = sender === "user";
@@ -110,8 +238,13 @@ const AudioMessage = ({ src, duration, sender }: AudioMessageProps) => {
         {/* Bars */}
         <div
           ref={barsRef}
-          className="flex items-end gap-[1.5px] h-7 cursor-pointer"
-          onClick={handleSeek}
+          className={`flex items-end gap-[1.5px] h-7 cursor-pointer select-none ${isDragging ? "opacity-75" : ""}`}
+          onMouseDown={handleSeekStart}
+          onTouchStart={handleSeekStart}
+          onMouseMove={handleSeekMove}
+          onTouchMove={handleSeekMove}
+          onMouseUp={handleSeekEnd}
+          onTouchEnd={handleSeekEnd}
         >
           {barHeights.map((h, i) => {
             const filled = i / barCount < progress;

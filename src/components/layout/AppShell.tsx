@@ -32,18 +32,24 @@ const KaelSSEBridge = () => {
     const handler = (e: Event) => {
       const data = (e as CustomEvent<KaelSSENewMessage>).detail;
       const preview = data.preview || "Nuovo messaggio da Kael";
+      const isSerenade = data.source === "serenade_engine";
+
+      // Serenade gets a special title in notifications
+      const notifTitle = isSerenade ? "🎵 Kael — Serenata" : "Kael";
 
       if (document.visibilityState === "hidden") {
-        // App is backgrounded or closed → native notification
-        showAutonomousNotification(preview);
+        // App is backgrounded (JS still alive on Android) → native notification.
+        // This is the standard path for Capacitor apps: the WebView keeps running
+        // in background on Android until the OS kills it.
+        showAutonomousNotification(preview, notifTitle);
       } else if (location.pathname !== "/") {
         // App visible but NOT on chat page → in-app toast
-        toast("Kael", {
+        toast(notifTitle, {
           description: preview,
           duration: 5000,
         });
       }
-      // On chat page and visible → nothing (Chat.tsx handles it directly)
+      // On chat page and visible → nothing here; Chat.tsx handles fetchAndAppendPending
     };
     window.addEventListener("kael-autonomous-message", handler);
     return () => window.removeEventListener("kael-autonomous-message", handler);

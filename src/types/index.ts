@@ -24,9 +24,17 @@ export interface ChatMessage {
   agent_avatar?: string;
   // Backend-specific fields
   backend_turn_id?: string;
+  /**
+   * Stable client-generated UUID sent with every message.
+   * Used to reconcile the optimistic local message with the backend-persisted
+   * turn on history reload — prevents duplicates without text-based heuristics.
+   */
+  client_message_id?: string;
   latency?: number;
   meta?: Record<string, unknown>;
   emotional_state?: string;
+  /** True while the user is editing this message (dimmed in UI) */
+  isEditing?: boolean;
 }
 
 export interface Conversation {

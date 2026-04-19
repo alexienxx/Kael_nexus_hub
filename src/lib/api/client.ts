@@ -325,7 +325,15 @@ export async function apiRequest<T = any>(
       throw new ApiError(res.status, res.statusText, body);
     }
 
-    return res.json();
+    // Strip HTTP keepalive comment lines (": keepalive\n") that the chat endpoint
+    // inserts during long LLM generations to keep the TCP/adb-reverse connection alive.
+    const text = await res.text();
+    const jsonText = text
+      .split("\n")
+      .filter((line) => !line.startsWith(": "))
+      .join("\n")
+      .trim();
+    return JSON.parse(jsonText || text) as T;
   } catch (error) {
     clearTimeout(timeoutId);
 
