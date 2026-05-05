@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import * as chatApi from "@/lib/api/chat";
 import { requestTTS } from "@/lib/api/voice";
 import { fetchAvatarVideo, getVideoJobStatus } from "@/lib/api/avatar";
+import { emitTelemetry } from "@/lib/telemetry/sseTelemetry";
 
 /** Poll avatar render job until done, then fetch the base64 video. */
 const pollAndFetchAvatarVideo = async (jobId: string): Promise<string | null> => {
@@ -394,14 +395,20 @@ const Chat = () => {
     // Skip if history hasn't loaded yet (watermark still at 0)
     if (lastFetchTsRef.current === 0) return;
 
+    const afterTs = lastFetchTsRef.current;
+    emitTelemetry("softResync.started", { afterTs });
     try {
-      const afterTs = lastFetchTsRef.current;
       const result = await chatApi.fetchPendingMessages(afterTs, sessionId);
-      if (!result?.messages?.length) return;
+      const received = result?.messages?.length ?? 0;
+      if (!received) {
+        emitTelemetry("softResync.merged", { received: 0, appended: 0 });
+        return;
+      }
 
       // Advance watermark
       lastFetchTsRef.current = Date.now() / 1000;
 
+      let appended = 0;
       setMessages((prev) => {
         const existingBackendIds = new Set(
           prev.map((m) => m.backend_turn_id).filter(Boolean)
@@ -419,6 +426,7 @@ const Chat = () => {
           })
           .map(mapBackendMsg);
 
+        appended = newMsgs.length;
         if (newMsgs.length === 0) return prev;
         const combined = [...prev, ...newMsgs];
         combined.sort((a, b) => {
@@ -432,8 +440,11 @@ const Chat = () => {
         return combined;
       });
 
+      emitTelemetry("softResync.merged", { received, appended });
       scrollToBottom();
     } catch (err) {
+      const errName = err instanceof Error ? err.name : "unknown";
+      emitTelemetry("softResync.failed", { error: errName });
       console.warn("[Chat] Failed to fetch pending messages:", err);
     }
   }, [sessionId, mapBackendMsg]);

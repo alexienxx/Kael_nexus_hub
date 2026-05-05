@@ -25,6 +25,7 @@
 import { useEffect, useRef } from "react";
 import { obtainSSEToken, buildSSEUrl } from "@/lib/api/sse";
 import { App as CapApp } from "@capacitor/app";
+import { emitTelemetry } from "@/lib/telemetry/sseTelemetry";
 
 /** Shape of the SSE new_message event data. */
 export interface KaelSSENewMessage {
@@ -167,6 +168,7 @@ export function useKaelSSE(enabled: boolean): void {
     const forceReconnect = (reason: string) => {
       if (!mountedRef.current) return;
       console.log(`[KaelSSE] resume → force reconnect (${reason})`);
+      emitTelemetry("sse.forceReconnect", { reason });
       backoffRef.current = 1000;
       // Tear down existing (possibly zombie) socket explicitly.
       if (esRef.current) {
@@ -177,7 +179,9 @@ export function useKaelSSE(enabled: boolean): void {
     };
 
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible" && mountedRef.current) {
+      const state = document.visibilityState;
+      emitTelemetry("sse.visibilitychange", { state });
+      if (state === "visible" && mountedRef.current) {
         forceReconnect("visibilitychange");
       }
     };
