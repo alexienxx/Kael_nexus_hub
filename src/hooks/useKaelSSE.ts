@@ -149,18 +149,36 @@ export function useKaelSSE(enabled: boolean): void {
     }
 
     // ── Force-reconnect when app resumes from background ──
+    //
+    // FASE 2 (2026-05-05) — zombie-socket fix:
+    // The previous gate `!esRef.current` only reconnected when the socket
+    // was already closed. But Android frequently freezes the TCP socket on
+    // background without closing it: `esRef.current` stays truthy, the
+    // browser thinks SSE is alive, no reconnect happens, and any
+    // autonomous message generated during background is never delivered
+    // (it sits in the backend `_pending_autonomous` buffer added in FASE 1).
+    //
+    // New behavior: on resume, ALWAYS tear down + reconnect. This forces
+    // the `kael-sse-connected` event to fire on success, which Chat.tsx
+    // uses to drain pending messages.
+    //
     // No enabledRef gate here: health state may not have recovered yet,
-    // but connect() will validate independently. This prevents the SSE
-    // from staying dead when the health probe races the visibility event.
+    // but connect() will validate independently.
+    const forceReconnect = (reason: string) => {
+      if (!mountedRef.current) return;
+      console.log(`[KaelSSE] resume → force reconnect (${reason})`);
+      backoffRef.current = 1000;
+      // Tear down existing (possibly zombie) socket explicitly.
+      if (esRef.current) {
+        try { esRef.current.close(); } catch { /* noop */ }
+        esRef.current = null;
+      }
+      connect();
+    };
+
     const onVisibilityChange = () => {
-      if (
-        document.visibilityState === "visible" &&
-        mountedRef.current &&
-        !esRef.current
-      ) {
-        console.log("[KaelSSE] App visible again, reconnecting immediately");
-        backoffRef.current = 1000;
-        connect();
+      if (document.visibilityState === "visible" && mountedRef.current) {
+        forceReconnect("visibilitychange");
       }
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -168,14 +186,8 @@ export function useKaelSSE(enabled: boolean): void {
     // Capacitor appStateChange — fires more reliably on Android than visibilitychange
     let capListener: { remove: () => void } | null = null;
     CapApp.addListener("appStateChange", ({ isActive }) => {
-      if (
-        isActive &&
-        mountedRef.current &&
-        !esRef.current
-      ) {
-        console.log("[KaelSSE] Capacitor appStateChange → active, reconnecting");
-        backoffRef.current = 1000;
-        connect();
+      if (isActive && mountedRef.current) {
+        forceReconnect("capacitor.appStateChange");
       }
     }).then((h) => { capListener = h; }).catch(() => {});
 

@@ -349,6 +349,30 @@ const Chat = () => {
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [messages.length, scrollToBottom]);
 
+  // FASE 2 (2026-05-05) — softResync on foreground.
+  //
+  // Drain backend pending messages on resume independently of SSE state.
+  // SSE may be a zombie (TCP alive, no events delivered): in that case the
+  // useKaelSSE force-reconnect will fire `kael-sse-connected` and the other
+  // effect drains. But if appStateChange fires *before* SSE recovers, or
+  // the user returns very briefly, this guarantees we still hit
+  // `/chat/history/pending` and bring back any autonomous turn that was
+  // generated while we were backgrounded.
+  //
+  // Idempotent: fetchAndAppendPending dedups by backend_turn_id +
+  // client_message_id (mergeHistoryIntoState rules), so calling it twice
+  // (here + on kael-sse-connected) cannot produce duplicates.
+  useEffect(() => {
+    if (lifecycleState !== "online") return;
+    const handleResume = () => {
+      if (document.visibilityState === "visible") {
+        fetchAndAppendPending();
+      }
+    };
+    document.addEventListener("visibilitychange", handleResume);
+    return () => document.removeEventListener("visibilitychange", handleResume);
+  }, [lifecycleState, fetchAndAppendPending]);
+
   const now = () => new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 
   // -----------------------------------------------------------------
