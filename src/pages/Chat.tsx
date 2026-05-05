@@ -210,7 +210,12 @@ const Chat = () => {
       // client_message_id is hoisted from meta_json by the backend history endpoint.
       // Present on user turns where the frontend sent a client_message_id at send time.
       client_message_id: m.client_message_id ?? m.metadata?.client_message_id ?? undefined,
-      audioUrl: normalizeAudioUrl(m.tts_url ?? m.voice_audio ?? m.audioUrl),
+      // Voice fallback chain (priority order):
+      //   1. tts_url        — persistent URL backed by WAV on disk (chat path, survives reload)
+      //   2. voice_audio    — ephemeral base64 (live POST /chat response only)
+      //   3. voice_asset_id — future-ready (autonomous voice notes via asset store; not active today)
+      //   4. audioUrl       — legacy/local fallback
+      audioUrl: normalizeAudioUrl(m.tts_url ?? m.voice_audio ?? m.voice_asset_id ?? m.audioUrl),
       image: imageUrl,
       meta: m.meta,
       delivery_mode: m.delivery_mode ?? (m.message_type === "voice_note" ? "voice_note" : undefined),

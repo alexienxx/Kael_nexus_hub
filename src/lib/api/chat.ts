@@ -30,6 +30,15 @@ export interface ChatResponse {
   assistant_turn_id?: number;
   user_turn_id?: number;
   voice_audio?: string;
+  /** Persistent voice URL — backend serves WAV via /voice/audio/{trace_id}.
+   *  Survives reload (chat path). Preferred over ephemeral voice_audio b64. */
+  tts_url?: string;
+  /** Future-ready field for autonomous voice notes (asset-store backed).
+   *  Currently unused in production (autonomy voice path is gated off);
+   *  declared here so the APK fallback chain is forward-compatible. */
+  voice_asset_id?: string;
+  /** True when backend persisted a WAV file on disk for this turn. */
+  has_voice_audio?: boolean;
   voice_used?: boolean;
   voice_reason?: string;
   typing_delay_ms?: number;
