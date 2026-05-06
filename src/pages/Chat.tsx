@@ -91,6 +91,17 @@ const Chat = () => {
    */
   const lastFetchTsRef = useRef<number>(0);
 
+  /**
+   * BUG-UI-DUP fix (2026-05-06): mutex for fetchAndAppendPending.
+   * Three concurrent triggers can fire simultaneously after backend restart
+   * + APK foreground (visibilitychange, kael-sse-connected, kael-server-restarted).
+   * Without serialization they all read the same `after_ts` and the resulting
+   * sort can show duplicated/mixed last messages. We hold the in-flight Promise
+   * here; concurrent callers await the same Promise and do NOT issue a second
+   * network request. mergeHistoryIntoState dedup invariants stay unchanged.
+   */
+  const fetchInFlightRef = useRef<Promise<void> | null>(null);
+
   // Wallpaper state
   const {
     wallpaper,
@@ -285,7 +296,13 @@ const Chat = () => {
       combined.sort((a, b) => {
         const aId = a.backend_turn_id ? Number(a.backend_turn_id) : NaN;
         const bId = b.backend_turn_id ? Number(b.backend_turn_id) : NaN;
-        if (!isNaN(aId) && !isNaN(bId)) return aId - bId;
+        if (!isNaN(aId) && !isNaN(bId) && aId !== bId) return aId - bId;
+        // BUG-UI-DUP fix (2026-05-06): stable timestamp tie-breaker (see fetchAndAppendPending).
+        const aTs = typeof a.timestamp === "number" ? a.timestamp
+                   : (a.timestamp ? Date.parse(String(a.timestamp)) : 0);
+        const bTs = typeof b.timestamp === "number" ? b.timestamp
+                   : (b.timestamp ? Date.parse(String(b.timestamp)) : 0);
+        if (!isNaN(aTs) && !isNaN(bTs) && aTs !== bTs) return aTs - bTs;
         if (!isNaN(aId)) return -1;
         if (!isNaN(bId)) return 1;
         return 0;
@@ -395,59 +412,88 @@ const Chat = () => {
     // Skip if history hasn't loaded yet (watermark still at 0)
     if (lastFetchTsRef.current === 0) return;
 
-    const afterTs = lastFetchTsRef.current;
-    emitTelemetry("softResync.started", { afterTs });
-    try {
-      const result = await chatApi.fetchPendingMessages(afterTs, sessionId);
-      const received = result?.messages?.length ?? 0;
-      if (!received) {
-        emitTelemetry("softResync.merged", { received: 0, appended: 0 });
-        return;
-      }
-
-      // Advance watermark
-      lastFetchTsRef.current = Date.now() / 1000;
-
-      let appended = 0;
-      setMessages((prev) => {
-        const existingBackendIds = new Set(
-          prev.map((m) => m.backend_turn_id).filter(Boolean)
-        );
-        const existingClientIds = new Set(
-          prev.map((m) => m.client_message_id).filter(Boolean)
-        );
-        const newMsgs: ChatMessage[] = result.messages
-          .filter((m: any) => {
-            const id = String(m.id ?? m.turn_id ?? "");
-            if (id && existingBackendIds.has(id)) return false;
-            const clientId = m.client_message_id ?? m.metadata?.client_message_id;
-            if (clientId && existingClientIds.has(clientId)) return false;
-            return !!id;
-          })
-          .map(mapBackendMsg);
-
-        appended = newMsgs.length;
-        if (newMsgs.length === 0) return prev;
-        const combined = [...prev, ...newMsgs];
-        combined.sort((a, b) => {
-          const aId = a.backend_turn_id ? Number(a.backend_turn_id) : NaN;
-          const bId = b.backend_turn_id ? Number(b.backend_turn_id) : NaN;
-          if (!isNaN(aId) && !isNaN(bId)) return aId - bId;
-          if (!isNaN(aId)) return -1;
-          if (!isNaN(bId)) return 1;
-          return 0;
-        });
-        return combined;
-      });
-
-      emitTelemetry("softResync.merged", { received, appended });
-      scrollToBottom();
-    } catch (err) {
-      const errName = err instanceof Error ? err.name : "unknown";
-      emitTelemetry("softResync.failed", { error: errName });
-      console.warn("[Chat] Failed to fetch pending messages:", err);
+    // BUG-UI-DUP fix (2026-05-06): if a fetch is already in flight, await it
+    // and return. Concurrent triggers (visibilitychange + kael-sse-connected +
+    // kael-server-restarted) must NOT race — they share the same Promise.
+    if (fetchInFlightRef.current) {
+      try { await fetchInFlightRef.current; } catch { /* swallow; original caller already logged */ }
+      return;
     }
-  }, [sessionId, mapBackendMsg]);
+
+    const afterTs = lastFetchTsRef.current;
+    // BUG-UI-DUP fix (2026-05-06): bump watermark BEFORE the await, not after.
+    // Closes the W0→W0 race: a second trigger that fires while this fetch is
+    // pending will see the new watermark (and also be blocked by the mutex above).
+    lastFetchTsRef.current = Date.now() / 1000;
+    emitTelemetry("softResync.started", { afterTs });
+
+    const job = (async () => {
+      try {
+        const result = await chatApi.fetchPendingMessages(afterTs, sessionId);
+        const received = result?.messages?.length ?? 0;
+        if (!received) {
+          emitTelemetry("softResync.merged", { received: 0, appended: 0 });
+          return;
+        }
+
+        let appended = 0;
+        setMessages((prev) => {
+          const existingBackendIds = new Set(
+            prev.map((m) => m.backend_turn_id).filter(Boolean)
+          );
+          const existingClientIds = new Set(
+            prev.map((m) => m.client_message_id).filter(Boolean)
+          );
+          const newMsgs: ChatMessage[] = result.messages
+            .filter((m: any) => {
+              const id = String(m.id ?? m.turn_id ?? "");
+              if (id && existingBackendIds.has(id)) return false;
+              const clientId = m.client_message_id ?? m.metadata?.client_message_id;
+              if (clientId && existingClientIds.has(clientId)) return false;
+              return !!id;
+            })
+            .map(mapBackendMsg);
+
+          appended = newMsgs.length;
+          if (newMsgs.length === 0) return prev;
+          const combined = [...prev, ...newMsgs];
+          combined.sort((a, b) => {
+            const aId = a.backend_turn_id ? Number(a.backend_turn_id) : NaN;
+            const bId = b.backend_turn_id ? Number(b.backend_turn_id) : NaN;
+            if (!isNaN(aId) && !isNaN(bId) && aId !== bId) return aId - bId;
+            // BUG-UI-DUP fix (2026-05-06): stable timestamp tie-breaker.
+            // When backend_turn_id is missing/non-numeric (autonomy strings,
+            // empty ids → NaN), Number(undefined)−0 was producing NaN-vs-NaN
+            // unstable order → visible mixing of last messages. Fall back to
+            // ChatMessage.timestamp (already populated by mapBackendMsg).
+            const aTs = typeof a.timestamp === "number" ? a.timestamp
+                       : (a.timestamp ? Date.parse(String(a.timestamp)) : 0);
+            const bTs = typeof b.timestamp === "number" ? b.timestamp
+                       : (b.timestamp ? Date.parse(String(b.timestamp)) : 0);
+            if (!isNaN(aTs) && !isNaN(bTs) && aTs !== bTs) return aTs - bTs;
+            if (!isNaN(aId)) return -1;
+            if (!isNaN(bId)) return 1;
+            return 0;
+          });
+          return combined;
+        });
+
+        emitTelemetry("softResync.merged", { received, appended });
+        scrollToBottom();
+      } catch (err) {
+        const errName = err instanceof Error ? err.name : "unknown";
+        emitTelemetry("softResync.failed", { error: errName });
+        console.warn("[Chat] Failed to fetch pending messages:", err);
+      }
+    })();
+
+    fetchInFlightRef.current = job;
+    try {
+      await job;
+    } finally {
+      fetchInFlightRef.current = null;
+    }
+  }, [sessionId, mapBackendMsg, scrollToBottom]);
 
   useEffect(() => {
     if (lifecycleState !== "online") return;
