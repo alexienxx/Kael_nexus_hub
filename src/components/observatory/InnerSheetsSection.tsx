@@ -50,7 +50,7 @@ export default function InnerSheetsSection() {
           {Object.entries(d.count_by_type).map(([type, count]) => {
             const cfg = TYPE_CONFIG[type as SheetType] ?? TYPE_CONFIG.NOTE;
             return (
-              <div key={type} className={lex items-center gap-1 rounded-full bg-secondary/30 px-2 py-0.5 text-[10px] }>
+              <div key={type} className={`flex items-center gap-1 rounded-full bg-secondary/30 px-2 py-0.5 text-[10px] ${cfg.color}`}>
                 {cfg.icon}
                 <span>{cfg.label}</span>
                 <span className="font-bold">{count}</span>
@@ -67,11 +67,11 @@ export default function InnerSheetsSection() {
           return (
             <div key={s.id} className="rounded-lg border border-border bg-secondary/20 p-3">
               <div className="flex items-start gap-2">
-                <div className={mt-0.5 shrink-0 }>{cfg.icon}</div>
+                <div className={`mt-0.5 shrink-0 ${cfg.color}`}>{cfg.icon}</div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={	ext-[10px] font-semibold uppercase }>{cfg.label}</span>
-                    <span className={	ext-[10px] }>
+                    <span className={`text-[10px] font-semibold uppercase ${cfg.color}`}>{cfg.label}</span>
+                    <span className={`text-[10px] ${salienceColor(s.salience)}`}>
                       sal {s.salience.toFixed(2)}
                     </span>
                     <span className="text-[9px] text-muted-foreground ml-auto">

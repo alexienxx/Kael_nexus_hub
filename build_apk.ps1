@@ -1,22 +1,19 @@
 <#
 .SYNOPSIS
-  Build and install Kael APK — due modalita': lovable (default) e prod.
+    Build and install Kael APK.
 
 .DESCRIPTION
-  Modalita' LOVABLE (default, senza parametri):
-    L'APK carica la UI dal server Lovable. Cambi su Lovable appaiono
-    istantaneamente sul telefono senza rebuild. Utile per rebuild dopo
-    aggiunta plugin nativi o permessi.
+    Modalita' PROD (default):
+        L'APK carica la UI locale da dist/.
 
-  Modalita' PROD (-Mode prod):
-    L'APK carica la UI dalla dist/ locale. Usata per build stabile/release.
-    Lo script swappa temporaneamente capacitor.config.prod.ts come config
-    attiva, builda, e poi ripristina la config Lovable.
+    Modalita' LOVABLE (-Mode lovable):
+        Consentita solo se capacitor.config.ts contiene una vera server.url remota.
+        Se manca server.url, lo script fallisce esplicitamente.
 
   Entrambe le modalita' supportano ADB WiFi (senza cavo).
 
 .PARAMETER Mode
-  lovable (default) | prod
+    prod (default) | lovable
 
 .PARAMETER AdbWifi
   Se presente, configura ADB su WiFi cosi' le build successive non servono cavo.
@@ -28,14 +25,14 @@
   Se presente, builda l'APK ma non lo installa.
 
 .EXAMPLE
-  .\build_apk.ps1                         # build lovable (default) + install
+    .\build_apk.ps1                         # build prod (default) + install
   .\build_apk.ps1 -Mode prod              # build produzione + install
-  .\build_apk.ps1 -AdbWifi -PhoneIp 192.168.178.XX  # setup WiFi ADB + build
+    .\build_apk.ps1 -Mode lovable -AdbWifi -PhoneIp 192.168.178.XX
 #>
 
 param(
-    [ValidateSet("lovable","prod")]
-    [string]$Mode = "lovable",
+        [ValidateSet("prod","lovable")]
+        [string]$Mode = "prod",
 
     [switch]$AdbWifi,
     [switch]$SkipInstall,
@@ -51,6 +48,9 @@ $CapConfigMain = Join-Path $ProjectRoot "capacitor.config.ts"
 $CapConfigProd = Join-Path $ProjectRoot "capacitor.config.prod.ts"
 $AndroidDir    = Join-Path $ProjectRoot "android"
 $LocalProps    = Join-Path $AndroidDir  "local.properties"
+$PackageLock   = Join-Path $ProjectRoot "package-lock.json"
+$BunLock       = Join-Path $ProjectRoot "bun.lock"
+$BunLockBin    = Join-Path $ProjectRoot "bun.lockb"
 $AdbExe        = "C:\Users\princ\AppData\Local\Android\Sdk\platform-tools\adb.exe"
 $BuildTools    = "C:\Users\princ\AppData\Local\Android\Sdk\build-tools\36.0.0"
 $ApkSigner     = Join-Path $BuildTools "apksigner.bat"
@@ -99,34 +99,53 @@ if (-not (Test-Path $LocalProps)) {
     [IO.File]::WriteAllText($LocalProps, "sdk.dir=C\:\\Users\\princ\\AppData\\Local\\Android\\Sdk`n")
 }
 
-#-- Config swap (only for prod mode)
-$configBackup = $null
+#-- Config validation
 if ($Mode -eq "prod") {
     if (-not (Test-Path $CapConfigProd)) {
-        Write-Host "[ERROR] capacitor.config.prod.ts non trovato!" -ForegroundColor Red
+        Write-Host "[ERROR] capacitor.config.prod.ts non trovato." -ForegroundColor Red
         exit 1
     }
-    Write-Host "[CONFIG] Swap temporaneo -> config PROD (no server.url)..." -ForegroundColor Yellow
-    $configBackup = [IO.File]::ReadAllText($CapConfigMain)
-    Copy-Item $CapConfigProd $CapConfigMain -Force
+    $cfgProd = Get-Content $CapConfigProd -Raw
+    if ($cfgProd -match "server\s*:\s*\{[\s\S]*?url\s*:") {
+        Write-Host "[ERROR] Mode prod richiede UI locale: server.url NON consentita in capacitor.config.prod.ts." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "[CONFIG] Modalita' PROD: UI locale da dist/." -ForegroundColor Green
 } else {
-    Write-Host "[CONFIG] Config LOVABLE attiva (server.url -> Lovable)" -ForegroundColor Magenta
+    if (-not (Test-Path $CapConfigMain)) {
+        Write-Host "[ERROR] capacitor.config.ts non trovato." -ForegroundColor Red
+        exit 1
+    }
+    $cfg = Get-Content $CapConfigMain -Raw
+    if ($cfg -notmatch "server\s*:\s*\{[\s\S]*?url\s*:") {
+        Write-Host "[ERROR] Mode lovable richiede server.url reale in capacitor.config.ts." -ForegroundColor Red
+        Write-Host "        Nessuna server.url trovata: evita APK con UI stale/non deterministica." -ForegroundColor Yellow
+        exit 1
+    }
+    Write-Host "[CONFIG] Modalita' LOVABLE: server.url rilevata in capacitor.config.ts." -ForegroundColor Magenta
+}
+
+#-- Lockfile policy (single source of truth)
+if (-not (Test-Path $PackageLock)) {
+    Write-Host "[ERROR] package-lock.json mancante: build npm non deterministica." -ForegroundColor Red
+    Write-Host "        Esegui npm install per rigenerare package-lock.json prima della build." -ForegroundColor Yellow
+    exit 1
+}
+if ((Test-Path $BunLock) -or (Test-Path $BunLockBin)) {
+    Write-Host "[LOCKFILE] Rilevato lockfile bun (bun.lock/bun.lockb)." -ForegroundColor Yellow
+    Write-Host "[LOCKFILE] Autorita' build: package-lock.json (npm). Bun lockfile non usato da questo script." -ForegroundColor Yellow
 }
 
 Push-Location $ProjectRoot
 try {
-    #-- npm build (solo per prod; lovable carica da remoto)
-    if ($Mode -eq "prod") {
-        Write-Host "[BUILD] npm run build..." -ForegroundColor Yellow
-        npm run build 2>&1 | Select-Object -Last 5
-        if ($LASTEXITCODE -ne 0) { throw "npm build failed" }
-    } else {
-        Write-Host "[BUILD] Skip npm build (lovable carica UI da remoto)" -ForegroundColor DarkGray
-    }
+    #-- Build always: APK must include a fresh dist bundle before cap sync.
+    Write-Host "[BUILD] npm run build..." -ForegroundColor Yellow
+    cmd /c "npm run build 2>&1" | Select-Object -Last 8
+    if ($LASTEXITCODE -ne 0) { throw "npm build failed" }
 
     #-- cap sync
     Write-Host "[SYNC] npx cap sync android..." -ForegroundColor Yellow
-    npx cap sync android 2>&1 | Select-Object -Last 5
+    cmd /c "npx cap sync android 2>&1" | Select-Object -Last 8
     if ($LASTEXITCODE -ne 0) { throw "cap sync failed" }
 
     #-- Gradle
@@ -162,19 +181,14 @@ try {
     #-- Done
     Write-Host ""
     Write-Host "=== DONE ===" -ForegroundColor Green
-    if ($Mode -eq "lovable") {
-        Write-Host "  APK installato in modalita' LOVABLE." -ForegroundColor Magenta
-        Write-Host "  Modifiche su Lovable -> visibili subito sul telefono." -ForegroundColor Magenta
-    } else {
+    if ($Mode -eq "prod") {
         Write-Host "  APK installato in modalita' PRODUZIONE." -ForegroundColor Green
         Write-Host "  UI caricata da file locali (dist/)." -ForegroundColor Green
+    } else {
+        Write-Host "  APK installato in modalita' LOVABLE." -ForegroundColor Magenta
+        Write-Host "  server.url remoto attivo da capacitor.config.ts." -ForegroundColor Magenta
     }
     Write-Host "  Backend via client.ts (USB/LAN/Tailscale)." -ForegroundColor White
 } finally {
-    #-- Ripristina config Lovable (solo se era stato swappato per prod)
-    if ($configBackup) {
-        Write-Host "[CONFIG] Ripristino config Lovable..." -ForegroundColor Yellow
-        [IO.File]::WriteAllText($CapConfigMain, $configBackup)
-    }
     Pop-Location
 }

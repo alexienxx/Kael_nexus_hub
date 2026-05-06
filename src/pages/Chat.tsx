@@ -101,6 +101,20 @@ const Chat = () => {
    * network request. mergeHistoryIntoState dedup invariants stay unchanged.
    */
   const fetchInFlightRef = useRef<Promise<void> | null>(null);
+  const lastPendingFetchStartedAtRef = useRef<number>(0);
+
+  const getMaxTimestamp = useCallback((items: any[]): number => {
+    return items
+      .map((m: any) =>
+        typeof m?.timestamp === "number"
+          ? m.timestamp
+          : typeof m?.ts === "number"
+            ? m.ts
+            : 0
+      )
+      .filter((n: number) => Number.isFinite(n) && n > 0)
+      .reduce((max: number, n: number) => (n > max ? n : max), 0);
+  }, []);
 
   // Wallpaper state
   const {
@@ -212,10 +226,18 @@ const Chat = () => {
       imageUrl = getGalleryFileUrl(assetId);
     }
 
+    const normalizedTs =
+      typeof m.timestamp === "number"
+        ? m.timestamp
+        : typeof m.ts === "number"
+          ? m.ts
+          : Date.now() / 1000;
+
     return {
       id: String(m.id ?? m.turn_id ?? Date.now() + Math.random()),
       text: m.text ?? m.content ?? "",
       time: m.time ?? new Date((m.timestamp != null ? m.timestamp * 1000 : Date.now())).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
+      timestamp: normalizedTs,
       sender: (m.sender ?? (m.role === "user" ? "user" : "kael")) as ChatMessage["sender"],
       feedback: m.feedback ?? null,
       backend_turn_id: String(m.id ?? m.turn_id ?? m.backend_turn_id ?? ""),
@@ -297,11 +319,8 @@ const Chat = () => {
         const aId = a.backend_turn_id ? Number(a.backend_turn_id) : NaN;
         const bId = b.backend_turn_id ? Number(b.backend_turn_id) : NaN;
         if (!isNaN(aId) && !isNaN(bId) && aId !== bId) return aId - bId;
-        // BUG-UI-DUP fix (2026-05-06): stable timestamp tie-breaker (see fetchAndAppendPending).
-        const aTs = typeof a.timestamp === "number" ? a.timestamp
-                   : (a.timestamp ? Date.parse(String(a.timestamp)) : 0);
-        const bTs = typeof b.timestamp === "number" ? b.timestamp
-                   : (b.timestamp ? Date.parse(String(b.timestamp)) : 0);
+        const aTs = typeof a.timestamp === "number" ? a.timestamp : 0;
+        const bTs = typeof b.timestamp === "number" ? b.timestamp : 0;
         if (!isNaN(aTs) && !isNaN(bTs) && aTs !== bTs) return aTs - bTs;
         if (!isNaN(aId)) return -1;
         if (!isNaN(bId)) return 1;
@@ -323,6 +342,8 @@ const Chat = () => {
     historyLoadedRef.current = true;
     let cancelled = false;
     (async () => {
+      let historyMessages: any[] = [];
+      let historyLoadedOk = false;
       const config = getApiConfig();
       if (!config.baseUrl) {
         setHistoryLoading(false);
@@ -330,20 +351,30 @@ const Chat = () => {
       }
       try {
         const data = await chatApi.getChatHistory(sessionId);
+        historyMessages = data?.messages ?? [];
         if (!cancelled && data?.messages?.length) {
           mergeHistoryIntoState(data.messages);
         }
+        historyLoadedOk = true;
       } catch (err) {
         console.warn("[Chat] History load failed:", err);
       } finally {
         if (!cancelled) {
           setHistoryLoading(false);
-          lastFetchTsRef.current = Date.now() / 1000;
+          if (historyLoadedOk) {
+            // Advance watermark ONLY from confirmed backend data.
+            // Never fallback to Date.now() here: a failed/empty load must not
+            // skip pending messages that still need to be drained.
+            const maxHistoryTs = getMaxTimestamp(historyMessages);
+            if (maxHistoryTs > 0) {
+              lastFetchTsRef.current = maxHistoryTs;
+            }
+          }
         }
       }
     })();
     return () => { cancelled = true; };
-  }, [lifecycleState, sessionId, mergeHistoryIntoState]);
+  }, [lifecycleState, sessionId, mergeHistoryIntoState, getMaxTimestamp]);
 
   const scrollToBottom = useCallback((instant?: boolean) => {
     const doScroll = () => {
@@ -385,16 +416,11 @@ const Chat = () => {
   // Idempotent: fetchAndAppendPending dedups by backend_turn_id +
   // client_message_id (mergeHistoryIntoState rules), so calling it twice
   // (here + on kael-sse-connected) cannot produce duplicates.
-  useEffect(() => {
-    if (lifecycleState !== "online") return;
-    const handleResume = () => {
-      if (document.visibilityState === "visible") {
-        fetchAndAppendPending();
-      }
-    };
-    document.addEventListener("visibilitychange", handleResume);
-    return () => document.removeEventListener("visibilitychange", handleResume);
-  }, [lifecycleState, fetchAndAppendPending]);
+  //
+  // NOTE: this effect is declared AFTER fetchAndAppendPending below to avoid
+  // a TDZ error in the minified production bundle (Vite hoists `const` decls
+  // as `let` and the effect body would reference fetchAndAppendPending
+  // before its initializer runs in the same render tick).
 
   const now = () => new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
 
@@ -409,8 +435,18 @@ const Chat = () => {
   // No polling. SSE is the sole trigger.
   // -----------------------------------------------------------------
   const fetchAndAppendPending = useCallback(async () => {
+    const nowMs = Date.now();
+    const MIN_PENDING_FETCH_INTERVAL_MS = 700;
+
     // Skip if history hasn't loaded yet (watermark still at 0)
     if (lastFetchTsRef.current === 0) return;
+
+    // Coalesce burst triggers (visibilitychange + reconnect + server-restarted)
+    // even when no fetch is currently in flight.
+    if (nowMs - lastPendingFetchStartedAtRef.current < MIN_PENDING_FETCH_INTERVAL_MS) {
+      return;
+    }
+    lastPendingFetchStartedAtRef.current = nowMs;
 
     // BUG-UI-DUP fix (2026-05-06): if a fetch is already in flight, await it
     // and return. Concurrent triggers (visibilitychange + kael-sse-connected +
@@ -421,16 +457,29 @@ const Chat = () => {
     }
 
     const afterTs = lastFetchTsRef.current;
-    // BUG-UI-DUP fix (2026-05-06): bump watermark BEFORE the await, not after.
-    // Closes the W0→W0 race: a second trigger that fires while this fetch is
-    // pending will see the new watermark (and also be blocked by the mutex above).
-    lastFetchTsRef.current = Date.now() / 1000;
     emitTelemetry("softResync.started", { afterTs });
 
     const job = (async () => {
       try {
         const result = await chatApi.fetchPendingMessages(afterTs, sessionId);
         const received = result?.messages?.length ?? 0;
+        // Watermark advances only after successful fetch to avoid message loss.
+        const maxReceivedTs = Math.max(
+          afterTs,
+          ...((result?.messages ?? [])
+            .map((m: any) =>
+              typeof m?.timestamp === "number"
+                ? m.timestamp
+                : typeof m?.ts === "number"
+                  ? m.ts
+                  : 0
+            )
+            .filter((n: number) => Number.isFinite(n) && n > 0))
+        );
+        if (maxReceivedTs > afterTs) {
+          lastFetchTsRef.current = maxReceivedTs;
+        }
+
         if (!received) {
           emitTelemetry("softResync.merged", { received: 0, appended: 0 });
           return;
@@ -461,15 +510,8 @@ const Chat = () => {
             const aId = a.backend_turn_id ? Number(a.backend_turn_id) : NaN;
             const bId = b.backend_turn_id ? Number(b.backend_turn_id) : NaN;
             if (!isNaN(aId) && !isNaN(bId) && aId !== bId) return aId - bId;
-            // BUG-UI-DUP fix (2026-05-06): stable timestamp tie-breaker.
-            // When backend_turn_id is missing/non-numeric (autonomy strings,
-            // empty ids → NaN), Number(undefined)−0 was producing NaN-vs-NaN
-            // unstable order → visible mixing of last messages. Fall back to
-            // ChatMessage.timestamp (already populated by mapBackendMsg).
-            const aTs = typeof a.timestamp === "number" ? a.timestamp
-                       : (a.timestamp ? Date.parse(String(a.timestamp)) : 0);
-            const bTs = typeof b.timestamp === "number" ? b.timestamp
-                       : (b.timestamp ? Date.parse(String(b.timestamp)) : 0);
+            const aTs = typeof a.timestamp === "number" ? a.timestamp : 0;
+            const bTs = typeof b.timestamp === "number" ? b.timestamp : 0;
             if (!isNaN(aTs) && !isNaN(bTs) && aTs !== bTs) return aTs - bTs;
             if (!isNaN(aId)) return -1;
             if (!isNaN(bId)) return 1;
@@ -494,6 +536,19 @@ const Chat = () => {
       fetchInFlightRef.current = null;
     }
   }, [sessionId, mapBackendMsg, scrollToBottom]);
+
+  // Visibility resume catch-up (moved here from above the fetchAndAppendPending
+  // declaration to avoid TDZ in minified prod bundle — see note above).
+  useEffect(() => {
+    if (lifecycleState !== "online") return;
+    const handleResume = () => {
+      if (document.visibilityState === "visible") {
+        fetchAndAppendPending();
+      }
+    };
+    document.addEventListener("visibilitychange", handleResume);
+    return () => document.removeEventListener("visibilitychange", handleResume);
+  }, [lifecycleState, fetchAndAppendPending]);
 
   useEffect(() => {
     if (lifecycleState !== "online") return;
@@ -523,7 +578,10 @@ const Chat = () => {
           }
           // Mark loaded so the useEffect doesn't double-fire on the same state tick
           historyLoadedRef.current = true;
-          lastFetchTsRef.current = Date.now() / 1000;
+          const maxHistoryTs = getMaxTimestamp(data?.messages ?? []);
+          if (maxHistoryTs > 0) {
+            lastFetchTsRef.current = maxHistoryTs;
+          }
         } catch (err) {
           console.warn("[Chat] History merge after restart failed:", err);
           // Leave historyLoadedRef.current = false so a future lifecycle
@@ -540,7 +598,7 @@ const Chat = () => {
       window.removeEventListener("kael-sse-connected", handleReconnect);
       window.removeEventListener("kael-server-restarted", handleServerRestarted);
     };
-  }, [lifecycleState, fetchAndAppendPending, mergeHistoryIntoState, sessionId]);
+  }, [lifecycleState, fetchAndAppendPending, mergeHistoryIntoState, sessionId, getMaxTimestamp]);
 
   // Listen for agent mode toggle from BottomNav
   useEffect(() => {
@@ -573,6 +631,7 @@ const Chat = () => {
         id: clientMsgId,
         text,
         time: now(),
+        timestamp: Date.now() / 1000,
         sender: "user",
         feedback: null,
         client_message_id: clientMsgId,
@@ -606,6 +665,7 @@ const Chat = () => {
           id: (Date.now() + 1).toString(),
           text: response.reply,
           time: now(),
+          timestamp: Date.now() / 1000,
           sender: response.sender || "kael",
           feedback: null,
           backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
@@ -652,6 +712,7 @@ const Chat = () => {
               id: (Date.now() + 2).toString(),
               text: reply,
               time: now(),
+              timestamp: Date.now() / 1000,
               sender: "external_agent",
               feedback: null,
               agent_id: model.id,
@@ -703,6 +764,7 @@ const Chat = () => {
           // Show the caption text in the user message bubble (like Telegram/ChatGPT)
           text: caption ?? "",
           time: now(),
+          timestamp: Date.now() / 1000,
           sender: "user",
           image: ev.target?.result as string,
           feedback: null,
@@ -749,6 +811,7 @@ const Chat = () => {
             id: (Date.now() + 1).toString(),
             text: response.reply,
             time: now(),
+            timestamp: Date.now() / 1000,
             sender: response.sender || "kael",
             feedback: null,
             backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
@@ -805,6 +868,7 @@ const Chat = () => {
         client_message_id: clientMessageId,
         text: "",
         time: now(),
+        timestamp: Date.now() / 1000,
         sender: "user",
         audioUrl: url,
         audioDuration: 0,
@@ -836,6 +900,7 @@ const Chat = () => {
           id: (Date.now() + 1).toString(),
           text: response.reply,
           time: now(),
+          timestamp: Date.now() / 1000,
           sender: response.sender || "kael",
           feedback: null,
           backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,

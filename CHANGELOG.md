@@ -6,6 +6,31 @@
 ---
 ## [Unreleased] — 2026-04-12
 
+### Fix: APK chat freeze hardening (watermark + pending debounce)
+- **src/pages/Chat.tsx — MODIFIED**:
+  - Added `getMaxTimestamp()` helper to centralize timestamp extraction and avoid drift across history/restart paths.
+  - History load watermark no longer falls back to `Date.now()` on failure/empty payload. `lastFetchTsRef` now advances only from confirmed backend timestamps.
+  - Server-restart history merge path no longer forces watermark to `Date.now()` when backend history has no timestamps.
+  - Added `lastPendingFetchStartedAtRef` with a 700ms coalescing window to suppress burst duplicate fetches from simultaneous lifecycle events.
+  - Impact: prevents pending-message loss after transient history failures and reduces reconnection fetch storms that can freeze chat UX.
+
+### Fix: SSE reconnect stale-callback guard
+- **src/hooks/useKaelSSE.ts — MODIFIED**:
+  - Added `reconnectGenerationRef` so delayed reconnect callbacks are ignored if superseded by a newer reconnect request.
+  - Impact: avoids stale reconnect callbacks racing against current lifecycle state during rapid background/foreground transitions.
+
+### Fix: Faster route failover (WiFi -> Tailscale/alt host)
+- **src/hooks/useBackendLifecycle.ts — MODIFIED**:
+  - Added first-failure fast re-discovery path while device is online: on the first `/health` miss, lifecycle immediately triggers `probeAndResolveBackend()` instead of waiting full grace windows.
+  - Added cooldown (`FAST_FAILOVER_REDISCOVERY_COOLDOWN_MS`) to avoid probe storms while preserving quick route switch recovery.
+  - Impact: when current route drops (e.g. adb reverse/WiFi path), app can recover faster to alternative hosts (including Tailscale) before declaring offline.
+
+### Fix: Build truth and lockfile policy
+- **build_apk.ps1 — MODIFIED**:
+  - Added strict prod config validation: `capacitor.config.prod.ts` must exist and must not define `server.url`.
+  - Added lockfile authority checks: build now requires `package-lock.json`; if `bun.lock`/`bun.lockb` exist, script warns and states npm lockfile is authoritative.
+  - Impact: removes ambiguous build semantics and enforces deterministic npm-based APK builds.
+
 ### � Fix: Message dedup, ordering, and image client_message_id
 - **`src/pages/Chat.tsx` — MODIFIED**: `fetchAndAppendPending` ora controlla sia `backend_turn_id` che `client_message_id` per la dedup (prima solo `backend_turn_id` → messaggi ottimistici duplicati dopo SSE reconnection). `handleImageUpload` ora assegna `client_message_id: crypto.randomUUID()` al messaggio immagine utente (prima assente → impossibile dedup prima dell'ACK). Aggiunto sort per `backend_turn_id` numerico in `mergeHistoryIntoState` e `fetchAndAppendPending` per garantire ordine cronologico stabile (messaggi local-only senza backend_turn_id restano in coda).
 

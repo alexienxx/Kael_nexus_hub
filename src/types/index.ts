@@ -5,6 +5,8 @@ export interface ChatMessage {
   id: string;
   text: string;
   time: string;
+  /** Unix timestamp (seconds) for deterministic merge/sort ordering */
+  timestamp?: number;
   sender: "user" | "kael" | "external_agent";
   image?: string;
   audioUrl?: string;

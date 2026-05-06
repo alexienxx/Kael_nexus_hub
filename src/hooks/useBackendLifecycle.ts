@@ -58,6 +58,9 @@ const RESUME_STALE_THRESHOLD_MS = 10_000; // 10 seconds
  */
 const HEALTH_FAIL_GRACE = 8;
 
+/** Cooldown for fast route re-discovery after the first failed health check (ms). */
+const FAST_FAILOVER_REDISCOVERY_COOLDOWN_MS = 15_000;
+
 /** Max probe attempts per URL candidate. */
 const PROBE_MAX_ATTEMPTS = 3;
 
@@ -176,6 +179,9 @@ export function useBackendLifecycle(): BackendLifecycleResult {
   /** Last known boot_id from the backend — detects silent server restarts. */
   const lastBootIdRef = useRef<string | null>(null);
 
+  /** Throttle timestamp for fast re-discovery path to avoid probe storms. */
+  const lastFastRediscoveryAtRef = useRef(0);
+
   /** Thin setState wrapper that also keeps stateRef in sync. */
   const setStateSynced = useCallback((s: BackendLifecycleState) => {
     stateRef.current = s;
@@ -227,6 +233,25 @@ export function useBackendLifecycle(): BackendLifecycleResult {
         }
       } else {
         healthFailCountRef.current++;
+
+        // Fast failover path for route switches (WiFi -> Tailscale / adb reverse drop).
+        // Trigger a single early re-discovery on first failure, then fall back to grace logic.
+        if (healthFailCountRef.current === 1 && navigator.onLine) {
+          const nowMs = Date.now();
+          if (nowMs - lastFastRediscoveryAtRef.current >= FAST_FAILOVER_REDISCOVERY_COOLDOWN_MS) {
+            lastFastRediscoveryAtRef.current = nowMs;
+            console.warn("[KAEL] Health first-fail while online — trying fast route re-discovery...");
+            const rediscovered = await probeAndResolveBackend();
+            if (rediscovered && mountedRef.current) {
+              console.log("[KAEL] Fast re-discovery found backend ->", rediscovered);
+              healthFailCountRef.current = 0;
+              setStateSynced("online");
+              setMessage("Riconnesso");
+              startOnlineRecheck();
+              return;
+            }
+          }
+        }
 
         // Fast failover: if device is still online but cached URL fails,
         // network topology likely changed (e.g. WiFi dropped, Tailscale VPN

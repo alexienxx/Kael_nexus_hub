@@ -55,7 +55,10 @@ const AUTONOMOUS_SOURCES = new Set([
 export function useKaelSSE(enabled: boolean): void {
   const esRef = useRef<EventSource | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectGenerationRef = useRef(0);
   const backoffRef = useRef(1000);
+  const connectSeqRef = useRef(0);
   const enabledRef = useRef(enabled);
   const mountedRef = useRef(true);
   enabledRef.current = enabled;
@@ -63,7 +66,11 @@ export function useKaelSSE(enabled: boolean): void {
   useEffect(() => {
     mountedRef.current = true;
 
-    const cleanup = () => {
+    const cleanup = (invalidateSeq: boolean = true) => {
+      if (invalidateSeq) {
+        // Invalidate any in-flight async connect started before this cleanup.
+        connectSeqRef.current += 1;
+      }
       if (esRef.current) {
         esRef.current.close();
         esRef.current = null;
@@ -72,6 +79,11 @@ export function useKaelSSE(enabled: boolean): void {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      reconnectGenerationRef.current += 1;
     };
 
     const scheduleReconnect = () => {
@@ -84,15 +96,21 @@ export function useKaelSSE(enabled: boolean): void {
     };
 
     async function connect() {
-      cleanup();
+      const seq = ++connectSeqRef.current;
+      cleanup(false);
       if (!mountedRef.current || !enabledRef.current) return;
 
       try {
         const token = await obtainSSEToken();
+        if (seq !== connectSeqRef.current) return;
         if (!mountedRef.current || !enabledRef.current) return;
 
         const url = buildSSEUrl(token);
         const es = new EventSource(url);
+        if (seq !== connectSeqRef.current) {
+          es.close();
+          return;
+        }
         esRef.current = es;
 
         // ── "connected" event from backend (initial handshake OK) ──
@@ -166,16 +184,23 @@ export function useKaelSSE(enabled: boolean): void {
     // No enabledRef gate here: health state may not have recovered yet,
     // but connect() will validate independently.
     const forceReconnect = (reason: string) => {
-      if (!mountedRef.current) return;
-      console.log(`[KaelSSE] resume → force reconnect (${reason})`);
-      emitTelemetry("sse.forceReconnect", { reason });
-      backoffRef.current = 1000;
-      // Tear down existing (possibly zombie) socket explicitly.
-      if (esRef.current) {
-        try { esRef.current.close(); } catch { /* noop */ }
-        esRef.current = null;
+      if (!mountedRef.current || !enabledRef.current) return;
+      emitTelemetry("sse.forceReconnect.requested", { reason });
+
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
       }
-      connect();
+
+      const generation = ++reconnectGenerationRef.current;
+
+      reconnectTimerRef.current = setTimeout(() => {
+        if (generation !== reconnectGenerationRef.current) return;
+        reconnectTimerRef.current = null;
+        if (!mountedRef.current || !enabledRef.current) return;
+        console.log(`[KaelSSE] resume → force reconnect (${reason})`);
+        backoffRef.current = 1000;
+        connect();
+      }, 300);
     };
 
     const onVisibilityChange = () => {
