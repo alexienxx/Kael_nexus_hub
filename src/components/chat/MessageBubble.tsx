@@ -91,6 +91,14 @@ const MessageBubble = ({
   const { theme, kaelAvatarSrc } = useTheme();
   const isUser = message.sender === "user";
   const isExternalAgent = message.sender === "external_agent";
+  const diagnosticNote =
+    !isUser && typeof message.meta?.diagnostic_note === "string"
+      ? message.meta.diagnostic_note
+      : undefined;
+  const diagnosticSeverity =
+    !isUser && typeof message.meta?.diagnostic_severity === "string"
+      ? message.meta.diagnostic_severity
+      : undefined;
 
   const getSenderInfo = () => {
     if (isUser) return { name: null, avatar: null };
@@ -118,6 +126,12 @@ const MessageBubble = ({
   // Wallpaper-aware overrides
   const wallpaperCSS = getBubbleWallpaperCSS(isUser, isExternalAgent, wallpaperStyle, theme);
   const hasWallpaperOverride = wallpaperStyle && wallpaperStyle.bubbleStyle !== "solid";
+  const diagnosticToneClass =
+    diagnosticSeverity === "critical"
+      ? "border-destructive/40 bg-destructive/10 text-destructive/90"
+      : diagnosticSeverity === "warning"
+        ? "border-amber-400/30 bg-amber-500/10 text-amber-100"
+        : "border-foreground/15 bg-black/10 text-foreground/70";
 
   return (
     <BubbleContextMenu
@@ -249,6 +263,12 @@ const MessageBubble = ({
             ) : (
               <AssistantMarkdown content={message.text} />
             )
+          )}
+
+          {diagnosticNote && (
+            <p className={`mt-2 rounded-md border px-2 py-1 text-[11px] leading-relaxed ${diagnosticToneClass}`}>
+              {diagnosticNote}
+            </p>
           )}
 
           <div className={`mt-1 flex items-center gap-1 ${isUser ? "justify-end" : ""}`}>

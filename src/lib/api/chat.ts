@@ -23,7 +23,13 @@ import type { ChatMessage, FeedbackPayload } from "@/types";
 export interface ChatResponse {
   reply: string;
   session_id: string;
+  id?: string;
+  backend_turn_id?: string | number;
   message_id?: string;
+  trace_id?: string;
+  request_id?: string;
+  created_at?: number | string;
+  timestamp?: number;
   /** Echo of the client_message_id sent in the request — used for reconciliation. */
   client_message_id?: string;
   message_type?: string;

@@ -1,0 +1,145 @@
+import { describe, expect, it } from "vitest";
+import type { ChatMessage } from "@/types";
+import {
+  mergeMessagesIdempotent,
+  normalizeAfterTs,
+  resolveAssistantIdentity,
+  resolveHistoryMessageId,
+} from "@/lib/chat/reliability";
+
+describe("chat reliability", () => {
+  it("A: builds stable assistant fallback id when assistant_turn_id is null", () => {
+    const response = {
+      reply: "ciao mondo",
+      assistant_turn_id: null,
+      message_id: null,
+      trace_id: "trace-abc",
+      timestamp: 1778107000,
+    };
+
+    const identity = resolveAssistantIdentity(response, "sess-1", response.reply, 1778107000);
+
+    expect(identity.messageId.length).toBeGreaterThan(0);
+    expect(identity.idSource).toBe("fallback");
+    expect(identity.backendTurnId).toBeUndefined();
+  });
+
+  it("A2: prefers assistant_turn_id when available", () => {
+    const identity = resolveAssistantIdentity(
+      { reply: "ok", assistant_turn_id: 1234 },
+      "sess-1",
+      "ok",
+      1,
+    );
+
+    expect(identity.idSource).toBe("assistant_turn_id");
+    expect(identity.backendTurnId).toBe("1234");
+    expect(identity.messageId).toBe("assistant-turn:1234");
+  });
+
+  it("B: pending drain readiness can run with afterTs=0", () => {
+    const afterTs = normalizeAfterTs(0);
+    expect(afterTs).toBe(0);
+  });
+
+  it("C: duplicate trigger merge remains idempotent", () => {
+    const base: ChatMessage[] = [
+      {
+        id: "assistant-turn:10",
+        text: "a",
+        time: "10:00",
+        timestamp: 10,
+        sender: "kael",
+        feedback: null,
+        backend_turn_id: "10",
+      },
+    ];
+
+    const incomingBurst: ChatMessage[] = [
+      {
+        id: "assistant-turn:10",
+        text: "a",
+        time: "10:00",
+        timestamp: 10,
+        sender: "kael",
+        feedback: null,
+        backend_turn_id: "10",
+      },
+      {
+        id: "assistant-fallback:sess:t:20:h",
+        text: "b",
+        time: "10:01",
+        timestamp: 20,
+        sender: "kael",
+        feedback: null,
+      },
+      {
+        id: "assistant-fallback:sess:t:20:h",
+        text: "b",
+        time: "10:01",
+        timestamp: 20,
+        sender: "kael",
+        feedback: null,
+      },
+    ];
+
+    const merged = mergeMessagesIdempotent(base, incomingBurst);
+    expect(merged).toHaveLength(2);
+    expect(merged[0].id).toBe("assistant-turn:10");
+    expect(merged[1].id).toBe("assistant-fallback:sess:t:20:h");
+  });
+
+  it("D: long generation recovery does not duplicate late direct response", () => {
+    const optimisticUser: ChatMessage = {
+      id: "client-1",
+      client_message_id: "client-1",
+      text: "domanda lunga",
+      time: "10:00",
+      timestamp: 10,
+      sender: "user",
+      feedback: null,
+    };
+
+    const recoveredAssistant: ChatMessage = {
+      id: "assistant-fallback:sess:req-1:20:hash",
+      text: "risposta lunga",
+      time: "10:02",
+      timestamp: 20,
+      sender: "kael",
+      feedback: null,
+      meta: { id_source: "fallback" },
+    };
+
+    const lateDirectAssistant: ChatMessage = {
+      ...recoveredAssistant,
+    };
+
+    const afterRecovery = mergeMessagesIdempotent([optimisticUser], [recoveredAssistant]);
+    const afterLateDirect = mergeMessagesIdempotent(afterRecovery, [lateDirectAssistant]);
+
+    expect(afterLateDirect).toHaveLength(2);
+    expect(afterLateDirect[1].text).toBe("risposta lunga");
+  });
+
+  it("E: audio fields survive history/pending merge", () => {
+    const existing: ChatMessage[] = [];
+    const incoming: ChatMessage[] = [
+      {
+        id: resolveHistoryMessageId(
+          { id: 77, sender: "assistant", text: "audio turn", timestamp: 1778107001 },
+          "sess-audio",
+        ),
+        text: "audio turn",
+        time: "10:03",
+        timestamp: 1778107001,
+        sender: "kael",
+        feedback: null,
+        audioUrl: "https://example.local/voice/audio/trace-1.wav",
+      },
+    ];
+
+    const merged = mergeMessagesIdempotent(existing, incoming);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].audioUrl).toContain("voice/audio/trace-1.wav");
+  });
+});

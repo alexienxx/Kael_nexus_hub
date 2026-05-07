@@ -29,6 +29,13 @@ import * as chatApi from "@/lib/api/chat";
 import { requestTTS } from "@/lib/api/voice";
 import { fetchAvatarVideo, getVideoJobStatus } from "@/lib/api/avatar";
 import { emitTelemetry } from "@/lib/telemetry/sseTelemetry";
+import {
+  mergeMessagesIdempotent,
+  normalizeAfterTs,
+  resolveAssistantIdentity,
+  resolveHistoryMessageId,
+} from "@/lib/chat/reliability";
+import { applyDiagnosticMarkers } from "@/lib/chat/diagnosticMarkers";
 
 /** Poll avatar render job until done, then fetch the base64 video. */
 const pollAndFetchAvatarVideo = async (jobId: string): Promise<string | null> => {
@@ -82,6 +89,7 @@ const Chat = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const historyLoadedRef = useRef(false);
+  const pendingDrainReadyRef = useRef(false);
   const wallpaperFileRef = useRef<HTMLInputElement>(null);
 
   /**
@@ -102,6 +110,7 @@ const Chat = () => {
    */
   const fetchInFlightRef = useRef<Promise<void> | null>(null);
   const lastPendingFetchStartedAtRef = useRef<number>(0);
+  const lastRestartMergeBootIdRef = useRef<string | null>(null);
 
   const getMaxTimestamp = useCallback((items: any[]): number => {
     return items
@@ -115,6 +124,12 @@ const Chat = () => {
       .filter((n: number) => Number.isFinite(n) && n > 0)
       .reduce((max: number, n: number) => (n > max ? n : max), 0);
   }, []);
+
+  const normalizeAssistantPayload = useCallback(
+    (rawText: string | null | undefined, meta?: Record<string, unknown>) =>
+      applyDiagnosticMarkers(rawText ?? "", meta),
+    [],
+  );
 
   // Wallpaper state
   const {
@@ -232,15 +247,28 @@ const Chat = () => {
         : typeof m.ts === "number"
           ? m.ts
           : Date.now() / 1000;
+    const sender = (m.sender ?? (m.role === "user" ? "user" : "kael")) as ChatMessage["sender"];
+    const rawText = m.text ?? m.content ?? "";
+    const rawMeta = (m.meta ?? m.metadata ?? undefined) as Record<string, unknown> | undefined;
+    const normalizedMessage =
+      sender === "user"
+        ? { text: rawText, meta: rawMeta }
+        : normalizeAssistantPayload(rawText, rawMeta);
 
     return {
-      id: String(m.id ?? m.turn_id ?? Date.now() + Math.random()),
-      text: m.text ?? m.content ?? "",
+      id: resolveHistoryMessageId(m, sessionId),
+      text: normalizedMessage.text,
       time: m.time ?? new Date((m.timestamp != null ? m.timestamp * 1000 : Date.now())).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
       timestamp: normalizedTs,
-      sender: (m.sender ?? (m.role === "user" ? "user" : "kael")) as ChatMessage["sender"],
+      sender,
       feedback: m.feedback ?? null,
-      backend_turn_id: String(m.id ?? m.turn_id ?? m.backend_turn_id ?? ""),
+      backend_turn_id: m.id != null
+        ? String(m.id)
+        : m.turn_id != null
+          ? String(m.turn_id)
+          : m.backend_turn_id != null
+            ? String(m.backend_turn_id)
+            : undefined,
       // client_message_id is hoisted from meta_json by the backend history endpoint.
       // Present on user turns where the frontend sent a client_message_id at send time.
       client_message_id: m.client_message_id ?? m.metadata?.client_message_id ?? undefined,
@@ -251,13 +279,13 @@ const Chat = () => {
       //   4. audioUrl       — legacy/local fallback
       audioUrl: normalizeAudioUrl(m.tts_url ?? m.voice_audio ?? m.voice_asset_id ?? m.audioUrl),
       image: imageUrl,
-      meta: m.meta,
+      meta: normalizedMessage.meta,
       delivery_mode: m.delivery_mode ?? (m.message_type === "voice_note" ? "voice_note" : undefined),
       agent_id: m.agent_id,
       agent_name: m.agent_name,
       agent_avatar: m.agent_avatar,
     };
-  }, []);
+  }, [normalizeAssistantPayload, sessionId]);
 
   // Merge backend history into local state without losing local-only messages.
   //
@@ -283,6 +311,7 @@ const Chat = () => {
       const incomingByClientMsgId = new Map(
         incoming.filter((m) => m.client_message_id).map((m) => [m.client_message_id, m])
       );
+      const incomingByStableId = new Set(incoming.map((m) => m.id));
 
       // Preserve feedback and local image data URLs keyed by backend_turn_id.
       const existingFeedback = new Map(
@@ -311,6 +340,7 @@ const Chat = () => {
       const localOnly = prev.filter((m) => {
         if (m.backend_turn_id && incomingByBackendTurnId.has(m.backend_turn_id)) return false;
         if (m.client_message_id && incomingByClientMsgId.has(m.client_message_id)) return false;
+        if (incomingByStableId.has(m.id)) return false;
         return true;
       });
 
@@ -362,6 +392,7 @@ const Chat = () => {
         if (!cancelled) {
           setHistoryLoading(false);
           if (historyLoadedOk) {
+            pendingDrainReadyRef.current = true;
             // Advance watermark ONLY from confirmed backend data.
             // Never fallback to Date.now() here: a failed/empty load must not
             // skip pending messages that still need to be drained.
@@ -438,8 +469,9 @@ const Chat = () => {
     const nowMs = Date.now();
     const MIN_PENDING_FETCH_INTERVAL_MS = 700;
 
-    // Skip if history hasn't loaded yet (watermark still at 0)
-    if (lastFetchTsRef.current === 0) return;
+    // Pending drain readiness is independent from watermark value.
+    // Session can be valid/ready even when after_ts is still 0 (first boot/new session).
+    if (!pendingDrainReadyRef.current) return;
 
     // Coalesce burst triggers (visibilitychange + reconnect + server-restarted)
     // even when no fetch is currently in flight.
@@ -456,7 +488,7 @@ const Chat = () => {
       return;
     }
 
-    const afterTs = lastFetchTsRef.current;
+    const afterTs = normalizeAfterTs(lastFetchTsRef.current);
     emitTelemetry("softResync.started", { afterTs });
 
     const job = (async () => {
@@ -487,36 +519,11 @@ const Chat = () => {
 
         let appended = 0;
         setMessages((prev) => {
-          const existingBackendIds = new Set(
-            prev.map((m) => m.backend_turn_id).filter(Boolean)
-          );
-          const existingClientIds = new Set(
-            prev.map((m) => m.client_message_id).filter(Boolean)
-          );
           const newMsgs: ChatMessage[] = result.messages
-            .filter((m: any) => {
-              const id = String(m.id ?? m.turn_id ?? "");
-              if (id && existingBackendIds.has(id)) return false;
-              const clientId = m.client_message_id ?? m.metadata?.client_message_id;
-              if (clientId && existingClientIds.has(clientId)) return false;
-              return !!id;
-            })
             .map(mapBackendMsg);
 
-          appended = newMsgs.length;
-          if (newMsgs.length === 0) return prev;
-          const combined = [...prev, ...newMsgs];
-          combined.sort((a, b) => {
-            const aId = a.backend_turn_id ? Number(a.backend_turn_id) : NaN;
-            const bId = b.backend_turn_id ? Number(b.backend_turn_id) : NaN;
-            if (!isNaN(aId) && !isNaN(bId) && aId !== bId) return aId - bId;
-            const aTs = typeof a.timestamp === "number" ? a.timestamp : 0;
-            const bTs = typeof b.timestamp === "number" ? b.timestamp : 0;
-            if (!isNaN(aTs) && !isNaN(bTs) && aTs !== bTs) return aTs - bTs;
-            if (!isNaN(aId)) return -1;
-            if (!isNaN(bId)) return 1;
-            return 0;
-          });
+          const combined = mergeMessagesIdempotent(prev, newMsgs);
+          appended = combined.length - prev.length;
           return combined;
         });
 
@@ -562,7 +569,15 @@ const Chat = () => {
       fetchAndAppendPending();
     };
 
-    const handleServerRestarted = () => {
+    const handleServerRestarted = (evt: Event) => {
+      const detail = (evt as CustomEvent<{ oldBootId?: string; newBootId?: string }>).detail;
+      const newBootId = detail?.newBootId ?? null;
+      if (newBootId && lastRestartMergeBootIdRef.current === newBootId) {
+        return;
+      }
+      if (newBootId) {
+        lastRestartMergeBootIdRef.current = newBootId;
+      }
       // Server restarted — reset the guard so the history effect can fire again,
       // then soft-merge: keep local messages visible without flash/disappearance.
       console.warn("[Chat] Server restarted detected — reloading history...");
@@ -578,6 +593,7 @@ const Chat = () => {
           }
           // Mark loaded so the useEffect doesn't double-fire on the same state tick
           historyLoadedRef.current = true;
+          pendingDrainReadyRef.current = true;
           const maxHistoryTs = getMaxTimestamp(data?.messages ?? []);
           if (maxHistoryTs > 0) {
             lastFetchTsRef.current = maxHistoryTs;
@@ -661,16 +677,30 @@ const Chat = () => {
           );
         }
 
+        const assistantIdentity = resolveAssistantIdentity(
+          response as unknown as Record<string, unknown>,
+          sessionId,
+          response.reply ?? "",
+          Date.now() / 1000,
+        );
+        if (assistantIdentity.idSource === "fallback") {
+          console.warn("[Chat] assistant_turn_id missing: using stable fallback id", {
+            sessionId,
+            messageId: assistantIdentity.messageId,
+          });
+        }
+        const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
+
         const responseMsg: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          text: response.reply,
+          id: assistantIdentity.messageId,
+          text: normalizedReply.text,
           time: now(),
           timestamp: Date.now() / 1000,
           sender: response.sender || "kael",
           feedback: null,
-          backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
+          backend_turn_id: assistantIdentity.backendTurnId,
           latency,
-          meta: response.meta,
+          meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
           delivery_mode: response.delivery_mode ?? undefined,
           audioUrl: normalizeAudioUrl(response.voice_audio),
           image: response.image_base64
@@ -680,7 +710,7 @@ const Chat = () => {
           agent_name: response.agent_name,
           agent_avatar: response.agent_avatar,
         };
-        setMessages((prev) => [...prev, responseMsg]);
+        setMessages((prev) => mergeMessagesIdempotent(prev, [responseMsg]));
         scrollToBottom();
         // Trigger instant Observatory refresh after chat interaction
         window.dispatchEvent(new CustomEvent("kael-observatory-refresh"));
@@ -750,7 +780,7 @@ const Chat = () => {
         }
       }
     },
-    [sessionId, agentMode, messages, fetchAndAppendPending]
+    [sessionId, agentMode, messages, fetchAndAppendPending, normalizeAssistantPayload]
   );
 
   const handleImageUpload = useCallback(
@@ -807,16 +837,30 @@ const Chat = () => {
             );
           }
 
+          const assistantIdentity = resolveAssistantIdentity(
+            response as unknown as Record<string, unknown>,
+            sessionId,
+            response.reply ?? "",
+            Date.now() / 1000,
+          );
+          if (assistantIdentity.idSource === "fallback") {
+            console.warn("[Chat] image reply without assistant_turn_id: fallback id used", {
+              sessionId,
+              messageId: assistantIdentity.messageId,
+            });
+          }
+          const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
+
           const responseMsg: ChatMessage = {
-            id: (Date.now() + 1).toString(),
-            text: response.reply,
+            id: assistantIdentity.messageId,
+            text: normalizedReply.text,
             time: now(),
             timestamp: Date.now() / 1000,
             sender: response.sender || "kael",
             feedback: null,
-            backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
+            backend_turn_id: assistantIdentity.backendTurnId,
             latency,
-            meta: response.meta,
+            meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
             audioUrl: normalizeAudioUrl(response.voice_audio),
             // Image generation: if backend generated an image, embed it.
             image: response.image_base64
@@ -826,7 +870,7 @@ const Chat = () => {
             agent_name: response.agent_name,
             agent_avatar: response.agent_avatar,
           };
-          setMessages((prev) => [...prev, responseMsg]);
+          setMessages((prev) => mergeMessagesIdempotent(prev, [responseMsg]));
           scrollToBottom();
           // Avatar video: async poll if backend triggered a render job
           if (response.avatar_job_id) {
@@ -856,7 +900,7 @@ const Chat = () => {
       };
       reader.readAsDataURL(file);
     },
-    [sessionId, fetchAndAppendPending]
+    [sessionId, fetchAndAppendPending, normalizeAssistantPayload]
   );
 
   const handleVoiceNote = useCallback(
@@ -896,16 +940,30 @@ const Chat = () => {
           );
         }
         
+        const assistantIdentity = resolveAssistantIdentity(
+          response as unknown as Record<string, unknown>,
+          sessionId,
+          response.reply ?? "",
+          Date.now() / 1000,
+        );
+        if (assistantIdentity.idSource === "fallback") {
+          console.warn("[Chat] voice reply without assistant_turn_id: fallback id used", {
+            sessionId,
+            messageId: assistantIdentity.messageId,
+          });
+        }
+        const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
+
         const responseMsg: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          text: response.reply,
+          id: assistantIdentity.messageId,
+          text: normalizedReply.text,
           time: now(),
           timestamp: Date.now() / 1000,
           sender: response.sender || "kael",
           feedback: null,
-          backend_turn_id: response.assistant_turn_id != null ? String(response.assistant_turn_id) : undefined,
+          backend_turn_id: assistantIdentity.backendTurnId,
           latency,
-          meta: response.meta,
+          meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
           delivery_mode: response.voice_audio ? "voice_note" : undefined,
           audioUrl: normalizeAudioUrl(response.voice_audio),
           // Image generation: if backend generated an image, embed it.
@@ -916,9 +974,9 @@ const Chat = () => {
           agent_name: response.agent_name,
           agent_avatar: response.agent_avatar,
         };
-        setMessages((prev) => [...prev, responseMsg]);
+        setMessages((prev) => mergeMessagesIdempotent(prev, [responseMsg]));
         scrollToBottom();
-        // Avatar video: async poll if backend triggered a render job
+    [sessionId, fetchAndAppendPending, normalizeAssistantPayload]
         if (response.avatar_job_id) {
           const msgId = responseMsg.id;
           pollAndFetchAvatarVideo(response.avatar_job_id).then((videoDataUrl) => {
