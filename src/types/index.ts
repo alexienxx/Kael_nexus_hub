@@ -4,6 +4,7 @@ export type DeliveryMode = "text" | "voice_note" | "image" | "video_message" | "
 export interface ChatMessage {
   id: string;
   text: string;
+  bubbles?: string[];
   time: string;
   /** Unix timestamp (seconds) for deterministic merge/sort ordering */
   timestamp?: number;

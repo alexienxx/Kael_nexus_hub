@@ -254,10 +254,21 @@ const Chat = () => {
       sender === "user"
         ? { text: rawText, meta: rawMeta }
         : normalizeAssistantPayload(rawText, rawMeta);
+    const rawBubbles = Array.isArray(m.bubbles)
+      ? m.bubbles
+      : Array.isArray(rawMeta?.bubbles)
+        ? rawMeta.bubbles
+        : undefined;
+    const normalizedBubbles = sender === "user"
+      ? undefined
+      : rawBubbles
+        ?.map((part: unknown) => String(part ?? "").trim())
+        .filter((part: string) => part.length > 0);
 
     return {
       id: resolveHistoryMessageId(m, sessionId),
       text: normalizedMessage.text,
+      bubbles: normalizedBubbles && normalizedBubbles.length > 0 ? normalizedBubbles : undefined,
       time: m.time ?? new Date((m.timestamp != null ? m.timestamp * 1000 : Date.now())).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
       timestamp: normalizedTs,
       sender,
@@ -692,10 +703,16 @@ const Chat = () => {
           });
         }
         const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
+        const responseBubbles = Array.isArray(response.bubbles)
+          ? response.bubbles
+              .map((part) => String(part ?? "").trim())
+              .filter((part) => part.length > 0)
+          : undefined;
 
         const responseMsg: ChatMessage = {
           id: assistantIdentity.messageId,
           text: normalizedReply.text,
+          bubbles: responseBubbles && responseBubbles.length > 0 ? responseBubbles : undefined,
           time: now(),
           timestamp: Date.now() / 1000,
           sender: response.sender || "kael",

@@ -12,7 +12,7 @@ export interface DiagnosticMessagePayload {
   meta?: Record<string, unknown>;
 }
 
-const BRACKETED_MARKER_RE = /\[([A-Z][A-Z0-9_]+)\]/g;
+const BRACKETED_MARKER_RE = /\[([^\]]+)\]/g;
 const CRITICAL_MARKER_HINT_RE = /(ERROR|FAILED|TIMEOUT|ABORTED|UNAVAILABLE|CORRUPTED|BROKEN|PANIC|FATAL)/;
 
 function unique(values: string[]): string[] {

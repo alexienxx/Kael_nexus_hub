@@ -6,6 +6,18 @@
 ---
 ## [Unreleased] — 2026-04-12
 
+### Fix: APK strips free-form internal markers and renders semantic assistant bubbles
+- **src/lib/chat/diagnosticMarkers.ts — MODIFIED**:
+  - Expanded bracketed marker normalization from uppercase-only markers to any bracketed internal directive text.
+  - Impact: APK now strips leaked payload fragments like `[Generating response...]` and `[non specificare ...]`, not only uppercase diagnostic flags.
+- **src/pages/Chat.tsx + src/components/chat/MessageBubble.tsx + src/types/index.ts — MODIFIED**:
+  - Added APK support for assistant `bubbles` payloads from live replies and history reloads.
+  - Assistant bubbles now render as separated stacked chunks instead of a single collapsed text block.
+  - Impact: semantic multi-bubble assistant replies are visually separated in the APK, reducing the perceived autonomy/message grouping collapse.
+- **src/test/chat-diagnostic-markers.test.tsx — MODIFIED**:
+  - Added regression coverage for free-form marker stripping and assistant bubble rendering.
+  - Impact: protects both APK marker cleanup and semantic bubble rendering from regression.
+
 ### Fix: History/restart merge preserves chronological order
 - **src/pages/Chat.tsx — MODIFIED**:
   - `mergeHistoryIntoState()` no longer sorts backend history by `backend_turn_id` before timestamp.

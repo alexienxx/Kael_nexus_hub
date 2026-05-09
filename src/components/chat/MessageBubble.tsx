@@ -257,7 +257,18 @@ const MessageBubble = ({
             </div>
           )}
 
-          {message.text && !(message.delivery_mode === "voice_note" && message.audioUrl) && (
+          {message.bubbles && message.bubbles.length > 0 && !(message.delivery_mode === "voice_note" && message.audioUrl) ? (
+            <div className="space-y-2">
+              {message.bubbles.map((bubble, index) => (
+                <div
+                  key={`${message.id}-bubble-${index}`}
+                  className="rounded-2xl bg-background/20 px-3 py-2"
+                >
+                  <AssistantMarkdown content={bubble} />
+                </div>
+              ))}
+            </div>
+          ) : message.text && !(message.delivery_mode === "voice_note" && message.audioUrl) && (
             isUser ? (
               <p className="text-sm leading-relaxed text-foreground">{message.text}</p>
             ) : (

@@ -72,6 +72,20 @@ describe("chat diagnostic markers", () => {
     expect(normalized.severity).toBe("info");
   });
 
+  it("strips free-form instruction markers used by backend leaks", () => {
+    const normalized = normalizeDiagnosticMarkers(
+      "Risposta [Generating response...] [non specificare il ragionamento interno] finale",
+    );
+
+    expect(normalized.cleanText).toBe("Risposta finale");
+    expect(normalized.markers).toEqual([
+      "Generating response...",
+      "non specificare il ragionamento interno",
+    ]);
+    expect(normalized.note).toContain("marker interno non previsto");
+    expect(normalized.severity).toBe("info");
+  });
+
   it("passes through normal text without markers", () => {
     const normalized = normalizeDiagnosticMarkers("Risposta normale senza marker");
 
@@ -118,5 +132,26 @@ describe("chat diagnostic markers", () => {
     expect(screen.getByText(/Nota diagnostica:/)).toBeInTheDocument();
     expect(container.textContent).not.toContain("[MEMORY_CONTEXT_IGNORED]");
     expect(container.textContent).not.toContain("[ALWAYS_ON_IGNORED]");
+  });
+
+  it("renders assistant semantic bubbles as separate stacked chunks", () => {
+    const message: ChatMessage = {
+      id: "assistant-bubbles-1",
+      text: "Prima parte Seconda parte",
+      bubbles: ["Prima parte", "Seconda parte"],
+      time: "10:05",
+      timestamp: 11,
+      sender: "kael",
+      feedback: null,
+    };
+
+    render(
+      <ThemeProvider>
+        <MessageBubble message={message} />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText("Prima parte")).toBeInTheDocument();
+    expect(screen.getByText("Seconda parte")).toBeInTheDocument();
   });
 });
