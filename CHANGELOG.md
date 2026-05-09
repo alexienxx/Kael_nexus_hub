@@ -6,6 +6,12 @@
 ---
 ## [Unreleased] — 2026-04-12
 
+### Fix: History/restart merge preserves chronological order
+- **src/pages/Chat.tsx — MODIFIED**:
+  - `mergeHistoryIntoState()` no longer sorts backend history by `backend_turn_id` before timestamp.
+  - The history/restart merge path now follows the same canonical ordering as the chat reliability helper: `timestamp` first, `backend_turn_id` only as tie-breaker, stable `id` last.
+  - Impact: prevents history reload and post-restart merges from reintroducing the old visual symptom where assistant messages bunch together and user messages bunch together instead of staying interleaved chronologically.
+
 ### Fix: APK chat freeze hardening (watermark + pending debounce)
 - **src/pages/Chat.tsx — MODIFIED**:
   - Added `getMaxTimestamp()` helper to centralize timestamp extraction and avoid drift across history/restart paths.

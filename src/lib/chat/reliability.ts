@@ -165,14 +165,23 @@ export function mergeMessagesIdempotent(existing: ChatMessage[], incoming: ChatM
 
   const merged = [...existing, ...newItems];
   merged.sort((a, b) => {
+    // FIXED 2026-05-09: Sort by TIMESTAMP (chronological order is canonical).
+    // Timestamps are NORMALIZED at ingestion time in mapBackendMsg via getCanonicalTimeMs(),
+    // so they are ALWAYS valid and non-zero. We just use the stored value here—never
+    // recalculate Date.now() during sort, which would violate stable ordering.
+    // backend_turn_id used only as a tie-breaker.
+    const aTs = a.timestamp ?? 0;
+    const bTs = b.timestamp ?? 0;
+    if (aTs !== bTs) return aTs - bTs;
+    
+    // Tie-breaker: use backend_turn_id if both exist
     const aBackend = a.backend_turn_id ? Number(a.backend_turn_id) : NaN;
     const bBackend = b.backend_turn_id ? Number(b.backend_turn_id) : NaN;
-    if (!Number.isNaN(aBackend) && !Number.isNaN(bBackend) && aBackend !== bBackend) {
+    if (!Number.isNaN(aBackend) && !Number.isNaN(bBackend)) {
       return aBackend - bBackend;
     }
-    const aTs = typeof a.timestamp === "number" ? a.timestamp : 0;
-    const bTs = typeof b.timestamp === "number" ? b.timestamp : 0;
-    if (aTs !== bTs) return aTs - bTs;
+    
+    // Final tie-breaker: id
     return a.id.localeCompare(b.id);
   });
 

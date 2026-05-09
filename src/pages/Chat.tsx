@@ -35,6 +35,7 @@ import {
   resolveAssistantIdentity,
   resolveHistoryMessageId,
 } from "@/lib/chat/reliability";
+import { getCanonicalTimeMs } from "@/lib/chat/timeNormalization";
 import { applyDiagnosticMarkers } from "@/lib/chat/diagnosticMarkers";
 
 /** Poll avatar render job until done, then fetch the base64 video. */
@@ -241,12 +242,11 @@ const Chat = () => {
       imageUrl = getGalleryFileUrl(assetId);
     }
 
-    const normalizedTs =
-      typeof m.timestamp === "number"
-        ? m.timestamp
-        : typeof m.ts === "number"
-          ? m.ts
-          : Date.now() / 1000;
+    // BUG-M20 fix (2026-05-09): Autonomy messages with timestamp=0 from DB would
+    // sort to the beginning. Central normalization applies fallback exactly once
+    // at ingestion, ensuring stable chronological order (never recalculated in sort).
+    const canonicalTimeMs = getCanonicalTimeMs(m);
+    const normalizedTs = canonicalTimeMs / 1000;
     const sender = (m.sender ?? (m.role === "user" ? "user" : "kael")) as ChatMessage["sender"];
     const rawText = m.text ?? m.content ?? "";
     const rawMeta = (m.meta ?? m.metadata ?? undefined) as Record<string, unknown> | undefined;
@@ -346,15 +346,17 @@ const Chat = () => {
 
       const combined = [...merged, ...localOnly];
       combined.sort((a, b) => {
-        const aId = a.backend_turn_id ? Number(a.backend_turn_id) : NaN;
-        const bId = b.backend_turn_id ? Number(b.backend_turn_id) : NaN;
-        if (!isNaN(aId) && !isNaN(bId) && aId !== bId) return aId - bId;
         const aTs = typeof a.timestamp === "number" ? a.timestamp : 0;
         const bTs = typeof b.timestamp === "number" ? b.timestamp : 0;
-        if (!isNaN(aTs) && !isNaN(bTs) && aTs !== bTs) return aTs - bTs;
-        if (!isNaN(aId)) return -1;
-        if (!isNaN(bId)) return 1;
-        return 0;
+          if (aTs !== bTs) return aTs - bTs;
+
+          const aId = a.backend_turn_id ? Number(a.backend_turn_id) : NaN;
+          const bId = b.backend_turn_id ? Number(b.backend_turn_id) : NaN;
+          if (!Number.isNaN(aId) && !Number.isNaN(bId) && aId !== bId) {
+            return aId - bId;
+          }
+
+          return a.id.localeCompare(b.id);
       });
       return combined;
     });
