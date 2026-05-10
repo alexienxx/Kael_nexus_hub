@@ -29,6 +29,7 @@ export interface ChatResponse {
   trace_id?: string;
   request_id?: string;
   created_at?: number | string;
+  server_created_at?: string;
   timestamp?: number;
   /** Echo of the client_message_id sent in the request — used for reconciliation. */
   client_message_id?: string;
@@ -93,6 +94,7 @@ export async function sendMessage(
     body: JSON.stringify({
       text,
       session_id: sessionId,
+      client_time: new Date().toISOString(),
       // Stable client-generated UUID for server-side idempotency and
       // frontend reconciliation of the optimistic message on history reload.
       ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
@@ -125,6 +127,7 @@ export async function sendImage(
   const formData = new FormData();
   formData.append("image", file);
   formData.append("session_id", sessionId);
+  formData.append("client_time", new Date().toISOString());
   if (text && text.trim()) formData.append("text", text.trim());
   return apiUpload<ChatResponse>("/chat/image", formData, { timeout: CHAT_TIMEOUT });
 }
@@ -158,6 +161,7 @@ export async function sendVoiceNote(audioBlob: Blob, sessionId: string, clientMe
   formData.append("audio", audioBlob, "voice-note.webm");
   formData.append("session_id", sessionId);
   formData.append("client_message_id", clientMessageId);
+  formData.append("client_time", new Date().toISOString());
   return apiUpload<VoiceResponse>("/chat/voice", formData, { timeout: CHAT_TIMEOUT });
 }
 
