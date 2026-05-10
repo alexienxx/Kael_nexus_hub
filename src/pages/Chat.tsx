@@ -111,6 +111,9 @@ const Chat = () => {
    */
   const fetchInFlightRef = useRef<Promise<void> | null>(null);
   const lastPendingFetchStartedAtRef = useRef<number>(0);
+  // Deferred retry timer: if a drain trigger arrives during the coalescing window,
+  // we schedule one guaranteed re-drain instead of silently dropping it.
+  const pendingRetriggerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRestartMergeBootIdRef = useRef<string | null>(null);
 
   const getMaxTimestamp = useCallback((items: any[]): number => {
@@ -488,8 +491,23 @@ const Chat = () => {
 
     // Coalesce burst triggers (visibilitychange + reconnect + server-restarted)
     // even when no fetch is currently in flight.
+    // NEXUS-FIX (2026-05-10): instead of silently returning, schedule a deferred
+    // retry so messages persisted AFTER the current in-flight fetch are not lost.
+    // The retry fires once, after the coalescing window expires (+50ms buffer).
     if (nowMs - lastPendingFetchStartedAtRef.current < MIN_PENDING_FETCH_INTERVAL_MS) {
+      if (!pendingRetriggerTimerRef.current) {
+        const remaining = MIN_PENDING_FETCH_INTERVAL_MS - (nowMs - lastPendingFetchStartedAtRef.current) + 50;
+        pendingRetriggerTimerRef.current = setTimeout(() => {
+          pendingRetriggerTimerRef.current = null;
+          fetchAndAppendPending();
+        }, remaining);
+      }
       return;
+    }
+    // Clear any pending deferred retry — this invocation supersedes it.
+    if (pendingRetriggerTimerRef.current) {
+      clearTimeout(pendingRetriggerTimerRef.current);
+      pendingRetriggerTimerRef.current = null;
     }
     lastPendingFetchStartedAtRef.current = nowMs;
 
@@ -721,7 +739,7 @@ const Chat = () => {
           latency,
           meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
           delivery_mode: response.delivery_mode ?? undefined,
-          audioUrl: normalizeAudioUrl(response.voice_audio),
+          audioUrl: normalizeAudioUrl(response.tts_url ?? response.voice_audio),
           image: response.image_base64
             ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
             : undefined,
@@ -880,7 +898,7 @@ const Chat = () => {
             backend_turn_id: assistantIdentity.backendTurnId,
             latency,
             meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
-            audioUrl: normalizeAudioUrl(response.voice_audio),
+            audioUrl: normalizeAudioUrl(response.tts_url ?? response.voice_audio),
             // Image generation: if backend generated an image, embed it.
             image: response.image_base64
               ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
@@ -983,8 +1001,8 @@ const Chat = () => {
           backend_turn_id: assistantIdentity.backendTurnId,
           latency,
           meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
-          delivery_mode: response.voice_audio ? "voice_note" : undefined,
-          audioUrl: normalizeAudioUrl(response.voice_audio),
+          delivery_mode: (response.tts_url || response.voice_audio) ? "voice_note" : undefined,
+          audioUrl: normalizeAudioUrl(response.tts_url ?? response.voice_audio),
           // Image generation: if backend generated an image, embed it.
           image: response.image_base64
             ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`

@@ -142,4 +142,73 @@ describe("chat reliability", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].audioUrl).toContain("voice/audio/trace-1.wav");
   });
+
+  it("F: two autonomous messages with close timestamps preserve chronological order", () => {
+    // Simulates a burst of two autonomous messages arriving within the 700ms
+    // coalescing window. Both are eventually fetched (possibly in a single call
+    // if the deferred retry fires). The merge must produce stable chronological
+    // order keyed on timestamp + backend_turn_id tie-breaker.
+    const existing: ChatMessage[] = [];
+
+    const msg1: ChatMessage = {
+      id: "hist:101",
+      text: "primo messaggio autonomo",
+      time: "10:00",
+      timestamp: 1778107001,
+      sender: "kael",
+      feedback: null,
+      backend_turn_id: "101",
+    };
+
+    const msg2: ChatMessage = {
+      id: "hist:102",
+      text: "secondo messaggio autonomo",
+      time: "10:00",
+      timestamp: 1778107001, // same-second — tie-break via backend_turn_id
+      sender: "kael",
+      feedback: null,
+      backend_turn_id: "102",
+    };
+
+    // Simulate two SSE triggers both resulting in fetchAndAppendPending.
+    // The second call may arrive with both msgs (deferred retry fetches after first).
+    const afterFirst = mergeMessagesIdempotent(existing, [msg1]);
+    const afterSecond = mergeMessagesIdempotent(afterFirst, [msg2]);
+
+    expect(afterSecond).toHaveLength(2);
+    expect(afterSecond[0].backend_turn_id).toBe("101");
+    expect(afterSecond[1].backend_turn_id).toBe("102");
+  });
+
+  it("F2: burst merge is idempotent when both msgs arrive in single pending response", () => {
+    // Deferred retry returns both messages in one fetch. Must not duplicate.
+    const existing: ChatMessage[] = [];
+    const both: ChatMessage[] = [
+      {
+        id: "hist:201",
+        text: "msg-a",
+        time: "10:01",
+        timestamp: 1778107050,
+        sender: "kael",
+        feedback: null,
+        backend_turn_id: "201",
+      },
+      {
+        id: "hist:202",
+        text: "msg-b",
+        time: "10:01",
+        timestamp: 1778107051,
+        sender: "kael",
+        feedback: null,
+        backend_turn_id: "202",
+      },
+    ];
+    const merged = mergeMessagesIdempotent(existing, both);
+    // Second call with same payload must not duplicate.
+    const mergedAgain = mergeMessagesIdempotent(merged, both);
+
+    expect(mergedAgain).toHaveLength(2);
+    expect(mergedAgain[0].backend_turn_id).toBe("201");
+    expect(mergedAgain[1].backend_turn_id).toBe("202");
+  });
 });

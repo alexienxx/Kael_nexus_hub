@@ -4,6 +4,21 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [Unreleased] — 2026-05-10
+
+### Fix: nexus: stabilize autonomous pending message ordering
+- **src/pages/Chat.tsx — MODIFIED**:
+  - Aggiunto `pendingRetriggerTimerRef` per tracking del deferred retry timer.
+  - Il guard di coalescing (700ms) ora schedula un retry garantito invece di fare `return` secco.
+  - **Root cause**: due messaggi autonomi in burst (< 700ms tra loro) causavano la perdita del secondo messaggio: il trigger veniva scartato silenziosamente se arrivava nella finestra di coalescing, e il primo fetch poteva non includere il secondo messaggio (race con la persistenza backend).
+  - **Behavior change**: il retry spara una volta sola dopo la finestra scaduta (+50ms buffer), garantendo che qualsiasi messaggio autonomo persistito dopo il fetch in-flight venga recuperato.
+  - Non tocca backend, voice-note contract, M16, memoria, prompt.
+- **src/test/chat-reliability.test.ts — MODIFIED**:
+  - Aggiunto test F: due messaggi autonomi con ts vicini → ordine cronologico corretto post-merge.
+  - Aggiunto test F2: burst merge idempotente (entrambi i messaggi in una singola risposta pending non generano duplicati).
+  - 50 test totali, 0 failed.
+
+---
 ## [Unreleased] — 2026-04-12
 
 ### Fix: APK strips free-form internal markers and renders semantic assistant bubbles
