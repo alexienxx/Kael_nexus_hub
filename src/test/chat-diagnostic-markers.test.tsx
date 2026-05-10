@@ -103,11 +103,10 @@ describe("chat diagnostic markers", () => {
     expect(normalized.text).toBe("Contenuto");
     expect(normalized.meta?.source).toBe("history");
     expect(normalized.meta?.diagnostic_markers).toEqual(["MEMORY_CONTEXT_IGNORED"]);
-    expect(normalized.meta?.diagnostic_note).toBeDefined();
     expect(normalized.meta?.diagnostic_severity).toBe("warning");
   });
 
-  it("renders bubble note without raw marker text", () => {
+  it("does not render diagnostic note in user bubble", () => {
     const normalized = applyDiagnosticMarkers(
       "Risposta finale [MEMORY_CONTEXT_IGNORED] [ALWAYS_ON_IGNORED]",
     );
@@ -129,7 +128,7 @@ describe("chat diagnostic markers", () => {
     );
 
     expect(screen.getByText("Risposta finale")).toBeInTheDocument();
-    expect(screen.getByText(/Nota diagnostica:/)).toBeInTheDocument();
+    expect(screen.queryByText(/Nota diagnostica:/)).not.toBeInTheDocument();
     expect(container.textContent).not.toContain("[MEMORY_CONTEXT_IGNORED]");
     expect(container.textContent).not.toContain("[ALWAYS_ON_IGNORED]");
   });

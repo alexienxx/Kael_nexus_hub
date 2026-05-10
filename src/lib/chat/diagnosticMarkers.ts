@@ -137,7 +137,6 @@ export function applyDiagnosticMarkers(
     meta: {
       ...(existingMeta ?? {}),
       diagnostic_markers: normalized.markers,
-      diagnostic_note: normalized.note,
       diagnostic_severity: normalized.severity,
     },
   };
