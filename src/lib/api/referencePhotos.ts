@@ -19,12 +19,23 @@ import { apiRequest, apiUpload, getApiConfig } from "./client";
 
 export type AuthorizedIdentity = "kael" | "alexien";
 
+export function identityDisplayName(identity: AuthorizedIdentity): string {
+  return identity === "alexien" ? "Alexièn" : "Kael";
+}
+
 export interface ContainerPhoto {
   identity: AuthorizedIdentity;
+  canonical_identity: AuthorizedIdentity;
+  display_name: string;
+  source: "apk_upload" | "existing_state" | "imported_reference";
   name: string;
   bytes: number;
   sha256: string;
+  created_at: string;
   modified_at: string; // ISO-8601 UTC
+  updated_at: string;
+  file_path: string;
+  source_of_truth_path: string;
 }
 
 export interface ListPhotosResponse {
@@ -32,6 +43,7 @@ export interface ListPhotosResponse {
   identity: AuthorizedIdentity;
   count: number;
   items: ContainerPhoto[];
+  source_of_truth_path?: string | null;
 }
 
 export interface UploadPhotoResponse {

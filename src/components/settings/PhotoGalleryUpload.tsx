@@ -27,6 +27,7 @@ import {
   uploadReferencePhoto,
   deleteReferencePhoto,
   referencePhotoUrl,
+  identityDisplayName,
   type AuthorizedIdentity,
   type ContainerPhoto,
 } from "@/lib/api/referencePhotos";
@@ -104,7 +105,7 @@ const PhotoGalleryUpload = () => {
     setUploading(false);
 
     if (ok > 0) {
-      toast.success(`${ok} foto salvata${ok > 1 ? "e" : ""} per ${activeTab}`);
+      toast.success(`${ok} foto salvata${ok > 1 ? "e" : ""} per ${identityDisplayName(activeTab)}`);
       await reload();
     }
     if (fail > 0 && ok === 0) {
@@ -243,7 +244,7 @@ const PhotoGalleryUpload = () => {
       {/* Footer */}
       <div className="flex items-center justify-between">
         <p className="text-[10px] text-muted-foreground/60">
-          {photos.length} foto · identità: <strong>{activeTab}</strong> · max 20 MB/foto
+          {photos.length} foto · identità: <strong>{identityDisplayName(activeTab)}</strong> · max 20 MB/foto
         </p>
         <button
           onClick={reload}
