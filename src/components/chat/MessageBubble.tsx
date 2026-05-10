@@ -132,6 +132,14 @@ const MessageBubble = ({
       : diagnosticSeverity === "warning"
         ? "border-amber-400/30 bg-amber-500/10 text-amber-100"
         : "border-foreground/15 bg-black/10 text-foreground/70";
+  const hasPlayableAudio =
+    typeof message.audioUrl === "string" &&
+    /^(data:audio|https?:\/\/|blob:)/i.test(message.audioUrl);
+  const voiceUnavailableFallback =
+    message.delivery_mode === "voice_note" &&
+    !hasPlayableAudio &&
+    !message.text &&
+    (!message.bubbles || message.bubbles.length === 0);
 
   return (
     <BubbleContextMenu
@@ -222,9 +230,9 @@ const MessageBubble = ({
             />
           )}
 
-          {message.audioUrl && (
+          {hasPlayableAudio && (
             <AudioMessage
-              src={message.audioUrl}
+              src={message.audioUrl!}
               duration={message.audioDuration}
               sender={message.sender}
             />
@@ -257,7 +265,7 @@ const MessageBubble = ({
             </div>
           )}
 
-          {message.bubbles && message.bubbles.length > 0 && !(message.delivery_mode === "voice_note" && message.audioUrl) ? (
+          {message.bubbles && message.bubbles.length > 0 && !(message.delivery_mode === "voice_note" && hasPlayableAudio) ? (
             <div className="space-y-2">
               {message.bubbles.map((bubble, index) => (
                 <div
@@ -268,12 +276,18 @@ const MessageBubble = ({
                 </div>
               ))}
             </div>
-          ) : message.text && !(message.delivery_mode === "voice_note" && message.audioUrl) && (
+          ) : message.text && !(message.delivery_mode === "voice_note" && hasPlayableAudio) && (
             isUser ? (
               <p className="text-sm leading-relaxed text-foreground">{message.text}</p>
             ) : (
               <AssistantMarkdown content={message.text} />
             )
+          )}
+
+          {voiceUnavailableFallback && (
+            <p className="text-xs italic text-muted-foreground">
+              Vocale non disponibile.
+            </p>
           )}
 
           {diagnosticNote && (

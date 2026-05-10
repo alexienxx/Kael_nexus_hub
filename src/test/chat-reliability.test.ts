@@ -3,6 +3,7 @@ import type { ChatMessage } from "@/types";
 import {
   mergeMessagesIdempotent,
   normalizeAfterTs,
+  resolveAudioUrlFromPayload,
   resolveAssistantIdentity,
   resolveHistoryMessageId,
 } from "@/lib/chat/reliability";
@@ -141,6 +142,22 @@ describe("chat reliability", () => {
     const merged = mergeMessagesIdempotent(existing, incoming);
     expect(merged).toHaveLength(1);
     expect(merged[0].audioUrl).toContain("voice/audio/trace-1.wav");
+  });
+
+  it("E2: relative tts_url is normalized to backend absolute URL", () => {
+    const resolved = resolveAudioUrlFromPayload(
+      { tts_url: "/voice/audio/trace-2.wav" },
+      "http://127.0.0.1:8002",
+    );
+    expect(resolved).toBe("http://127.0.0.1:8002/voice/audio/trace-2.wav");
+  });
+
+  it("E3: voice_asset_id is not treated as playable audio URL", () => {
+    const resolved = resolveAudioUrlFromPayload(
+      { voice_asset_id: "asset-123", has_voice_audio: true },
+      "http://127.0.0.1:8002",
+    );
+    expect(resolved).toBeUndefined();
   });
 
   it("F: two autonomous messages with close timestamps preserve chronological order", () => {

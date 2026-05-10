@@ -148,6 +148,47 @@ export function normalizeAfterTs(lastFetchTs: number): number {
   return lastFetchTs;
 }
 
+function normalizeBaseUrl(baseUrl?: string): string | undefined {
+  const raw = (baseUrl || "").trim();
+  if (!raw) return undefined;
+  return raw.replace(/\/$/, "");
+}
+
+function normalizeAudioCandidate(raw: unknown, baseUrl?: string): string | undefined {
+  const value = asString(raw);
+  if (!value) return undefined;
+  if (value.startsWith("data:") || value.startsWith("http://") || value.startsWith("https://") || value.startsWith("blob:")) {
+    return value;
+  }
+  if (value.startsWith("/")) {
+    const normalizedBase = normalizeBaseUrl(baseUrl);
+    return normalizedBase ? `${normalizedBase}${value}` : undefined;
+  }
+  // voice_audio can arrive as raw base64 (no data URI prefix).
+  return `data:audio/wav;base64,${value}`;
+}
+
+/**
+ * Canonical voice URL resolver for chat payloads.
+ * Priority:
+ *   1) tts_url / ttsUrl (persistent backend URL, survives resume/reload)
+ *   2) voice_audio / voiceAudio (ephemeral base64)
+ *   3) audioUrl (legacy field)
+ *
+ * NOTE: voice_asset_id is intentionally excluded as direct audio src.
+ */
+export function resolveAudioUrlFromPayload(
+  payload: Record<string, unknown>,
+  baseUrl?: string,
+): string | undefined {
+  const p = asObject(payload);
+  return (
+    normalizeAudioCandidate(p.tts_url ?? p.ttsUrl, baseUrl) ||
+    normalizeAudioCandidate(p.voice_audio ?? p.voiceAudio, baseUrl) ||
+    normalizeAudioCandidate(p.audioUrl, baseUrl)
+  );
+}
+
 export function mergeMessagesIdempotent(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   const byBackendId = new Set(existing.map((m) => m.backend_turn_id).filter(Boolean));
   const byClientId = new Set(existing.map((m) => m.client_message_id).filter(Boolean));

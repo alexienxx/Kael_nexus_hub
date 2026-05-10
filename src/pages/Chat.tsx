@@ -32,6 +32,7 @@ import { emitTelemetry } from "@/lib/telemetry/sseTelemetry";
 import {
   mergeMessagesIdempotent,
   normalizeAfterTs,
+  resolveAudioUrlFromPayload,
   resolveAssistantIdentity,
   resolveHistoryMessageId,
 } from "@/lib/chat/reliability";
@@ -62,16 +63,6 @@ const pollAndFetchAvatarVideo = async (jobId: string): Promise<string | null> =>
 import { getApiConfig, probeAndResolveBackend } from "@/lib/api/client";
 import { getGalleryFileUrl } from "@/lib/api/media";
 import { sendExternalAgentMessage, getSelectedModel, type ExternalChatMessage } from "@/lib/externalAgent";
-
-/**
- * Normalize voice_audio: backend returns raw base64 (no prefix).
- * AudioMessage needs a playable URL (data URI or http).
- */
-function normalizeAudioUrl(raw: string | null | undefined): string | undefined {
-  if (!raw) return undefined;
-  if (raw.startsWith("data:") || raw.startsWith("http")) return raw;
-  return `data:audio/wav;base64,${raw}`;
-}
 
 // Default conversation ID for the main Kael chat
 const DEFAULT_CONVERSATION_ID = "kael-main";
@@ -268,6 +259,13 @@ const Chat = () => {
         ?.map((part: unknown) => String(part ?? "").trim())
         .filter((part: string) => part.length > 0);
 
+    const baseUrl = getApiConfig().baseUrl;
+    const audioDuration = typeof m.duration_ms === "number"
+      ? Math.max(0, m.duration_ms / 1000)
+      : typeof m.duration === "number"
+        ? Math.max(0, m.duration)
+        : undefined;
+
     return {
       id: resolveHistoryMessageId(m, sessionId),
       text: normalizedMessage.text,
@@ -287,14 +285,15 @@ const Chat = () => {
       // Present on user turns where the frontend sent a client_message_id at send time.
       client_message_id: m.client_message_id ?? m.metadata?.client_message_id ?? undefined,
       // Voice fallback chain (priority order):
-      //   1. tts_url        — persistent URL backed by WAV on disk (chat path, survives reload)
-      //   2. voice_audio    — ephemeral base64 (live POST /chat response only)
-      //   3. voice_asset_id — future-ready (autonomous voice notes via asset store; not active today)
-      //   4. audioUrl       — legacy/local fallback
-      audioUrl: normalizeAudioUrl(m.tts_url ?? m.voice_audio ?? m.voice_asset_id ?? m.audioUrl),
+      //   1. tts_url        — persistent URL (history/pending-safe)
+      //   2. voice_audio    — ephemeral base64
+      //   3. audioUrl       — legacy fallback
+      // voice_asset_id is NOT a direct audio src.
+      audioUrl: resolveAudioUrlFromPayload(m, baseUrl),
+      audioDuration,
       image: imageUrl,
       meta: normalizedMessage.meta,
-      delivery_mode: m.delivery_mode ?? (m.message_type === "voice_note" ? "voice_note" : undefined),
+      delivery_mode: m.delivery_mode ?? m.deliveryMode ?? (m.message_type === "voice_note" ? "voice_note" : undefined),
       agent_id: m.agent_id,
       agent_name: m.agent_name,
       agent_avatar: m.agent_avatar,
@@ -739,7 +738,7 @@ const Chat = () => {
           latency,
           meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
           delivery_mode: response.delivery_mode ?? undefined,
-          audioUrl: normalizeAudioUrl(response.tts_url ?? response.voice_audio),
+          audioUrl: resolveAudioUrlFromPayload(response as unknown as Record<string, unknown>, getApiConfig().baseUrl),
           image: response.image_base64
             ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
             : undefined,
@@ -898,7 +897,7 @@ const Chat = () => {
             backend_turn_id: assistantIdentity.backendTurnId,
             latency,
             meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
-            audioUrl: normalizeAudioUrl(response.tts_url ?? response.voice_audio),
+            audioUrl: resolveAudioUrlFromPayload(response as unknown as Record<string, unknown>, getApiConfig().baseUrl),
             // Image generation: if backend generated an image, embed it.
             image: response.image_base64
               ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
@@ -1002,7 +1001,7 @@ const Chat = () => {
           latency,
           meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
           delivery_mode: (response.tts_url || response.voice_audio) ? "voice_note" : undefined,
-          audioUrl: normalizeAudioUrl(response.tts_url ?? response.voice_audio),
+          audioUrl: resolveAudioUrlFromPayload(response as unknown as Record<string, unknown>, getApiConfig().baseUrl),
           // Image generation: if backend generated an image, embed it.
           image: response.image_base64
             ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
@@ -1013,7 +1012,6 @@ const Chat = () => {
         };
         setMessages((prev) => mergeMessagesIdempotent(prev, [responseMsg]));
         scrollToBottom();
-    [sessionId, fetchAndAppendPending, normalizeAssistantPayload]
         if (response.avatar_job_id) {
           const msgId = responseMsg.id;
           pollAndFetchAvatarVideo(response.avatar_job_id).then((videoDataUrl) => {
