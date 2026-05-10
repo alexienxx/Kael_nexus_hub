@@ -40,6 +40,8 @@ const DEGRADED_LABELS: Record<string, { title: string; description: string }> = 
 interface HealthDeepResponse {
   status: string;
   degraded_reasons: string[];
+  autonomy_loop_alive?: boolean | null;
+  autonomy_loop_state?: "running" | "stopped" | "starting" | "disabled" | "unknown";
   comfyui_reachable?: boolean;
   [key: string]: unknown;
 }
@@ -67,6 +69,17 @@ export function useServiceHealthToast(backendState: BackendLifecycleState) {
 
         if (data.degraded_reasons && data.degraded_reasons.length > 0) {
           for (const reason of data.degraded_reasons) {
+            // Canonical autonomy guard:
+            // show stale-loop toast only when backend explicitly reports stopped.
+            if (reason === "autonomy_loop_stale") {
+              const state = data.autonomy_loop_state ?? "unknown";
+              const alive = data.autonomy_loop_alive;
+              const isStopped = state === "stopped" || alive === false;
+              if (!isStopped) {
+                continue;
+              }
+            }
+
             const label = DEGRADED_LABELS[reason];
             if (label) {
               toast.warning(label.title, {
