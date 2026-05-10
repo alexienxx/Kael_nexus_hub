@@ -42,8 +42,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+#-- Guard: questo script deve essere eseguito DALLA sua directory o con path assoluto.
+#-- Se invocato da una directory esterna, si auto-rilancia dalla directory corretta.
+$ScriptPath = $MyInvocation.MyCommand.Path
+if (-not $ScriptPath) {
+    Write-Host "[ERROR] Impossibile determinare il path dello script. Usa il path assoluto:" -ForegroundColor Red
+    Write-Host "  powershell.exe -ExecutionPolicy Bypass -File 'C:\Kael_refactor_ultimate_new\kael_nexus_hub\build_apk.ps1' -Mode prod" -ForegroundColor Yellow
+    exit 1
+}
+
 #-- Paths
-$ProjectRoot   = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot   = Split-Path -Parent $ScriptPath
 $CapConfigMain = Join-Path $ProjectRoot "capacitor.config.ts"
 $CapConfigProd = Join-Path $ProjectRoot "capacitor.config.prod.ts"
 $AndroidDir    = Join-Path $ProjectRoot "android"

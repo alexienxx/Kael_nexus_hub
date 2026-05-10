@@ -77,9 +77,9 @@ export interface VoiceResponse extends ChatResponse {
 /**
  * Timeout for LLM-backed requests (chat, voice).
  * Ollama inference + TTS can take 60-180s for long replies.
- * Set to 5min to avoid killing long responses when connected via USB/adb-reverse.
+ * Set to 7min to avoid killing long responses when connected via USB/adb-reverse.
  */
-const CHAT_TIMEOUT = 300_000;
+const CHAT_TIMEOUT = 420_000;
 
 /** Send a text message and get Kael's reply */
 export async function sendMessage(
