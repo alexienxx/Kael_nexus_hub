@@ -89,13 +89,11 @@
 ## [Unreleased] — 2026-03-28
 
 ### 🔊 Fix: Voice pipeline — delivery_mode fallback
-- **`src/pages/Chat.tsx` — MODIFIED**: `mapBackendMsg()` — `delivery_mode` ora fallback a `message_type` quando il backend fornisce `message_type === "voice_note"` ma non `delivery_mode` esplicito. Garantisce che i vocali da history/pending vengano visualizzati come voice_note (solo player audio, testo nascosto).
 
 ---
 ## [Unreleased] — 2026-07-11
 
 ### �️ Fix: Netharion filtro eventi rilevanti (BUG A)
-- **`src/lib/api/netharion.ts` — MODIFIED**: `filterRelevantEvents()` — rimossa condizione `thresholds_passed.length > 0` (backend popola SEMPRE 4 coherence checks, rendendo il filtro inutile). Sostituita con check di transizione reale (`old_color !== new_color || old_mode !== new_mode`) + `resonance_score >= 0.30`. Ora viewMode 0 mostra SOLO eventi salienti; se non ce ne sono, mostra "Nessun evento sopra soglia".
 - **`src/components/common/NetharionRealEventsSheet.tsx` — MODIFIED**: Aggiornata descrizione viewMode 0 per riflettere i nuovi criteri di filtro.
 
 ### �🔌 Fix: Disconnessioni APK (Grace + Warmup + SSE Gate + Logging)
