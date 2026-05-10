@@ -327,13 +327,15 @@ export async function apiRequest<T = any>(
 
     // Strip HTTP keepalive comment lines (": keepalive\n") that the chat endpoint
     // inserts during long LLM generations to keep the TCP/adb-reverse connection alive.
+    // FIX 2026-05-10: the old line-filter approach incorrectly removed any line
+    // starting with ": " — including lines inside Kael's reply text — causing
+    // "Unexpected token" parse errors on responses that began with e.g. ": certo…".
+    // Safe approach: keepalive lines are ALWAYS prepended before the JSON body,
+    // so we just skip forward to the first { or [ to find the real JSON start.
     const text = await res.text();
-    const jsonText = text
-      .split("\n")
-      .filter((line) => !line.startsWith(": "))
-      .join("\n")
-      .trim();
-    return JSON.parse(jsonText || text) as T;
+    const jsonStart = text.search(/[{[]/);
+    const jsonText = jsonStart >= 0 ? text.slice(jsonStart) : text;
+    return JSON.parse(jsonText) as T;
   } catch (error) {
     clearTimeout(timeoutId);
 
