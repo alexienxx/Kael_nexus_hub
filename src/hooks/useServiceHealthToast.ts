@@ -37,11 +37,26 @@ const DEGRADED_LABELS: Record<string, { title: string; description: string }> = 
   },
 };
 
+interface AutonomyHealthBlock {
+  /** Present when backend exposes K-2 structured surface. */
+  available?: boolean;
+  toast_should_show?: boolean;
+  loop_state?: "running" | "stale" | "starting" | "stopped" | "disabled" | "unknown";
+  dispatch_suppressed?: boolean;
+  suppression_reason?: string;
+  enabled?: boolean;
+  expected_to_tick?: boolean;
+  last_tick_age_ms?: number;
+  stale_threshold_ms?: number;
+  [key: string]: unknown;
+}
+
 interface HealthDeepResponse {
   status: string;
   degraded_reasons: string[];
   autonomy_loop_alive?: boolean | null;
   autonomy_loop_state?: "running" | "stopped" | "starting" | "disabled" | "unknown";
+  autonomy_health?: AutonomyHealthBlock;
   comfyui_reachable?: boolean;
   [key: string]: unknown;
 }
@@ -69,14 +84,24 @@ export function useServiceHealthToast(backendState: BackendLifecycleState) {
 
         if (data.degraded_reasons && data.degraded_reasons.length > 0) {
           for (const reason of data.degraded_reasons) {
-            // Canonical autonomy guard:
-            // show stale-loop toast only when backend explicitly reports stopped.
+            // K-2 canonical autonomy guard:
+            // Prefer structured autonomy_health.toast_should_show when the
+            // backend exposes it (>= K-2 cutover). It already accounts for
+            // the K-1 dispatch suppression (user typing/active → no toast).
+            // Falls back to legacy autonomy_loop_state guard for older backends.
             if (reason === "autonomy_loop_stale") {
-              const state = data.autonomy_loop_state ?? "unknown";
-              const alive = data.autonomy_loop_alive;
-              const isStopped = state === "stopped" || alive === false;
-              if (!isStopped) {
-                continue;
+              const ah = data.autonomy_health;
+              if (ah && ah.available !== false && typeof ah.toast_should_show === "boolean") {
+                if (!ah.toast_should_show) {
+                  continue;
+                }
+              } else {
+                const state = data.autonomy_loop_state ?? "unknown";
+                const alive = data.autonomy_loop_alive;
+                const isStopped = state === "stopped" || alive === false;
+                if (!isStopped) {
+                  continue;
+                }
               }
             }
 
