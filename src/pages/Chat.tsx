@@ -1173,6 +1173,7 @@ const Chat = () => {
         onOpenServices={() => navigate("/workspace")}
         onCancelEdit={handleCancelEdit}
         disabled={lifecycleState !== "online"}
+        sessionId={sessionId}
       />
 
       {/* Hidden wallpaper file input */}

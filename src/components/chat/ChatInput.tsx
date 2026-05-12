@@ -3,6 +3,7 @@ import { Send, Image, Mic, Square, Camera, Plug, X, Pencil } from "lucide-react"
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { requestMicrophonePermission } from "@/lib/permissions";
+import { notifyTyping } from "@/lib/api/presence";
 
 interface ChatInputProps {
   onSend: (text: string) => void;
@@ -11,9 +12,11 @@ interface ChatInputProps {
   onOpenServices?: () => void;
   onCancelEdit?: () => void;
   disabled?: boolean;
+  /** K-1.b — canonical session id ('mobile_kael') for presence emit. */
+  sessionId?: string;
 }
 
-const ChatInput = ({ onSend, onImageUpload, onVoiceNote, onOpenServices, onCancelEdit, disabled }: ChatInputProps) => {
+const ChatInput = ({ onSend, onImageUpload, onVoiceNote, onOpenServices, onCancelEdit, disabled, sessionId }: ChatInputProps) => {
   const navigate = useNavigate();
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -62,6 +65,37 @@ const ChatInput = ({ onSend, onImageUpload, onVoiceNote, onOpenServices, onCance
     onCancelEdit?.();
   };
 
+  // K-1.b — debounce-reset for typing indicator. After 1.5 s of no
+  // keystrokes, force user_typing=false so the backend doesn't see a
+  // stuck typing=true if the user walked away mid-message.
+  const typingResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+    if (sessionId) {
+      notifyTyping(sessionId, true);
+      if (typingResetTimer.current) clearTimeout(typingResetTimer.current);
+      typingResetTimer.current = setTimeout(() => {
+        notifyTyping(sessionId, false);
+      }, 1500);
+    }
+  };
+
+  const clearTypingState = () => {
+    if (typingResetTimer.current) {
+      clearTimeout(typingResetTimer.current);
+      typingResetTimer.current = null;
+    }
+    if (sessionId) notifyTyping(sessionId, false);
+  };
+
+  // Make sure pending typing timers don't outlive the component.
+  useEffect(() => {
+    return () => {
+      if (typingResetTimer.current) clearTimeout(typingResetTimer.current);
+    };
+  }, []);
+
   const handleSend = () => {
     if (disabled) return;
     if (stagedFile) {
@@ -71,12 +105,14 @@ const ChatInput = ({ onSend, onImageUpload, onVoiceNote, onOpenServices, onCance
       setInput("");
       unstageFile();
       setEditingMessageId(null);
+      clearTypingState();
       return;
     }
     if (!input.trim()) return;
     onSend(input.trim());
     setInput("");
     setEditingMessageId(null);
+    clearTypingState();
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -230,7 +266,8 @@ const ChatInput = ({ onSend, onImageUpload, onVoiceNote, onOpenServices, onCance
             type="text"
             placeholder={stagedFile ? "Commenta la foto..." : "Scrivi a Kael..."}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={handleInputChange}
+            onBlur={clearTypingState}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
             disabled={disabled}
