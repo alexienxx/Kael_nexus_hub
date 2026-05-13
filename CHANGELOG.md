@@ -4,6 +4,46 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [Unreleased] — 2026-05-13
+
+### Fix: network-resilience-parity — cellular→WiFi reconnect now works correctly
+
+**Root cause confirmed (forensic)**:
+- `handleConnectionChange` returned early if `stateRef.current !== "online"`, so
+  network changes arriving while the app was in `backend_unreachable` / `offline_network` /
+  `offline` / `start_failed` were silently swallowed — no retry was scheduled.
+- The manual Reconnect button called `runProbe(true)` directly with no warmup,
+  while the background→foreground path used `RESUME_WARMUP_MS = 800ms`. Android needs
+  warmup after any network transition to stabilize DNS/TCP/routing.
+- No probe-epoch guard: a timed-out stale probe could overwrite the state written
+  by a faster, newer probe racing to complete.
+
+**Changes — `src/hooks/useBackendLifecycle.ts`**:
+- `PROBE_TIMEOUT_MS` bumped from 4000 → 6000ms. Non-blocking on happy path (probes
+  that succeed resolve via microtask, not timer).
+- Added `NETWORK_RECONNECT_WARMUP_MS = 800ms` constant (same value as `RESUME_WARMUP_MS`,
+  kept separate for clarity).
+- `handleConnectionChange` now handles ALL states:
+  - `"checking"` or probe running → no-op;
+  - `"online"` → `checkHealth()`, if KO → `retry({ withWarmup: true, reason: "network_change_health_fail" })`;
+  - `"backend_unreachable" | "offline_network" | "offline" | "start_failed"` →
+    `retry({ withWarmup: true, reason: "network_change_degraded" })` immediately.
+- `retry(opts?: RetryOptions)` now accepts `{ withWarmup?, reason? }`. Default `withWarmup=true`.
+  Applies `NETWORK_RECONNECT_WARMUP_MS` delay before `runProbe`. The visibility-change
+  handler passes `withWarmup: false` (it already has an external `RESUME_WARMUP_MS` delay).
+- Added `probeEpochRef` race-condition guard: each `runProbe` captures its epoch on entry;
+  state writes are skipped if epoch is superseded; `finally` only releases the lock for
+  the current epoch.
+- Added log markers: `NETWORK_CHANGE_DETECTED`, `NETWORK_CHANGE_RETRY_SCHEDULED`,
+  `RECONNECT_WARMUP_BEGIN`, `PROBE_EPOCH_SUPERSEDED`, `RECONNECT_SUCCESS_AFTER_NETWORK_CHANGE`,
+  `RECONNECT_FAILED_AFTER_NETWORK_CHANGE`.
+- Exported `RetryOptions` interface; updated `BackendLifecycleResult.retry` type accordingly.
+
+**New — `src/test/network-resilience.test.ts`**:
+- 6 tests covering all new behaviors (A–F). All pass, ~1.5s total.
+- No backend changes, no rebuild scope creep.
+
+---
 ## [Unreleased] — 2026-05-10
 
 ### Fix: nexus: stabilize autonomous pending message ordering

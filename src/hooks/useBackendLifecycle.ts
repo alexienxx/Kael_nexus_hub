@@ -7,7 +7,7 @@
  *
  * On mount / retry:
  *   1. Check navigator.onLine — if device offline → state = "offline_network"
- *   2. Probe backend URLs via probeWithRetry() (robust: 3 attempts per URL, 4s timeout, 2s delay)
+ *   2. Probe backend URLs via probeWithRetry() (robust: 3 attempts per URL, 6s timeout, 2s delay)
  *   3. If backend found → state = "online", start periodic recheck
  *   4. If all probes fail → state = "backend_unreachable"
  *
@@ -65,7 +65,7 @@ const FAST_FAILOVER_REDISCOVERY_COOLDOWN_MS = 15_000;
 const PROBE_MAX_ATTEMPTS = 3;
 
 /** Timeout per individual probe fetch (ms). */
-const PROBE_TIMEOUT_MS = 4_000;
+const PROBE_TIMEOUT_MS = 6_000;
 
 /** Delay between probe retry attempts (ms). */
 const PROBE_RETRY_DELAY_MS = 2_000;
@@ -73,6 +73,10 @@ const PROBE_RETRY_DELAY_MS = 2_000;
 /** Warmup delay before probing after app resumes from background (ms).
  * Android needs time to restore DNS/TCP after sleep. */
 const RESUME_WARMUP_MS = 800;
+
+/** Warmup delay before probing after a network-type change or manual reconnect (ms).
+ * Android may have DNS/TCP/routing not yet stabilized after cellular→WiFi transition. */
+const NETWORK_RECONNECT_WARMUP_MS = 800;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -89,6 +93,17 @@ async function probeOnceWithTimeout(timeoutMs: number): Promise<string | null> {
 
 // ── Types ────────────────────────────────────────────────────────────────
 
+/** Options accepted by the retry() call. */
+export interface RetryOptions {
+  /** If true, wait NETWORK_RECONNECT_WARMUP_MS before probing (default: true).
+   * Gives Android time to stabilize DNS/TCP after network transitions.
+   * Set to false only when an external delay has already been applied by the caller
+   * (e.g. the visibility-change handler already waits RESUME_WARMUP_MS). */
+  withWarmup?: boolean;
+  /** Diagnostic label written to console logs. */
+  reason?: string;
+}
+
 export interface BackendLifecycleResult {
   /** Current lifecycle state. */
   state: BackendLifecycleState;
@@ -98,8 +113,8 @@ export interface BackendLifecycleResult {
   retryAttempt: number;
   /** Total retry attempts configured (constant). */
   retryTotal: number;
-  /** Force a retry (re-runs probe flow). Never launches bootstrap. */
-  retry: () => void;
+  /** Force a retry (re-runs probe flow). withWarmup defaults to true. Never launches bootstrap. */
+  retry: (opts?: RetryOptions) => void;
   /** Reason for the last disconnect (null if never disconnected). */
   disconnectReason: DisconnectReason;
 }
@@ -175,6 +190,11 @@ export function useBackendLifecycle(): BackendLifecycleResult {
 
   /** Counts consecutive health-check failures (reset on success or retry). */
   const healthFailCountRef = useRef(0);
+
+  /** Epoch counter — each runProbe invocation captures its epoch on entry.
+   * Only the probe matching the current epoch may write state, preventing
+   * a stale (timed-out) probe from clobbering a newer probe's result. */
+  const probeEpochRef = useRef(0);
 
   /** Last known boot_id from the backend — detects silent server restarts. */
   const lastBootIdRef = useRef<string | null>(null);
@@ -296,9 +316,13 @@ export function useBackendLifecycle(): BackendLifecycleResult {
     if (isRunningRef.current) return;
     isRunningRef.current = true;
 
+    const myEpoch = ++probeEpochRef.current;
+    const isCurrent = () => mountedRef.current && probeEpochRef.current === myEpoch;
+
     try {
       // Step 0: Check device connectivity
       if (!navigator.onLine) {
+        if (!isCurrent()) { console.log("[KAEL] PROBE_EPOCH_SUPERSEDED epoch=%d (offline check)", myEpoch); return; }
         disconnectReasonRef.current = "network_offline";
         console.warn("[KAEL] Disconnect reason: network_offline");
         setStateSynced("offline_network");
@@ -327,13 +351,14 @@ export function useBackendLifecycle(): BackendLifecycleResult {
         // For manual retry: each attempt visible for at least 1.2s
         manual ? 1200 : undefined,
       );
-      if (!mountedRef.current) return;
+      if (!isCurrent()) { console.log("[KAEL] PROBE_EPOCH_SUPERSEDED epoch=%d (post-probe)", myEpoch); return; }
 
       setRetryAttempt(0);
 
       if (backendUrl) {
         setStateSynced("online");
         setMessage(manual ? "Riconnesso" : "Connesso");
+        console.log("[KAEL] RECONNECT_SUCCESS_AFTER_NETWORK_CHANGE epoch=%d url=%s manual=%s", myEpoch, backendUrl, manual);
         // Capture / compare boot_id for session integrity tracking.
         // This path handles offline→online transitions where the recheck
         // setInterval is no longer running — emit kael-server-restarted here
@@ -367,11 +392,16 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       // NOTE: We do NOT call sentinel, do NOT launch bootstrap.
       // The user can manually restart the server from Settings > Avanzate.
       disconnectReasonRef.current = "resume_probe_failed";
+      console.warn("[KAEL] RECONNECT_FAILED_AFTER_NETWORK_CHANGE epoch=%d attempts=%d", myEpoch, PROBE_MAX_ATTEMPTS);
       console.warn("[KAEL] Disconnect reason: resume_probe_failed (attempts=%d)", PROBE_MAX_ATTEMPTS);
       setStateSynced("backend_unreachable");
       setMessage(`Backend irraggiungibile dopo ${PROBE_MAX_ATTEMPTS} tentativi`);
     } finally {
-      isRunningRef.current = false;
+      // Only release the concurrency lock if this is still the current epoch.
+      // A stale timed-out probe must not reset the lock of a newer probe.
+      if (probeEpochRef.current === myEpoch) {
+        isRunningRef.current = false;
+      }
       setRetryAttempt(0);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -379,14 +409,22 @@ export function useBackendLifecycle(): BackendLifecycleResult {
 
   // ── Retry (manual from button or auto from events) ─────────────────
 
-  const retry = useCallback(() => {
+  const retry = useCallback((opts: RetryOptions = {}) => {
+    const { withWarmup = true, reason = "manual" } = opts;
     isRunningRef.current = false;
     healthFailCountRef.current = 0;
     if (onlineTimerRef.current) {
       clearInterval(onlineTimerRef.current);
       onlineTimerRef.current = null;
     }
-    runProbe(true);
+    if (withWarmup) {
+      console.log("[KAEL] RECONNECT_WARMUP_BEGIN reason=%s warmup_ms=%d", reason, NETWORK_RECONNECT_WARMUP_MS);
+      setTimeout(() => {
+        if (mountedRef.current && !isRunningRef.current) runProbe(true);
+      }, NETWORK_RECONNECT_WARMUP_MS);
+    } else {
+      runProbe(true);
+    }
   }, [runProbe]);
 
   // ── Mount / Unmount / Events ───────────────────────────────────────
@@ -413,7 +451,7 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       ) {
         // Android needs time to restore network after background
         setTimeout(() => {
-          if (mountedRef.current && !isRunningRef.current) retry();
+          if (mountedRef.current && !isRunningRef.current) retry({ withWarmup: false });
         }, RESUME_WARMUP_MS);
       }
     };
@@ -424,7 +462,7 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       if (isRunningRef.current) return;
       const currentState = stateRef.current;
       if (currentState === "offline_network" || currentState === "backend_unreachable" || currentState === "offline") {
-        retry();
+        retry({ withWarmup: true, reason: "device_online" });
       }
     };
 
@@ -435,15 +473,29 @@ export function useBackendLifecycle(): BackendLifecycleResult {
     // immediately verify/re-discover the backend.
     const conn = (navigator as any).connection as EventTarget | undefined;
     const handleConnectionChange = () => {
-      if (!mountedRef.current || isRunningRef.current) return;
-      if (stateRef.current !== "online") return;
-      console.log("[KAEL] Network type changed — verifying cached backend URL...");
-      checkHealth().then((ok) => {
-        if (!ok && mountedRef.current && !isRunningRef.current) {
-          console.warn("[KAEL] Network changed + cached URL dead → fast re-discovery");
-          retry();
-        }
-      });
+      console.log("[KAEL] NETWORK_CHANGE_DETECTED state=%s online=%s", stateRef.current, navigator.onLine);
+      if (!mountedRef.current) return;
+      const currentState = stateRef.current;
+      // no-op if probe already running or mid-check
+      if (isRunningRef.current || currentState === "checking") return;
+      if (currentState === "online") {
+        // Verify cached URL is still reachable; retry with warmup only if KO.
+        checkHealth().then((ok) => {
+          if (!ok && mountedRef.current && stateRef.current === "online") {
+            console.warn("[KAEL] NETWORK_CHANGE_RETRY_SCHEDULED state=online health=KO → warmup+probe");
+            retry({ withWarmup: true, reason: "network_change_health_fail" });
+          }
+        });
+      } else if (
+        currentState === "backend_unreachable" ||
+        currentState === "offline_network" ||
+        currentState === "offline" ||
+        currentState === "start_failed"
+      ) {
+        // Degraded → network type changed → the new interface might reach backend.
+        console.warn("[KAEL] NETWORK_CHANGE_RETRY_SCHEDULED state=%s (degraded) → warmup+probe", currentState);
+        retry({ withWarmup: true, reason: "network_change_degraded" });
+      }
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
