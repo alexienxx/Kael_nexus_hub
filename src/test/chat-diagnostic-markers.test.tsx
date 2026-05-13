@@ -86,6 +86,24 @@ describe("chat diagnostic markers", () => {
     expect(normalized.severity).toBe("info");
   });
 
+  it("strips think/reasoning tags from assistant text", () => {
+    const normalized = normalizeDiagnosticMarkers(
+      "Risposta <think>internal chain</think> finale",
+    );
+
+    expect(normalized.cleanText).toBe("Risposta finale");
+    expect(normalized.markers).toEqual([]);
+  });
+
+  it("strips dangling reasoning tags and keeps visible content", () => {
+    const normalized = normalizeDiagnosticMarkers(
+      "<reasoning>hidden</reasoning>Contenuto visibile</reasoning>",
+    );
+
+    expect(normalized.cleanText).toBe("Contenuto visibile");
+    expect(normalized.markers).toEqual([]);
+  });
+
   it("passes through normal text without markers", () => {
     const normalized = normalizeDiagnosticMarkers("Risposta normale senza marker");
 

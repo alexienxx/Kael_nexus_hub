@@ -102,6 +102,8 @@ export interface RetryOptions {
   withWarmup?: boolean;
   /** Diagnostic label written to console logs. */
   reason?: string;
+  /** Show manual attempt progress in UI (Tentativo X/N). */
+  interactive?: boolean;
 }
 
 export interface BackendLifecycleResult {
@@ -410,7 +412,7 @@ export function useBackendLifecycle(): BackendLifecycleResult {
   // ── Retry (manual from button or auto from events) ─────────────────
 
   const retry = useCallback((opts: RetryOptions = {}) => {
-    const { withWarmup = true, reason = "manual" } = opts;
+    const { withWarmup = true, reason = "manual", interactive = true } = opts;
     isRunningRef.current = false;
     healthFailCountRef.current = 0;
     if (onlineTimerRef.current) {
@@ -420,10 +422,10 @@ export function useBackendLifecycle(): BackendLifecycleResult {
     if (withWarmup) {
       console.log("[KAEL] RECONNECT_WARMUP_BEGIN reason=%s warmup_ms=%d", reason, NETWORK_RECONNECT_WARMUP_MS);
       setTimeout(() => {
-        if (mountedRef.current && !isRunningRef.current) runProbe(true);
+        if (mountedRef.current && !isRunningRef.current) runProbe(interactive);
       }, NETWORK_RECONNECT_WARMUP_MS);
     } else {
-      runProbe(true);
+      runProbe(interactive);
     }
   }, [runProbe]);
 
@@ -451,7 +453,9 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       ) {
         // Android needs time to restore network after background
         setTimeout(() => {
-          if (mountedRef.current && !isRunningRef.current) retry({ withWarmup: false });
+          if (mountedRef.current && !isRunningRef.current) {
+            retry({ withWarmup: false, reason: "visibility_resume", interactive: false });
+          }
         }, RESUME_WARMUP_MS);
       }
     };
@@ -462,7 +466,7 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       if (isRunningRef.current) return;
       const currentState = stateRef.current;
       if (currentState === "offline_network" || currentState === "backend_unreachable" || currentState === "offline") {
-        retry({ withWarmup: true, reason: "device_online" });
+        retry({ withWarmup: true, reason: "device_online", interactive: false });
       }
     };
 
@@ -483,7 +487,7 @@ export function useBackendLifecycle(): BackendLifecycleResult {
         checkHealth().then((ok) => {
           if (!ok && mountedRef.current && stateRef.current === "online") {
             console.warn("[KAEL] NETWORK_CHANGE_RETRY_SCHEDULED state=online health=KO → warmup+probe");
-            retry({ withWarmup: true, reason: "network_change_health_fail" });
+            retry({ withWarmup: true, reason: "network_change_health_fail", interactive: false });
           }
         });
       } else if (
@@ -494,7 +498,7 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       ) {
         // Degraded → network type changed → the new interface might reach backend.
         console.warn("[KAEL] NETWORK_CHANGE_RETRY_SCHEDULED state=%s (degraded) → warmup+probe", currentState);
-        retry({ withWarmup: true, reason: "network_change_degraded" });
+        retry({ withWarmup: true, reason: "network_change_degraded", interactive: false });
       }
     };
 

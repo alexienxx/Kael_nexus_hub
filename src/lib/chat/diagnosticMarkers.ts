@@ -14,6 +14,9 @@ export interface DiagnosticMessagePayload {
 
 const BRACKETED_MARKER_RE = /\[([^\]]+)\]/g;
 const CRITICAL_MARKER_HINT_RE = /(ERROR|FAILED|TIMEOUT|ABORTED|UNAVAILABLE|CORRUPTED|BROKEN|PANIC|FATAL)/;
+const REASONING_BLOCK_RE = /<\s*(think|reasoning)\b[^>]*>[\s\S]*?<\s*\/\s*(think|reasoning)\s*>/gi;
+const REASONING_OPEN_RE = /<\s*(?:think|reasoning)\b[^>]*>/gi;
+const REASONING_CLOSE_RE = /<\s*\/\s*(?:think|reasoning)\s*>/gi;
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
@@ -25,6 +28,17 @@ function normalizeWhitespace(text: string): string {
     .replace(/\n{3,}/g, "\n\n")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
+}
+
+function stripReasoningTags(text: string): string {
+  const countedReplace = (source: string, pattern: RegExp): string =>
+    source.replace(pattern, " ");
+
+  let cleanText = text;
+  cleanText = countedReplace(cleanText, REASONING_BLOCK_RE);
+  cleanText = countedReplace(cleanText, REASONING_OPEN_RE);
+  cleanText = countedReplace(cleanText, REASONING_CLOSE_RE);
+  return cleanText;
 }
 
 function classifyMarker(marker: string): {
@@ -107,8 +121,9 @@ function deriveNote(markers: string[]): { note?: string; severity?: DiagnosticSe
 
 export function normalizeDiagnosticMarkers(rawText: string): DiagnosticMarkerResult {
   const source = rawText ?? "";
-  const markers = unique(Array.from(source.matchAll(BRACKETED_MARKER_RE), (match) => match[1]));
-  const cleanText = normalizeWhitespace(source.replace(BRACKETED_MARKER_RE, " "));
+  const stripped = stripReasoningTags(source);
+  const markers = unique(Array.from(stripped.matchAll(BRACKETED_MARKER_RE), (match) => match[1]));
+  const cleanText = normalizeWhitespace(stripped.replace(BRACKETED_MARKER_RE, " "));
   const { note, severity } = deriveNote(markers);
 
   return {
