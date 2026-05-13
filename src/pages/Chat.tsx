@@ -384,7 +384,6 @@ const Chat = () => {
       }
       return;
     }
-    historyLoadedRef.current = true;
     let cancelled = false;
     (async () => {
       let historyMessages: any[] = [];
@@ -397,16 +396,25 @@ const Chat = () => {
       try {
         const data = await chatApi.getChatHistory(sessionId);
         historyMessages = data?.messages ?? [];
+        if (!historyMessages.length) {
+          const pendingProbe = await chatApi.fetchPendingMessages(0, sessionId);
+          const pendingCount = pendingProbe?.messages?.length ?? 0;
+          if (pendingCount > 0) {
+            throw new Error("HISTORY_CONTRACT_MISMATCH_EMPTY_HISTORY_WITH_PENDING");
+          }
+        }
         if (!cancelled && data?.messages?.length) {
           mergeHistoryIntoState(data.messages);
         }
         historyLoadedOk = true;
       } catch (err) {
+        historyLoadedRef.current = false;
         console.warn("[Chat] History load failed:", err);
       } finally {
         if (!cancelled) {
           setHistoryLoading(false);
           if (historyLoadedOk) {
+            historyLoadedRef.current = true;
             pendingDrainReadyRef.current = true;
             // Advance watermark ONLY from confirmed backend data.
             // Never fallback to Date.now() here: a failed/empty load must not
@@ -618,6 +626,14 @@ const Chat = () => {
       (async () => {
         try {
           const data = await chatApi.getChatHistory(sessionId);
+          const historyMessages = data?.messages ?? [];
+          if (!historyMessages.length) {
+            const pendingProbe = await chatApi.fetchPendingMessages(0, sessionId);
+            const pendingCount = pendingProbe?.messages?.length ?? 0;
+            if (pendingCount > 0) {
+              throw new Error("HISTORY_CONTRACT_MISMATCH_EMPTY_HISTORY_WITH_PENDING");
+            }
+          }
           if (data?.messages?.length) {
             mergeHistoryIntoState(data.messages);
           }
