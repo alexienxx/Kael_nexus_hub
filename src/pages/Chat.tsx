@@ -26,6 +26,7 @@ import type { KaelSSENewMessage } from "@/hooks/useKaelSSE";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import * as chatApi from "@/lib/api/chat";
+import type { QuotedMessagePayload } from "@/lib/api/chat";
 import { requestTTS } from "@/lib/api/voice";
 import { fetchAvatarVideo, getVideoJobStatus } from "@/lib/api/avatar";
 import { emitTelemetry } from "@/lib/telemetry/sseTelemetry";
@@ -68,7 +69,6 @@ import { sendExternalAgentMessage, getSelectedModel, type ExternalChatMessage } 
 const DEFAULT_CONVERSATION_ID = "kael-main";
 
 interface QuotedPreview {
-  messageId: string;
   authorLabel: string;
   textPreview: string;
 }
@@ -76,6 +76,7 @@ interface QuotedPreview {
 const Chat = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [quotedPreview, setQuotedPreview] = useState<QuotedPreview | null>(null);
+  const [quotedMessagePayload, setQuotedMessagePayload] = useState<QuotedMessagePayload | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
@@ -707,6 +708,7 @@ const Chat = () => {
       };
       setMessages((prev) => [...prev, userMsg]);
       setQuotedPreview(null);
+      setQuotedMessagePayload(null);
       scrollToBottom();
 
       // --- Kael is ALWAYS the primary chat route ---
@@ -855,13 +857,46 @@ const Chat = () => {
       message.bubbles?.[0]?.trim() ||
       (message.image ? "[Immagine]" : "[Messaggio]");
 
+    const quotedAuthor: QuotedMessagePayload["quoted_author"] =
+      message.sender === "user"
+        ? "user"
+        : (String(message.meta?.autonomy_source || "").toLowerCase() === "autonomy" ||
+            String(message.meta?.source || "").toLowerCase() === "autonomy")
+          ? "autonomous"
+          : "assistant";
+    const createdAt =
+      typeof message.timestamp === "number" && Number.isFinite(message.timestamp)
+        ? new Date(message.timestamp * 1000).toISOString()
+        : new Date().toISOString();
+
+    setQuotedMessagePayload({
+      quoted_message_id: message.id,
+      quoted_turn_id: message.backend_turn_id ?? null,
+      quoted_session_id: sessionId,
+      quoted_author: quotedAuthor,
+      quoted_channel: "chat",
+      quoted_created_at: createdAt,
+      quoted_text_preview: sourceText.slice(0, 240),
+      quoted_text_hash: null,
+      quoted_full_text_available: Boolean(message.text?.trim() || message.bubbles?.length),
+      quoted_autonomy_id:
+        typeof message.meta?.autonomy_id === "string"
+          ? message.meta.autonomy_id
+          : null,
+      quoted_parent_message_id: null,
+      quoted_topic_id:
+        typeof message.meta?.topic_id === "string"
+          ? message.meta.topic_id
+          : null,
+      quoted_memory_candidate: null,
+    });
+
     setQuotedPreview({
-      messageId: message.id,
       authorLabel,
       textPreview: sourceText.slice(0, 160),
     });
     toast.success("Messaggio selezionato per risposta");
-  }, []);
+  }, [sessionId]);
 
   const handleImageUpload = useCallback(
     async (file: File, caption?: string) => {
@@ -1218,7 +1253,10 @@ const Chat = () => {
         onOpenServices={() => navigate("/workspace")}
         onCancelEdit={handleCancelEdit}
         quotedMessagePreview={quotedPreview}
-        onClearQuotedMessage={() => setQuotedPreview(null)}
+        onClearQuotedMessage={() => {
+          setQuotedPreview(null);
+          setQuotedMessagePayload(null);
+        }}
         disabled={lifecycleState !== "online"}
         sessionId={sessionId}
       />

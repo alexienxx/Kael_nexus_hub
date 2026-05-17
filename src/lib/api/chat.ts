@@ -75,6 +75,24 @@ export interface VoiceResponse extends ChatResponse {
   transcription?: string;
 }
 
+export type QuotedMessageAuthor = "user" | "assistant" | "autonomous" | "system" | "tool";
+
+export interface QuotedMessagePayload {
+  quoted_message_id: string;
+  quoted_turn_id: string | null;
+  quoted_session_id: string;
+  quoted_author: QuotedMessageAuthor;
+  quoted_channel: "chat" | "autonomy" | "voice" | "image" | "call" | "other";
+  quoted_created_at: string;
+  quoted_text_preview: string;
+  quoted_text_hash: string | null;
+  quoted_full_text_available: boolean;
+  quoted_autonomy_id: string | null;
+  quoted_parent_message_id: string | null;
+  quoted_topic_id: string | null;
+  quoted_memory_candidate: boolean | null;
+}
+
 /**
  * Timeout for LLM-backed requests (chat, voice).
  * Ollama inference + TTS can take 60-180s for long replies.
