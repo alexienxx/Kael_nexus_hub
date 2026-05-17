@@ -30,7 +30,13 @@ export function useSession() {
       return CANONICAL_SESSION_ID;
     }
 
-    return stored;
+    // Hard-lock to canonical for data continuity across APK reinstalls.
+    if (stored !== CANONICAL_SESSION_ID) {
+      localStorage.setItem(STORAGE_KEY, CANONICAL_SESSION_ID);
+      return CANONICAL_SESSION_ID;
+    }
+
+    return CANONICAL_SESSION_ID;
   });
 
   // Ensure session ID is always in sync with localStorage
@@ -46,17 +52,21 @@ export function useSession() {
    */
   const clearSession = () => {
     localStorage.removeItem(STORAGE_KEY);
-    const newId = crypto.randomUUID();
-    setSessionId(newId);
-    localStorage.setItem(STORAGE_KEY, newId);
+    // Never rotate to random IDs: keep backend continuity on mobile_kael.
+    setSessionId(CANONICAL_SESSION_ID);
+    localStorage.setItem(STORAGE_KEY, CANONICAL_SESSION_ID);
   };
 
   /**
    * Manually set a specific session ID (for session restoration)
    */
   const setSession = (id: string) => {
-    setSessionId(id);
-    localStorage.setItem(STORAGE_KEY, id);
+    // Preserve canonical continuity even if callers pass a custom id.
+    if (id !== CANONICAL_SESSION_ID) {
+      console.warn("[SESSION] Non-canonical session ignored:", id);
+    }
+    setSessionId(CANONICAL_SESSION_ID);
+    localStorage.setItem(STORAGE_KEY, CANONICAL_SESSION_ID);
   };
 
   return {

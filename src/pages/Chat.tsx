@@ -408,11 +408,14 @@ const Chat = () => {
           const pendingProbe = await chatApi.fetchPendingMessages(0, sessionId);
           const pendingCount = pendingProbe?.messages?.length ?? 0;
           if (pendingCount > 0) {
-            throw new Error("HISTORY_CONTRACT_MISMATCH_EMPTY_HISTORY_WITH_PENDING");
+            // Recovery path: if history endpoint is empty but pending has rows,
+            // hydrate from pending instead of showing a blank chat.
+            console.warn("[Chat] History empty but pending has data — recovering from pending");
+            historyMessages = pendingProbe.messages;
           }
         }
-        if (!cancelled && data?.messages?.length) {
-          mergeHistoryIntoState(data.messages);
+        if (!cancelled && historyMessages.length) {
+          mergeHistoryIntoState(historyMessages);
         }
         historyLoadedOk = true;
       } catch (err) {
@@ -634,21 +637,22 @@ const Chat = () => {
       (async () => {
         try {
           const data = await chatApi.getChatHistory(sessionId);
-          const historyMessages = data?.messages ?? [];
+          let historyMessages = data?.messages ?? [];
           if (!historyMessages.length) {
             const pendingProbe = await chatApi.fetchPendingMessages(0, sessionId);
             const pendingCount = pendingProbe?.messages?.length ?? 0;
             if (pendingCount > 0) {
-              throw new Error("HISTORY_CONTRACT_MISMATCH_EMPTY_HISTORY_WITH_PENDING");
+              console.warn("[Chat] Restart merge: history empty, recovering from pending");
+              historyMessages = pendingProbe.messages;
             }
           }
-          if (data?.messages?.length) {
-            mergeHistoryIntoState(data.messages);
+          if (historyMessages.length) {
+            mergeHistoryIntoState(historyMessages);
           }
           // Mark loaded so the useEffect doesn't double-fire on the same state tick
           historyLoadedRef.current = true;
           pendingDrainReadyRef.current = true;
-          const maxHistoryTs = getMaxTimestamp(data?.messages ?? []);
+          const maxHistoryTs = getMaxTimestamp(historyMessages);
           if (maxHistoryTs > 0) {
             lastFetchTsRef.current = maxHistoryTs;
           }
