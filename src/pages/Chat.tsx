@@ -715,7 +715,13 @@ const Chat = () => {
       setIsTyping(true);
       try {
         const startTime = Date.now();
-        const response = await chatApi.sendMessage(text, sessionId, undefined, clientMsgId);
+        const response = await chatApi.sendMessage(
+          text,
+          sessionId,
+          undefined,
+          clientMsgId,
+          quotedMessagePayload,
+        );
         const latency = Date.now() - startTime;
 
         setIsTyping(false);
@@ -842,7 +848,14 @@ const Chat = () => {
         }
       }
     },
-    [sessionId, agentMode, messages, fetchAndAppendPending, normalizeAssistantPayload]
+    [
+      sessionId,
+      agentMode,
+      messages,
+      fetchAndAppendPending,
+      normalizeAssistantPayload,
+      quotedMessagePayload,
+    ]
   );
 
   const handleSwipeReply = useCallback((message: ChatMessage) => {

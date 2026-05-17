@@ -106,6 +106,7 @@ export async function sendMessage(
   sessionId: string,
   conversationId?: string,
   clientMessageId?: string,
+  quotedMessage?: QuotedMessagePayload | null,
 ) {
   return apiRequest<ChatResponse>("/chat", {
     method: "POST",
@@ -116,6 +117,7 @@ export async function sendMessage(
       // Stable client-generated UUID for server-side idempotency and
       // frontend reconciliation of the optimistic message on history reload.
       ...(clientMessageId ? { client_message_id: clientMessageId } : {}),
+      ...(quotedMessage ? { quoted_message: quotedMessage } : {}),
     }),
     timeout: CHAT_TIMEOUT,
   });
