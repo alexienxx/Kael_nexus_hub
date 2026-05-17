@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { useTheme } from "@/lib/store/theme";
 import MessageActions from "./MessageActions";
 import AudioMessage from "./AudioMessage";
@@ -17,6 +18,7 @@ interface MessageBubbleProps {
   onPlayTTS?: (text: string) => void;
   onImageClick?: (url: string) => void;
   onEditMessage?: (id: string, currentText: string) => void;
+  onSwipeReply?: (message: ChatMessage) => void;
   wallpaperStyle?: WallpaperDisplaySettings | null;
 }
 
@@ -86,6 +88,7 @@ const MessageBubble = ({
   onPlayTTS,
   onImageClick,
   onEditMessage,
+  onSwipeReply,
   wallpaperStyle = null,
 }: MessageBubbleProps) => {
   const { theme, kaelAvatarSrc } = useTheme();
@@ -126,6 +129,29 @@ const MessageBubble = ({
     !hasPlayableAudio &&
     !message.text &&
     (!message.bubbles || message.bubbles.length === 0);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    if (!touch) return;
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!onSwipeReply || !touchStartRef.current) return;
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+    touchStartRef.current = null;
+
+    const HORIZONTAL_SWIPE_THRESHOLD = 72;
+    const MAX_VERTICAL_DRIFT = 42;
+    if (deltaX > HORIZONTAL_SWIPE_THRESHOLD && Math.abs(deltaY) <= MAX_VERTICAL_DRIFT) {
+      onSwipeReply(message);
+    }
+  };
 
   return (
     <BubbleContextMenu
@@ -163,6 +189,8 @@ const MessageBubble = ({
       className={`flex ${isUser ? "justify-end" : "justify-start"} group ${message.isEditing ? "opacity-40 scale-[0.98] transition-all duration-200" : ""}`}
       onTouchStart={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
+      onTouchStartCapture={handleTouchStart}
+      onTouchEndCapture={handleTouchEnd}
     >
       {!isUser && senderInfo.avatar && (
         <img

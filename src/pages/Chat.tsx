@@ -67,8 +67,15 @@ import { sendExternalAgentMessage, getSelectedModel, type ExternalChatMessage } 
 // Default conversation ID for the main Kael chat
 const DEFAULT_CONVERSATION_ID = "kael-main";
 
+interface QuotedPreview {
+  messageId: string;
+  authorLabel: string;
+  textPreview: string;
+}
+
 const Chat = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [quotedPreview, setQuotedPreview] = useState<QuotedPreview | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
@@ -699,6 +706,7 @@ const Chat = () => {
         client_message_id: clientMsgId,
       };
       setMessages((prev) => [...prev, userMsg]);
+      setQuotedPreview(null);
       scrollToBottom();
 
       // --- Kael is ALWAYS the primary chat route ---
@@ -834,6 +842,26 @@ const Chat = () => {
     },
     [sessionId, agentMode, messages, fetchAndAppendPending, normalizeAssistantPayload]
   );
+
+  const handleSwipeReply = useCallback((message: ChatMessage) => {
+    const authorLabel =
+      message.sender === "user"
+        ? "te"
+        : message.sender === "external_agent"
+          ? (message.agent_name || "External Agent")
+          : "Kael";
+    const sourceText =
+      message.text?.trim() ||
+      message.bubbles?.[0]?.trim() ||
+      (message.image ? "[Immagine]" : "[Messaggio]");
+
+    setQuotedPreview({
+      messageId: message.id,
+      authorLabel,
+      textPreview: sourceText.slice(0, 160),
+    });
+    toast.success("Messaggio selezionato per risposta");
+  }, []);
 
   const handleImageUpload = useCallback(
     async (file: File, caption?: string) => {
@@ -1168,6 +1196,7 @@ const Chat = () => {
             onPlayTTS={handlePlayTTS}
             onImageClick={setViewerImage}
             onEditMessage={handleEditMessage}
+            onSwipeReply={handleSwipeReply}
             wallpaperStyle={bubbleWallpaperStyle}
           />
         ))}
@@ -1188,6 +1217,8 @@ const Chat = () => {
         onVoiceNote={handleVoiceNote}
         onOpenServices={() => navigate("/workspace")}
         onCancelEdit={handleCancelEdit}
+        quotedMessagePreview={quotedPreview}
+        onClearQuotedMessage={() => setQuotedPreview(null)}
         disabled={lifecycleState !== "online"}
         sessionId={sessionId}
       />

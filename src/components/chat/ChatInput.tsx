@@ -14,9 +14,24 @@ interface ChatInputProps {
   disabled?: boolean;
   /** K-1.b — canonical session id ('mobile_kael') for presence emit. */
   sessionId?: string;
+  quotedMessagePreview?: {
+    authorLabel: string;
+    textPreview: string;
+  } | null;
+  onClearQuotedMessage?: () => void;
 }
 
-const ChatInput = ({ onSend, onImageUpload, onVoiceNote, onOpenServices, onCancelEdit, disabled, sessionId }: ChatInputProps) => {
+const ChatInput = ({
+  onSend,
+  onImageUpload,
+  onVoiceNote,
+  onOpenServices,
+  onCancelEdit,
+  disabled,
+  sessionId,
+  quotedMessagePreview,
+  onClearQuotedMessage,
+}: ChatInputProps) => {
   const navigate = useNavigate();
   const [input, setInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
@@ -206,6 +221,24 @@ const ChatInput = ({ onSend, onImageUpload, onVoiceNote, onOpenServices, onCance
           <button
             onClick={cancelEdit}
             className="flex h-5 w-5 items-center justify-center rounded-full hover:bg-foreground/10 transition-colors"
+          >
+            <X size={14} className="text-muted-foreground" />
+          </button>
+        </div>
+      )}
+
+      {/* Swipe quote preview */}
+      {quotedMessagePreview && (
+        <div className="mb-2 flex items-start gap-2 rounded-xl border border-neon-blue/30 bg-neon-blue/10 px-3 py-2">
+          <div className="mt-0.5 h-8 w-1 rounded-full bg-neon-blue/70" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-semibold text-neon-blue">Rispondi a {quotedMessagePreview.authorLabel}</p>
+            <p className="truncate text-xs text-foreground/80">{quotedMessagePreview.textPreview}</p>
+          </div>
+          <button
+            onClick={onClearQuotedMessage}
+            className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full hover:bg-foreground/10 transition-colors"
+            aria-label="Rimuovi quote"
           >
             <X size={14} className="text-muted-foreground" />
           </button>
