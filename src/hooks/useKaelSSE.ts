@@ -40,12 +40,15 @@ export interface KaelSSENewMessage {
 /**
  * Sources that originate from Kael's autonomous initiative (not user-request).
  * Only these trigger the "kael-autonomous-message" DOM event.
+ * K-2 (2026-05-19): aligned with backend sse_notifier._AUTONOMOUS_SOURCES
  */
 const AUTONOMOUS_SOURCES = new Set([
   "autonomy_loop",
   "rupture_repair",
   "serenade_engine",
   "initiative_engine",
+  "autonomy",        // K-2: backend may emit this source variant
+  "arrakis_autonomy", // K-2: backend may emit this source variant
 ]);
 
 /**

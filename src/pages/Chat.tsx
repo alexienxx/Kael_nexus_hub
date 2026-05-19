@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Phone } from "lucide-react";
+import { App as CapApp } from "@capacitor/app";
 import { useTheme } from "@/lib/store/theme";
 import { useSession } from "@/hooks/useSession";
 import { useAgenticActions } from "@/hooks/useAgenticActions";
@@ -603,7 +604,21 @@ const Chat = () => {
       }
     };
     document.addEventListener("visibilitychange", handleResume);
-    return () => document.removeEventListener("visibilitychange", handleResume);
+
+    // K-2 (2026-05-19): Capacitor appStateChange — fires more reliably on Android
+    // than visibilitychange when app returns to foreground. Resets the history
+    // guard so a full reload is triggered if React state was wiped by OS.
+    let capListener: { remove: () => void } | null = null;
+    CapApp.addListener("appStateChange", ({ isActive }) => {
+      if (!isActive) return;
+      historyLoadedRef.current = false;
+      fetchAndAppendPending();
+    }).then((l) => { capListener = l; }).catch(() => {});
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleResume);
+      capListener?.remove();
+    };
   }, [lifecycleState, fetchAndAppendPending]);
 
   useEffect(() => {

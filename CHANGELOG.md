@@ -4,6 +4,30 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [K-2 — APK Reliability] — 2026-05-19
+
+### Fix K-2.2: SSE source whitelist mismatch
+**File modificato**: `src/hooks/useKaelSSE.ts`
+- `AUTONOMOUS_SOURCES`: aggiunti `"autonomy"` e `"arrakis_autonomy"`
+- **Root cause**: backend `sse_notifier._AUTONOMOUS_SOURCES` include queste varianti; APK le filtrava silenziosamente → messaggi autonomi ignorati anche quando il backend li emetteva
+
+### Fix K-2.3: Capacitor appStateChange per history reload affidabile
+**File modificato**: `src/pages/Chat.tsx`
+- Import aggiunto: `App as CapApp` da `@capacitor/app`
+- Nella `useEffect` visibility/resume: aggiunto listener `CapApp.addListener("appStateChange")`
+  - Su `isActive=true`: `historyLoadedRef.current = false` + `fetchAndAppendPending()`
+  - **Root cause**: `visibilitychange` browser non si attiva affidabilmente su Android/Capacitor al resume; i messaggi sparivano perché nessun reload veniva triggerato dopo foreground
+  - Cleanup: `capListener?.remove()` nel return dell'effect
+
+### ⚠️ Nota build
+**Questi fix RICHIEDONO rebuild APK** per essere installati sul device:
+```powershell
+cd kael_nexus_hub
+.\build_apk.ps1 -Mode prod
+```
+Poi reinstalla `android/app/build/outputs/apk/app-release-signed.apk`.
+
+---
 ## [Unreleased] — 2026-05-13
 
 ### Fix: network-resilience-parity — cellular→WiFi reconnect now works correctly
