@@ -8,12 +8,14 @@
  *   Backend sse_notifier.notify_new_message()
  *     → GET /chat/events (SSE stream)
  *       → this hook parses "new_message" events
- *         → dispatches window CustomEvent "kael-autonomous-message"
+ *         → dispatches window CustomEvent "kael-new-message" for timeline sync
+ *           and "kael-autonomous-message" for autonomous notifications
  *           → Chat.tsx appends message to state
  *           → AppShell KaelSSEBridge shows toast when chat page is not active
  *
  * DOM events dispatched:
- *   - "kael-autonomous-message" — carries KaelSSENewMessage in detail
+ *   - "kael-new-message"        — every persisted turn; triggers timeline sync
+ *   - "kael-autonomous-message" — autonomous assistant turns only
  *   - "kael-sse-connected"      — fired on (re)connect so Chat.tsx can
  *                                  catch up on missed messages
  *
@@ -129,9 +131,14 @@ export function useKaelSSE(enabled: boolean): void {
             const data: KaelSSENewMessage = JSON.parse(
               (evt as MessageEvent).data,
             );
-            // Only dispatch for assistant messages from autonomous sources.
-            // User-initiated chat responses (source "backend", "image_chat",
-            // etc.) are already handled by request-response in Chat.tsx.
+            // Every persisted turn advances the canonical timeline. Chat.tsx
+            // consumes this generic event idempotently, including events from
+            // another client or a response recovered after an interrupted POST.
+            window.dispatchEvent(
+              new CustomEvent("kael-new-message", { detail: data }),
+            );
+
+            // User-facing notifications remain strictly autonomous.
             if (
               data.role === "assistant" &&
               AUTONOMOUS_SOURCES.has(data.source)

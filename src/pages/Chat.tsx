@@ -68,6 +68,25 @@ import { sendExternalAgentMessage, getSelectedModel, type ExternalChatMessage } 
 
 // Default conversation ID for the main Kael chat
 const DEFAULT_CONVERSATION_ID = "kael-main";
+const CHAT_CURSOR_STORAGE_KEY = "kael-chat-turn-cursor-v1";
+
+function readStoredTurnCursor(): number {
+  try {
+    const value = Number(localStorage.getItem(CHAT_CURSOR_STORAGE_KEY) ?? "0");
+    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function persistTurnCursor(cursor: number): void {
+  if (!Number.isSafeInteger(cursor) || cursor < 0) return;
+  try {
+    localStorage.setItem(CHAT_CURSOR_STORAGE_KEY, String(cursor));
+  } catch {
+    // Storage can be unavailable in privacy-restricted WebViews; runtime ref remains authoritative.
+  }
+}
 
 interface QuotedPreview {
   authorLabel: string;
@@ -99,6 +118,7 @@ const Chat = () => {
    * Starts at 0 (sentinel) — SSE handler skips if history hasn't loaded yet.
    */
   const lastFetchTsRef = useRef<number>(0);
+  const lastFetchTurnIdRef = useRef<number>(readStoredTurnCursor());
 
   /**
    * BUG-UI-DUP fix (2026-05-06): mutex for fetchAndAppendPending.
@@ -129,6 +149,12 @@ const Chat = () => {
       .reduce((max: number, n: number) => (n > max ? n : max), 0);
   }, []);
 
+  const getMaxTurnId = useCallback((items: any[]): number => {
+    return items
+      .map((m: any) => Number(m?.id ?? m?.turn_id ?? m?.backend_turn_id ?? 0))
+      .filter((n: number) => Number.isSafeInteger(n) && n > 0)
+      .reduce((max: number, n: number) => (n > max ? n : max), 0);
+  }, []);
   const normalizeAssistantPayload = useCallback(
     (rawText: string | null | undefined, meta?: Record<string, unknown>) =>
       applyDiagnosticMarkers(rawText ?? "", meta),
@@ -435,12 +461,17 @@ const Chat = () => {
             if (maxHistoryTs > 0) {
               lastFetchTsRef.current = maxHistoryTs;
             }
+            const maxHistoryTurnId = getMaxTurnId(historyMessages);
+            if (maxHistoryTurnId > 0) {
+              lastFetchTurnIdRef.current = maxHistoryTurnId;
+              persistTurnCursor(maxHistoryTurnId);
+            }
           }
         }
       }
     })();
     return () => { cancelled = true; };
-  }, [lifecycleState, sessionId, mergeHistoryIntoState, getMaxTimestamp]);
+  }, [lifecycleState, sessionId, mergeHistoryIntoState, getMaxTimestamp, getMaxTurnId]);
 
   const scrollToBottom = useCallback((instant?: boolean) => {
     const doScroll = () => {
@@ -493,7 +524,7 @@ const Chat = () => {
   // -----------------------------------------------------------------
   // SSE autonomous message listener
   //
-  // When useKaelSSE (running in AppShell) dispatches "kael-autonomous-message",
+  // When useKaelSSE (running in AppShell) dispatches "kael-new-message",
   // we fetch the FULL message from /chat/history/pending and append it.
   // Also handles "kael-sse-connected" (reconnect catch-up).
   //
@@ -539,27 +570,59 @@ const Chat = () => {
     }
 
     const afterTs = normalizeAfterTs(lastFetchTsRef.current);
-    emitTelemetry("softResync.started", { afterTs });
+    const afterTurnId = lastFetchTurnIdRef.current;
+    emitTelemetry("softResync.started", { afterTs, afterTurnId });
 
     const job = (async () => {
       try {
-        const result = await chatApi.fetchPendingMessages(afterTs, sessionId);
-        const received = result?.messages?.length ?? 0;
-        // Watermark advances only after successful fetch to avoid message loss.
-        const maxReceivedTs = Math.max(
-          afterTs,
-          ...((result?.messages ?? [])
-            .map((m: any) =>
-              typeof m?.timestamp === "number"
-                ? m.timestamp
-                : typeof m?.ts === "number"
-                  ? m.ts
-                  : 0
-            )
-            .filter((n: number) => Number.isFinite(n) && n > 0))
-        );
-        if (maxReceivedTs > afterTs) {
-          lastFetchTsRef.current = maxReceivedTs;
+        let cursor = afterTurnId;
+        let maxReceivedTs = afterTs;
+        const pendingMessages: any[] = [];
+        const PAGE_LIMIT = 250;
+        const MAX_CURSOR_PAGES = 20;
+
+        for (let page = 0; page < MAX_CURSOR_PAGES; page += 1) {
+          const result = await chatApi.fetchPendingMessages(
+            afterTs,
+            sessionId,
+            cursor,
+            PAGE_LIMIT,
+          );
+          const pageMessages = result?.messages ?? [];
+          pendingMessages.push(...pageMessages);
+
+          for (const message of pageMessages) {
+            const ts = typeof message?.timestamp === "number"
+              ? message.timestamp
+              : typeof message?.ts === "number"
+                ? message.ts
+                : 0;
+            if (Number.isFinite(ts) && ts > maxReceivedTs) maxReceivedTs = ts;
+          }
+
+          const responseCursor = Number(result?.next_cursor ?? 0);
+          const derivedCursor = getMaxTurnId(pageMessages);
+          const nextCursor = Math.max(
+            cursor,
+            Number.isSafeInteger(responseCursor) ? responseCursor : 0,
+            derivedCursor,
+          );
+          const hasMore = Boolean(result?.has_more);
+          if (hasMore && nextCursor <= cursor) {
+            throw new Error("pending cursor did not advance");
+          }
+          cursor = nextCursor;
+          if (!hasMore) break;
+          if (page === MAX_CURSOR_PAGES - 1) {
+            throw new Error("pending cursor page limit exceeded");
+          }
+        }
+
+        const received = pendingMessages.length;
+        if (maxReceivedTs > afterTs) lastFetchTsRef.current = maxReceivedTs;
+        if (cursor > afterTurnId) {
+          lastFetchTurnIdRef.current = cursor;
+          persistTurnCursor(cursor);
         }
 
         if (!received) {
@@ -569,9 +632,7 @@ const Chat = () => {
 
         let appended = 0;
         setMessages((prev) => {
-          const newMsgs: ChatMessage[] = result.messages
-            .map(mapBackendMsg);
-
+          const newMsgs: ChatMessage[] = pendingMessages.map(mapBackendMsg);
           const combined = mergeMessagesIdempotent(prev, newMsgs);
           appended = combined.length - prev.length;
           return combined;
@@ -592,7 +653,7 @@ const Chat = () => {
     } finally {
       fetchInFlightRef.current = null;
     }
-  }, [sessionId, mapBackendMsg, scrollToBottom]);
+  }, [sessionId, mapBackendMsg, scrollToBottom, getMaxTurnId]);
 
   // Visibility resume catch-up (moved here from above the fetchAndAppendPending
   // declaration to avoid TDZ in minified prod bundle — see note above).
@@ -671,6 +732,11 @@ const Chat = () => {
           if (maxHistoryTs > 0) {
             lastFetchTsRef.current = maxHistoryTs;
           }
+          const maxHistoryTurnId = getMaxTurnId(historyMessages);
+          if (maxHistoryTurnId > 0) {
+            lastFetchTurnIdRef.current = maxHistoryTurnId;
+            persistTurnCursor(maxHistoryTurnId);
+          }
         } catch (err) {
           console.warn("[Chat] History merge after restart failed:", err);
           // Leave historyLoadedRef.current = false so a future lifecycle
@@ -679,15 +745,15 @@ const Chat = () => {
       })();
     };
 
-    window.addEventListener("kael-autonomous-message", handleAutonomous);
+    window.addEventListener("kael-new-message", handleAutonomous);
     window.addEventListener("kael-sse-connected", handleReconnect);
     window.addEventListener("kael-server-restarted", handleServerRestarted);
     return () => {
-      window.removeEventListener("kael-autonomous-message", handleAutonomous);
+      window.removeEventListener("kael-new-message", handleAutonomous);
       window.removeEventListener("kael-sse-connected", handleReconnect);
       window.removeEventListener("kael-server-restarted", handleServerRestarted);
     };
-  }, [lifecycleState, fetchAndAppendPending, mergeHistoryIntoState, sessionId, getMaxTimestamp]);
+  }, [lifecycleState, fetchAndAppendPending, mergeHistoryIntoState, sessionId, getMaxTimestamp, getMaxTurnId]);
 
   // Listen for agent mode toggle from BottomNav
   useEffect(() => {
@@ -1086,7 +1152,7 @@ const Chat = () => {
             )
           );
         }
-        
+
         const assistantIdentity = resolveAssistantIdentity(
           response as unknown as Record<string, unknown>,
           sessionId,

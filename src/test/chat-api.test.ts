@@ -12,7 +12,7 @@ vi.mock("@/lib/api/client", () => ({
   ensureBackendAlive: ensureBackendAliveMock,
 }));
 
-import { sendImage, sendMessage, sendVoiceNote } from "@/lib/api/chat";
+import { fetchPendingMessages, sendImage, sendMessage, sendVoiceNote } from "@/lib/api/chat";
 
 describe("chat api time contract", () => {
   afterEach(() => {
@@ -63,6 +63,22 @@ describe("chat api time contract", () => {
     });
   });
 
+  it("fetchPendingMessages sends a durable turn cursor and bounded page size", async () => {
+    apiRequestMock.mockResolvedValue({
+      messages: [],
+      next_cursor: 4170,
+      has_more: false,
+      cursor_kind: "conversation_turn_id",
+    });
+
+    await fetchPendingMessages(123.5, "mobile_kael", 4168, 100);
+
+    const [path] = apiRequestMock.mock.calls[0];
+    const query = new URL(String(path), "http://localhost").searchParams;
+    expect(query.get("after_turn_id")).toBe("4168");
+    expect(query.get("after_ts")).toBe("123.5");
+    expect(query.get("limit")).toBe("100");
+  });
   it("media sends also attach client_time to form payloads", async () => {
     apiUploadMock.mockResolvedValue({ ok: true });
 

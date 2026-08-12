@@ -44,25 +44,25 @@ export async function initiateCall(sessionId: string) {
   return apiRequest<{
     call_id: string;
     state: string;
-  }>("/mobile/call/start", {
+  }>(`/mobile/call/start?user_id=${encodeURIComponent(sessionId)}`, {
     method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
   });
 }
 
 /** End an active call */
 export async function endCall(callId: string, sessionId: string) {
-  return apiRequest("/mobile/call/end", {
+  void sessionId;
+  return apiRequest(`/mobile/call/end?call_id=${encodeURIComponent(callId)}`, {
     method: "POST",
-    body: JSON.stringify({ call_id: callId, session_id: sessionId }),
   });
 }
 
 /** Get active call status (pending backend verification) */
 export async function getActiveCall(sessionId: string) {
-  return apiRequest<{ call: CallSession | null }>(
+  const response = await apiRequest<{ call?: CallSession | null; active?: CallSession[] }>(
     `/mobile/call/active?session_id=${sessionId}`
   );
+  return { call: response.call ?? response.active?.[0] ?? null };
 }
 
 /**
@@ -81,17 +81,16 @@ export async function getActiveCall(sessionId: string) {
 
 /** Answer an incoming call from Kael */
 export async function answerCall(sessionId: string) {
-  return apiRequest<{ session: CallSession }>("/mobile/call/incoming/answer", {
+  return apiRequest<{ session: CallSession }>(`/mobile/call/incoming/answer?user_id=${encodeURIComponent(sessionId)}`, {
     method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
   });
 }
 
 /** Dismiss an incoming call */
 export async function dismissCall(sessionId: string) {
+  void sessionId;
   return apiRequest("/mobile/call/incoming/dismiss", {
     method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
   });
 }
 
@@ -120,12 +119,18 @@ export async function sendCallVoiceMessage(
   audioBase64: string,
   sessionId: string,
 ): Promise<VoiceCallTurnResponse> {
-  return apiRequest<VoiceCallTurnResponse>("/mobile/call/voice", {
+  const response = await apiRequest<{
+    reply_text: string;
+    reply_audio_base64?: string;
+    emotion?: string;
+    call_id?: string;
+  }>("/mobile/call/voice", {
     method: "POST",
     body: JSON.stringify({
+      user_id: sessionId,
       call_id: callId,
       audio_base64: audioBase64,
-      session_id: sessionId,
     }),
   });
+  return { ...response, reply: response.reply_text };
 }

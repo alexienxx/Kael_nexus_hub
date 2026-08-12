@@ -1,7 +1,7 @@
 {
   "name": "vite_react_shadcn_ts",
   "private": true,
-  "version": "1.0.11",
+  "version": "1.0.12",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,7 +10,11 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "e2e": "playwright test tests/e2e/ui tests/e2e/contracts",
+    "e2e:ui": "playwright test tests/e2e/ui",
+    "e2e:contract": "playwright test tests/e2e/contracts",
+    "e2e:live": "playwright test tests/e2e/live"
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",
@@ -19,6 +23,7 @@
     "@capacitor/core": "^8.2.0",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/local-notifications": "^8.0.2",
+    "@capacitor/push-notifications": "^8.1.2",
     "@capacitor/toast": "^8.0.1",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "^1.2.11",

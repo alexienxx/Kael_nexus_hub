@@ -44,12 +44,16 @@ src/
 │   ├── spotify/     # Integrazione Spotify
 │   ├── media/       # ImageViewer, TrackCard
 │   └── ui/          # shadcn components
-├── hooks/           # Custom hooks
+├── hooks/           # Custom hooks (SSE, lifecycle, native push)
+│   └── useNativePush.ts # Registrazione FCM fail-closed + sync cursore
 ├── lib/
-│   ├── api/         # Layer API verso backend
+│   ├── api/         # Layer API verso backend (chat.ts, push.ts, voice.ts)
 │   ├── store/       # Theme store (Context + localStorage)
 │   └── constants.ts # Versione app
+├── test/            # Vitest unit/contract tests
 └── types/           # TypeScript types
+tests/e2e/            # Playwright: UI, contratti e live read-only
+docs/E2E_TEST_MATRIX.md # Matrice e comandi delle batterie APK
 ```
 
 ---
@@ -139,7 +143,11 @@ Pulsante fluttuante posizionato centralmente sopra la bottom nav.
 | `/feedback` | POST | RLHF feedback (like/dislike) | `chat.ts` |
 | `/chat/image` | POST | Upload immagine per analisi | `chat.ts` |
 | `/chat/voice` | POST | Invio nota vocale | `chat.ts` |
-| `/chat/history/messages` | GET | Storico messaggi | `chat.ts` |
+| `/chat/history/messages` | GET | Bootstrap storico limitato | `chat.ts` |
+| `/chat/history/pending` | GET | Catch-up incrementale tramite `after_turn_id` | `chat.ts` |
+| `/mobile/push/status` | GET | Verità configurazione/storage FCM | `push.ts` |
+| `/mobile/push/register` | POST | Registra installazione/token Android | `push.ts` |
+| `/mobile/push/unregister` | POST | Disabilita installazione Android | `push.ts` |
 | `/voice/tts` | GET | Text-to-speech | `voice.ts` |
 
 ### ChatResponse (dal backend)
@@ -160,6 +168,17 @@ Pulsante fluttuante posizionato centralmente sopra la bottom nav.
   agent_avatar?: string;
 }
 ```
+
+---
+
+### Consegna durevole, SSE e push nativo
+
+- PostgreSQL e `conversation_turns.id` sono la fonte autorevole e il cursore monotono.
+- L'APK conserva l'ultimo cursore confermato e recupera pagine bounded, ordinate e idempotenti da `/chat/history/pending`; un resume ordinario non ricarica tutta la conversazione.
+- SSE segnala che esistono nuovi dati, ma non è una memoria di replay.
+- Una notifica FCM ricevuta o aperta non inserisce testo direttamente nella UI: genera `kael-new-message` e forza il recupero del turno autorevole.
+- Il plugin nativo è fail-closed. Viene invocato soltanto se la build contiene `VITE_KAEL_FIREBASE_PUSH_ENABLED=true` e il backend dichiara `configured=true`.
+- Per una build push servono `android/app/google-services.json`, `KAEL_FIREBASE_PROJECT_ID` e `KAEL_FIREBASE_SERVICE_ACCOUNT_FILE`. Senza tutti i prerequisiti il cursore/SSE continuano a funzionare e il plugin resta inerte.
 
 ---
 
@@ -536,16 +555,19 @@ Hook `useCapability<T>` per determinare lo stato delle feature backend:
 | `kael_session_id` | Session ID (`mobile_kael`) |
 | `kael-backend-config` | `{ baseUrl, apiKey }` |
 | `kael-update-manifest-url` | URL override per manifest update |
+| `kael-chat-turn-cursor-v1` | Ultimo `conversation_turns.id` confermato dalla timeline |
+| `kael-mobile-installation-id` | Identificatore stabile e non segreto dell'installazione Android |
 
 ---
 
 ## 🔄 LIVE RELOAD (APK)
 
-L'APK usa `capacitor.config.ts` con `server.url` puntato al preview Lovable.
-Tutte le modifiche UI/logica si riflettono istantaneamente senza reinstallare.
+La build di produzione incorpora gli asset Vite sincronizzati in Android tramite Capacitor. Le modifiche frontend richiedono almeno `npm run build` e `npx cap sync android`; le modifiche native richiedono anche una nuova build Gradle e reinstallazione.
 
-**Eccezioni** (richiedono rebuild APK):
-- Icona launcher
-- Splash screen
-- Plugin nativi Capacitor
-- `capacitor.config.ts` stesso
+**Richiedono sempre rebuild APK:**
+- plugin nativi Capacitor e relativi permessi;
+- `capacitor.config.ts`, manifest, icona e splash;
+- `google-services.json` o modifica di `VITE_KAEL_FIREBASE_PUSH_ENABLED`;
+- cambi di contratto che devono essere verificati sul WebView reale.
+
+Sequenza di rilascio: test Vitest → batterie Playwright pertinenti → build Vite → sync Capacitor → `assembleDebug`/release → installazione USB → `tools/test_mode/run_android_usb_smoke.ps1` dal repository principale.

@@ -4,6 +4,31 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [1.0.12 — Durable delivery, native push e batterie E2E] — 2026-08-12
+
+### Consegna chat
+- Sostituito il reload integrale al resume con cursore persistente `conversation_turns.id`, catch-up bounded e merge idempotente.
+- SSE è ora un segnale live; i turni vengono sempre riletti dalla timeline autorevole.
+- Aggiunti test di sincronizzazione SSE/cursore e contratti API.
+
+### Push Android fail-closed
+- Integrato `@capacitor/push-notifications` con installation ID stabile, registrazione token backend e bridge notifica → sync timeline.
+- Il plugin parte solo con `VITE_KAEL_FIREBASE_PUSH_ENABLED=true` e `/mobile/push/status.configured=true`.
+- Riprodotto e corretto il crash cold-start `Default FirebaseApp is not initialized` quando mancano le risorse Android.
+- Il contenuto delle notifiche rimane privato per default; il token non viene scritto nei log.
+
+### Affidabilità APK e contratti
+- Corretti contratti Calls/voice e testo italiano della videochiamata; capability UI allineate alla verità backend.
+- Aggiunte batterie Playwright separate `ui`, `contracts` e `live` con matrice in `docs/E2E_TEST_MATRIX.md`.
+- Versione Android aggiornata a `1.0.12` / versionCode `112`.
+
+### Verifica
+- Vitest: 73/73 test passati in 11 file; hook native push: 5/5.
+- Build Vite, sync Capacitor e Gradle `assembleDebug` passati con Java 21.
+- Smoke USB su Samsung SM-S908B: app foreground, backend/brain ready, permessi concessi, zero crash/errori di boot.
+- Il test FCM con app terminata resta subordinato all'aggiunta delle credenziali Firebase Android e server.
+
+---
 ## [K-2 — APK Reliability] — 2026-05-19
 
 ### Fix K-2.2: SSE source whitelist mismatch

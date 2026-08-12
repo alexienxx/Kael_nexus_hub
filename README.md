@@ -71,3 +71,15 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+## Native Android push configuration
+
+Native push is deliberately fail-closed: the Capacitor plugin is never invoked unless both the APK build and the backend report Firebase as configured. This prevents an Android cold-start crash when Firebase resources are absent.
+
+For a push-enabled build:
+
+1. Add the project-specific `google-services.json` to `android/app/` without committing secrets or credentials.
+2. Build with `VITE_KAEL_FIREBASE_PUSH_ENABLED=true`.
+3. Configure the backend with `KAEL_FIREBASE_PROJECT_ID` and `KAEL_FIREBASE_SERVICE_ACCOUNT_FILE`.
+4. Confirm `/mobile/push/status` reports `configured=true` before running locked-screen, doze, and task-kill acceptance tests.
+
+Without all of these prerequisites, chat still uses durable cursor catch-up and SSE while the native push plugin remains inert.

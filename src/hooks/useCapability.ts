@@ -51,7 +51,9 @@ export function useCapability<T>(
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fetcherRef = useRef(fetcher);
+  const isEmptyRef = useRef(isEmpty);
   fetcherRef.current = fetcher;
+  isEmptyRef.current = isEmpty;
 
   const execute = useCallback(async () => {
     // If feature is marked as pending, don't even try
@@ -75,32 +77,34 @@ export function useCapability<T>(
       const result = await fetcherRef.current();
       setData(result);
 
-      if (isEmpty && isEmpty(result)) {
+      if (isEmptyRef.current && isEmptyRef.current(result)) {
         setState("empty");
       } else {
         setState("available");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       setData(null);
+      const failure = err as { message?: string; status?: number };
+      const message = failure.message ?? "Errore sconosciuto";
 
       // Check if it's a connection/network error vs an API error
       if (
-        err?.message?.includes("Backend URL not configured") ||
-        err?.message?.includes("No internet connection") ||
-        err?.message?.includes("Request timeout")
+        message.includes("Backend URL not configured") ||
+        message.includes("No internet connection") ||
+        message.includes("Request timeout")
       ) {
         setState("unavailable");
-        setError(err.message);
-      } else if (err?.status === 404 || err?.status === 501) {
+        setError(message);
+      } else if (failure.status === 404 || failure.status === 501) {
         // Endpoint doesn't exist on backend yet
         setState("pending");
         setError("Funzionalità non ancora disponibile");
       } else {
         setState("error");
-        setError(err?.message || "Errore sconosciuto");
+        setError(message);
       }
     }
-  }, [isPending, isEmpty]);
+  }, [isPending]);
 
   useEffect(() => {
     if (autoFetch) {

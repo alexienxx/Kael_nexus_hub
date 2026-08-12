@@ -203,12 +203,28 @@ export async function getChatHistory(sessionId: string, conversationId?: string)
  *   - exclude_client: defaults to "mobile" (prevents echo of own user messages)
  *   - Returns: { messages: [...] } with full message objects
  */
-export async function fetchPendingMessages(afterTs: number, sessionId: string) {
+export interface PendingMessagesResponse {
+  messages: any[];
+  next_cursor: number;
+  has_more: boolean;
+  cursor_kind: "conversation_turn_id";
+}
+
+export async function fetchPendingMessages(
+  afterTs: number,
+  sessionId: string,
+  afterTurnId?: number,
+  limit: number = 250,
+) {
   const params = new URLSearchParams({
     after_ts: String(afterTs),
     session_id: sessionId,
+    limit: String(limit),
   });
-  return apiRequest<{ messages: any[] }>(`/chat/history/pending?${params}`);
+  if (Number.isSafeInteger(afterTurnId) && Number(afterTurnId) >= 0) {
+    params.set("after_turn_id", String(afterTurnId));
+  }
+  return apiRequest<PendingMessagesResponse>(`/chat/history/pending?${params}`);
 }
 
 /**

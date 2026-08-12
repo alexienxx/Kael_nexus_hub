@@ -1,4 +1,4 @@
-﻿/**
+/**
  * VIDEOCALL PAGE â€” Kael Nexus Hub
  *
  * Source of truth: kael_refactor/tests/source_of_truth-apk_kael_nexus_hub.py
@@ -64,8 +64,7 @@ const Calls = () => {
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
 
   const callCapability = useCapability(
-    () => getActiveCall(sessionId),
-    { isEmpty: (data) => !data.call }
+    () => getActiveCall(sessionId)
   );
 
   // Call duration timer
@@ -91,7 +90,7 @@ const Calls = () => {
       }
       stopAvatarStream().catch(() => {});
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const startWebcam = useCallback(async () => {
     try {
@@ -133,6 +132,16 @@ const Calls = () => {
     }
     setIsCamOff((prev) => !prev);
   }, [isCamOff]);
+
+  /** stopAudioLoop — tears down the MediaRecorder cleanly. */
+  const stopAudioLoop = useCallback(() => {
+    callActiveRef.current = false;
+    isProcessingRef.current = false;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try { mediaRecorderRef.current.stop(); } catch { /* ignore */ }
+    }
+    mediaRecorderRef.current = null;
+  }, []);
 
   /**
    * startAudioLoop — begins a continuous 4-second audio capture cycle.
@@ -218,18 +227,10 @@ const Calls = () => {
       // Fire ondataavailable every 4 seconds
       mr.start(4000);
     },
-    [sessionId],
+    [sessionId, stopAudioLoop],
   );
 
-  /** stopAudioLoop — tears down the MediaRecorder cleanly. */
-  const stopAudioLoop = useCallback(() => {
-    callActiveRef.current = false;
-    isProcessingRef.current = false;
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      try { mediaRecorderRef.current.stop(); } catch { /* ignore */ }
-    }
-    mediaRecorderRef.current = null;
-  }, []);
+
 
   const handleStartCall = useCallback(async () => {
     setCallState("ringing");   // show "Connessione in corso..." immediately
@@ -325,7 +326,7 @@ const Calls = () => {
             <p className="mt-1 text-sm text-muted-foreground">
               {backendUnavailable
                 ? "Connetti il backend per abilitare la videochiamata"
-                : "Videochiamata â€” Kael ti vedrÃ  tramite la tua webcam"}
+                : "Videochiamata — Kael ti vedrà attraverso la videocamera"}
             </p>
             {webcamError && (
               <p className="mt-1 text-xs text-yellow-500">Webcam: {webcamError}</p>
@@ -337,6 +338,7 @@ const Calls = () => {
             <button
               onClick={handleStartCall}
               disabled={backendUnavailable}
+              aria-label="Avvia videochiamata"
               className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-neon-purple to-violet-600 text-white shadow-lg shadow-neon-purple/30 transition-all hover:scale-110 active:scale-95 disabled:opacity-40 disabled:hover:scale-100 disabled:shadow-none"
             >
               <Camera size={28} />

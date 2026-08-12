@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import BottomNav from "./BottomNav";
 import { BackendConnectionProvider, useBackendConnection } from "@/context/BackendConnectionContext";
 import { useKaelSSE, type KaelSSENewMessage } from "@/hooks/useKaelSSE";
+import { useNativePush } from "@/hooks/useNativePush";
 import { showAutonomousNotification } from "@/lib/nativeNotifications";
 
 /**
@@ -27,6 +28,7 @@ const KaelSSEBridge = () => {
   const { state } = useBackendConnection();
   const location = useLocation();
   useKaelSSE(state === "online");
+  useNativePush(state === "online");
 
   useEffect(() => {
     const handler = (e: Event) => {
