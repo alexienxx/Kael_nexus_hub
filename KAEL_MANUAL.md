@@ -1,7 +1,7 @@
 # 📖 KAEL COMPANION — Manuale Tecnico Completo
 
 > Documento di riferimento per agenti AI e sviluppatori che lavorano al progetto Kael Companion.
-> Versione corrente dell'app: **1.0.8** (build 108)
+> Versione corrente dell'app: **1.0.12** (build 112)
 
 ---
 
@@ -112,6 +112,8 @@ Pulsante fluttuante posizionato centralmente sopra la bottom nav.
 - **Contenuti supportati**: testo, immagine, audio, video, track card (Spotify)
 - **Azioni**: like/dislike (RLHF), regenerate, TTS playback
 - **Markdown**: Le risposte di Kael supportano Markdown completo (GFM)
+- **Risposta con citazione**: tieni premuta una bolla e trascinala orizzontalmente verso destra. Dopo 160 ms compare l'indicatore Reply; oltre 64 px la citazione viene agganciata all'input. Uno scroll verticale o uno swipe iniziato senza hold annullano la gesture.
+- **Continuità cognitiva della citazione**: l'anteprima mostrata dall'APK è solo UI. Il backend recupera il turno completo dalla timeline canonica tramite ID, anche quando è molto vecchio, e rifiuta di usare anteprime client non verificate come contesto per Arrakis.
 - **Avatar**: Kael mostra il suo avatar, external agents mostrano il loro o un'iniziale
 - **Wallpaper-aware styling**: Le bolle possono adattarsi allo sfondo (glass/gradient/tinted/solid)
 - **Stop propagation**: I bubble bloccano l'evento long-press per non triggerare il wallpaper menu

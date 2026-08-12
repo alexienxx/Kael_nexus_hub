@@ -4,6 +4,14 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [1.0.12 — Swipe-to-reply cognitivo] — 2026-08-12
+
+- Aggiunta gesture hold-then-drag verso destra sulle bolle, con soglia, feedback elastico e cancellazione sullo scroll verticale.
+- La gesture usa il payload quote già previsto dalla chat; la preview resta cosmetica e il backend risolve il contenuto completo dalla timeline canonica.
+- Aggiunti test failure-sensitive: hold+drag seleziona, swipe ordinario non seleziona, movimento verticale annulla.
+- Verifica: 76 test Vitest passati in 12 file e build Vite di produzione completato.
+
+---
 ## [1.0.12 — Durable delivery, native push e batterie E2E] — 2026-08-12
 
 ### Consegna chat

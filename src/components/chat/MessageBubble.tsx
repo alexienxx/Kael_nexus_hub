@@ -1,4 +1,5 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { Reply } from "lucide-react";
 import { useTheme } from "@/lib/store/theme";
 import MessageActions from "./MessageActions";
 import AudioMessage from "./AudioMessage";
@@ -130,28 +131,60 @@ const MessageBubble = ({
     !message.text &&
     (!message.bubbles || message.bubbles.length === 0);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const replyHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const replyDragRef = useRef(0);
+  const replyArmedRef = useRef(false);
+  const [replyDragPx, setReplyDragPx] = useState(0);
+
+  const resetReplyGesture = () => {
+    if (replyHoldTimerRef.current) clearTimeout(replyHoldTimerRef.current);
+    replyHoldTimerRef.current = null;
+    replyArmedRef.current = false;
+    replyDragRef.current = 0;
+    touchStartRef.current = null;
+    setReplyDragPx(0);
+  };
 
   const handleTouchStart = (event: React.TouchEvent<HTMLDivElement>) => {
+    if (!onSwipeReply) return;
     const touch = event.touches[0];
     if (!touch) return;
     touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+    replyHoldTimerRef.current = setTimeout(() => {
+      replyArmedRef.current = true;
+      if (navigator.vibrate) navigator.vibrate(12);
+    }, 160);
+  };
+
+  const handleTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
+    const start = touchStartRef.current;
+    const touch = event.touches[0];
+    if (!start || !touch) return;
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+
+    if (Math.abs(deltaY) > 48 && Math.abs(deltaY) > Math.abs(deltaX)) {
+      resetReplyGesture();
+      return;
+    }
+    if (!replyArmedRef.current || deltaX <= 0) return;
+    event.preventDefault();
+    const drag = Math.min(96, deltaX * 0.72);
+    replyDragRef.current = drag;
+    setReplyDragPx(drag);
   };
 
   const handleTouchEnd = (event: React.TouchEvent<HTMLDivElement>) => {
-    if (!onSwipeReply || !touchStartRef.current) return;
-    const touch = event.changedTouches[0];
-    if (!touch) return;
-
-    const deltaX = touch.clientX - touchStartRef.current.x;
-    const deltaY = touch.clientY - touchStartRef.current.y;
-    touchStartRef.current = null;
-
-    const HORIZONTAL_SWIPE_THRESHOLD = 72;
-    const MAX_VERTICAL_DRIFT = 42;
-    if (deltaX > HORIZONTAL_SWIPE_THRESHOLD && Math.abs(deltaY) <= MAX_VERTICAL_DRIFT) {
+    const shouldReply = Boolean(
+      onSwipeReply && replyArmedRef.current && replyDragRef.current >= 64
+    );
+    resetReplyGesture();
+    if (shouldReply) {
       onSwipeReply(message);
     }
   };
+
+  const handleTouchCancel = () => resetReplyGesture();
 
   return (
     <BubbleContextMenu
@@ -186,12 +219,29 @@ const MessageBubble = ({
       }}
     >
     <div
-      className={`flex ${isUser ? "justify-end" : "justify-start"} group ${message.isEditing ? "opacity-40 scale-[0.98] transition-all duration-200" : ""}`}
+      data-testid={`message-bubble-${message.id}`}
+      className={`relative flex ${isUser ? "justify-end" : "justify-start"} group ${message.isEditing ? "opacity-40 scale-[0.98] transition-all duration-200" : ""}`}
       onTouchStart={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onTouchStartCapture={handleTouchStart}
+      onTouchMoveCapture={handleTouchMove}
       onTouchEndCapture={handleTouchEnd}
+      onTouchCancelCapture={handleTouchCancel}
+      style={{
+        transform: `translateX(${replyDragPx}px)`,
+        transition: replyDragPx > 0 ? "none" : "transform 180ms cubic-bezier(.2,.8,.2,1)",
+        touchAction: replyDragPx > 0 ? "none" : "pan-y",
+      }}
     >
+      {replyDragPx > 0 && (
+        <div
+          className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-neon-purple/20 p-2 text-neon-purple"
+          style={{ opacity: Math.min(1, replyDragPx / 64), transform: `translateY(-50%) scale(${0.7 + Math.min(0.3, replyDragPx / 213)})` }}
+          aria-hidden="true"
+        >
+          <Reply className="h-4 w-4" />
+        </div>
+      )}
       {!isUser && senderInfo.avatar && (
         <img
           src={senderInfo.avatar}
