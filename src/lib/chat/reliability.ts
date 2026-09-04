@@ -191,15 +191,20 @@ export function resolveAudioUrlFromPayload(
 
 export function mergeMessagesIdempotent(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   const byBackendId = new Set(existing.map((m) => m.backend_turn_id).filter(Boolean));
-  const byClientId = new Set(existing.map((m) => m.client_message_id).filter(Boolean));
+  // client_message_id identifies the logical USER submission. The canonical
+  // assistant reply may echo the same id for causal linkage; it is not a
+  // duplicate of the user turn.
+  const byClientId = new Set(
+    existing.filter((m) => m.sender === "user").map((m) => m.client_message_id).filter(Boolean),
+  );
   const byStableId = new Set(existing.map((m) => m.id));
 
   const newItems = incoming.filter((m) => {
     if (m.backend_turn_id && byBackendId.has(m.backend_turn_id)) return false;
-    if (m.client_message_id && byClientId.has(m.client_message_id)) return false;
+    if (m.sender === "user" && m.client_message_id && byClientId.has(m.client_message_id)) return false;
     if (byStableId.has(m.id)) return false;
     if (m.backend_turn_id) byBackendId.add(m.backend_turn_id);
-    if (m.client_message_id) byClientId.add(m.client_message_id);
+    if (m.sender === "user" && m.client_message_id) byClientId.add(m.client_message_id);
     byStableId.add(m.id);
     return true;
   });

@@ -12,6 +12,7 @@ import chatBg from "@/assets/chat-bg.jpg";
 import KaelHeader from "@/components/layout/KaelHeader";
 import ChatInput from "@/components/chat/ChatInput";
 import MessageBubble from "@/components/chat/MessageBubble";
+import OutboxAttentionPanel from "@/components/chat/OutboxAttentionPanel";
 import TypingIndicator from "@/components/TypingIndicator";
 import ImageViewer from "@/components/media/ImageViewer";
 
@@ -27,7 +28,7 @@ import type { KaelSSENewMessage } from "@/hooks/useKaelSSE";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import * as chatApi from "@/lib/api/chat";
-import type { QuotedMessagePayload } from "@/lib/api/chat";
+import type { BackendChatMessage, QuotedMessagePayload } from "@/lib/api/chat";
 import { requestTTS } from "@/lib/api/voice";
 import { fetchAvatarVideo, getVideoJobStatus } from "@/lib/api/avatar";
 import { emitTelemetry } from "@/lib/telemetry/sseTelemetry";
@@ -40,6 +41,25 @@ import {
 } from "@/lib/chat/reliability";
 import { getCanonicalTimeMs } from "@/lib/chat/timeNormalization";
 import { applyDiagnosticMarkers } from "@/lib/chat/diagnosticMarkers";
+import {
+  enqueueTextExchange,
+  getTextOutboxSummary,
+  getTimelineCursor,
+  ingestTimelinePage,
+  listTextExchanges,
+  listTimelineMessages,
+  MANUAL_OUTBOX_CONFIRMATION,
+  MAX_TEXT_OUTBOX_ENTRIES,
+  recoverInboxBatches,
+  removeTextExchangeManually,
+  retryTextExchangeManually,
+  type TextOutboxSummary,
+} from "@/lib/chat/durableExchangeStore";
+import {
+  drainTextOutbox,
+  nextTextOutboxAttemptAt,
+  type TextOutboxDrainResult,
+} from "@/lib/chat/textOutbox";
 
 /** Poll avatar render job until done, then fetch the base64 video. */
 const pollAndFetchAvatarVideo = async (jobId: string): Promise<string | null> => {
@@ -70,15 +90,6 @@ import { sendExternalAgentMessage, getSelectedModel, type ExternalChatMessage } 
 const DEFAULT_CONVERSATION_ID = "kael-main";
 const CHAT_CURSOR_STORAGE_KEY = "kael-chat-turn-cursor-v1";
 
-function readStoredTurnCursor(): number {
-  try {
-    const value = Number(localStorage.getItem(CHAT_CURSOR_STORAGE_KEY) ?? "0");
-    return Number.isSafeInteger(value) && value >= 0 ? value : 0;
-  } catch {
-    return 0;
-  }
-}
-
 function persistTurnCursor(cursor: number): void {
   if (!Number.isSafeInteger(cursor) || cursor < 0) return;
   try {
@@ -99,6 +110,16 @@ const Chat = () => {
   const [quotedMessagePayload, setQuotedMessagePayload] = useState<QuotedMessagePayload | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
+  const [continuityReady, setContinuityReady] = useState(false);
+  const [continuityError, setContinuityError] = useState<string | null>(null);
+  const [timelineReady, setTimelineReady] = useState(false);
+  const [outboxSummary, setOutboxSummary] = useState<TextOutboxSummary>({
+    total: 0,
+    capacity: MAX_TEXT_OUTBOX_ENTRIES,
+    blocked: false,
+    attention: [],
+  });
+  const [outboxActionBusy, setOutboxActionBusy] = useState<string | null>(null);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
   const [agentMode, setAgentMode] = useState(false);
   const { theme, kaelAvatarSrc } = useTheme();
@@ -118,7 +139,9 @@ const Chat = () => {
    * Starts at 0 (sentinel) — SSE handler skips if history hasn't loaded yet.
    */
   const lastFetchTsRef = useRef<number>(0);
-  const lastFetchTurnIdRef = useRef<number>(readStoredTurnCursor());
+  // IndexedDB is the only client-side cursor authority. localStorage receives
+  // a downstream compatibility mirror but is never read back into this ref.
+  const lastFetchTurnIdRef = useRef<number>(0);
 
   /**
    * BUG-UI-DUP fix (2026-05-06): mutex for fetchAndAppendPending.
@@ -134,11 +157,13 @@ const Chat = () => {
   // Deferred retry timer: if a drain trigger arrives during the coalescing window,
   // we schedule one guaranteed re-drain instead of silently dropping it.
   const pendingRetriggerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const outboxRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const continuityInitializedRef = useRef(false);
   const lastRestartMergeBootIdRef = useRef<string | null>(null);
 
-  const getMaxTimestamp = useCallback((items: any[]): number => {
+  const getMaxTimestamp = useCallback((items: BackendChatMessage[]): number => {
     return items
-      .map((m: any) =>
+      .map((m) =>
         typeof m?.timestamp === "number"
           ? m.timestamp
           : typeof m?.ts === "number"
@@ -149,9 +174,9 @@ const Chat = () => {
       .reduce((max: number, n: number) => (n > max ? n : max), 0);
   }, []);
 
-  const getMaxTurnId = useCallback((items: any[]): number => {
+  const getMaxTurnId = useCallback((items: BackendChatMessage[]): number => {
     return items
-      .map((m: any) => Number(m?.id ?? m?.turn_id ?? m?.backend_turn_id ?? 0))
+      .map((m) => Number(m?.id ?? m?.turn_id ?? m?.backend_turn_id ?? 0))
       .filter((n: number) => Number.isSafeInteger(n) && n > 0)
       .reduce((max: number, n: number) => (n > max ? n : max), 0);
   }, []);
@@ -259,7 +284,7 @@ const Chat = () => {
   }, [removeWallpaperFromStore]);
 
   // Helper: convert backend message object to local ChatMessage
-  const mapBackendMsg = useCallback((m: any): ChatMessage => {
+  const mapBackendMsg = useCallback((m: BackendChatMessage): ChatMessage => {
     // Resolve image: prefer inline data URL, then resolve asset ID to backend URL.
     // "__asset__:ID" placeholders are replaced with the actual /media/gallery/{id}/file URL
     // so images load correctly after reload without needing a local cache.
@@ -347,7 +372,7 @@ const Chat = () => {
   // when history reload returns a user turn that the client sent with a known
   // client_message_id, the optimistic local copy is merged into the backend
   // record rather than appended as a separate entry.
-  const mergeHistoryIntoState = useCallback((backendMessages: any[]) => {
+  const mergeHistoryIntoState = useCallback((backendMessages: BackendChatMessage[]) => {
     const incoming = backendMessages.map(mapBackendMsg);
     setMessages((prev) => {
       if (prev.length === 0) return incoming;
@@ -357,7 +382,9 @@ const Chat = () => {
         incoming.filter((m) => m.backend_turn_id).map((m) => [m.backend_turn_id, m])
       );
       const incomingByClientMsgId = new Map(
-        incoming.filter((m) => m.client_message_id).map((m) => [m.client_message_id, m])
+        incoming
+          .filter((m) => m.sender === "user" && m.client_message_id)
+          .map((m) => [m.client_message_id, m])
       );
       const incomingByStableId = new Set(incoming.map((m) => m.id));
 
@@ -387,7 +414,7 @@ const Chat = () => {
       // and must NOT be appended again.
       const localOnly = prev.filter((m) => {
         if (m.backend_turn_id && incomingByBackendTurnId.has(m.backend_turn_id)) return false;
-        if (m.client_message_id && incomingByClientMsgId.has(m.client_message_id)) return false;
+        if (m.sender === "user" && m.client_message_id && incomingByClientMsgId.has(m.client_message_id)) return false;
         if (incomingByStableId.has(m.id)) return false;
         return true;
       });
@@ -410,10 +437,64 @@ const Chat = () => {
     });
   }, [mapBackendMsg]);
 
+  // Open and recover the local write-ahead logs before any network send or
+  // cursor-based catch-up is allowed.  Outbox rows become optimistic bubbles
+  // only after they have survived an IndexedDB transaction.
+  useEffect(() => {
+    if (continuityInitializedRef.current) return;
+    continuityInitializedRef.current = true;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        await recoverInboxBatches(DEFAULT_CONVERSATION_ID);
+
+        const [cachedTimeline, outbox, summary] = await Promise.all([
+          listTimelineMessages(DEFAULT_CONVERSATION_ID),
+          listTextExchanges(),
+          getTextOutboxSummary(),
+        ]);
+        if (cancelled) return;
+        if (cachedTimeline.length) mergeHistoryIntoState(cachedTimeline);
+
+        const optimistic: ChatMessage[] = outbox.map((entry) => ({
+          id: entry.clientMessageId,
+          client_message_id: entry.clientMessageId,
+          backend_turn_id: entry.userTurnId,
+          text: entry.requestBody.text,
+          time: new Date(entry.createdAtMs).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
+          timestamp: entry.createdAtMs / 1000,
+          sender: "user",
+          feedback: null,
+          meta: {
+            exchange_status: entry.exchangeStatus ?? entry.state,
+            durable_outbox: true,
+          },
+        }));
+        if (optimistic.length) {
+          setMessages((previous) => mergeMessagesIdempotent(previous, optimistic));
+        }
+        setOutboxSummary(summary);
+
+        const durableCursor = await getTimelineCursor(DEFAULT_CONVERSATION_ID);
+        lastFetchTurnIdRef.current = durableCursor;
+        persistTurnCursor(lastFetchTurnIdRef.current); // compatibility mirror only
+        setContinuityReady(true);
+      } catch {
+        if (cancelled) return;
+        setContinuityError("Archivio durevole chat non disponibile");
+        setHistoryLoading(false);
+        toast.error("Invio bloccato: archivio durevole chat non disponibile");
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [mergeHistoryIntoState]);
+
   // Load real chat history from backend once lifecycle reaches "online".
   // Uses merge strategy: existing local messages are preserved, not replaced.
   useEffect(() => {
-    if (lifecycleState !== "online" || historyLoadedRef.current) {
+    if (!continuityReady || lifecycleState !== "online" || historyLoadedRef.current) {
       if (lifecycleState !== "online" && lifecycleState !== "checking") {
         setHistoryLoading(false);
       }
@@ -421,8 +502,9 @@ const Chat = () => {
     }
     let cancelled = false;
     (async () => {
-      let historyMessages: any[] = [];
+      let historyMessages: BackendChatMessage[] = [];
       let historyLoadedOk = false;
+      let durableHistoryCursor = lastFetchTurnIdRef.current;
       const config = getApiConfig();
       if (!config.baseUrl) {
         setHistoryLoading(false);
@@ -441,8 +523,21 @@ const Chat = () => {
             historyMessages = pendingProbe.messages;
           }
         }
-        if (!cancelled && historyMessages.length) {
-          mergeHistoryIntoState(historyMessages);
+        if (historyMessages.length) {
+          const maxHistoryTurnId = getMaxTurnId(historyMessages);
+          const currentDurableCursor = await getTimelineCursor(DEFAULT_CONVERSATION_ID);
+          // History is a snapshot, never cursor authority. Only the canonical
+          // /history/pending cursor contract may advance the durable cursor.
+          const committed = await ingestTimelinePage({
+            timelineKey: DEFAULT_CONVERSATION_ID,
+            fromCursor: currentDurableCursor,
+            nextCursor: currentDurableCursor,
+            cursorKind: "snapshot",
+            messages: historyMessages,
+            batchId: `history:${sessionId}:${maxHistoryTurnId}:${historyMessages.length}`,
+          });
+          durableHistoryCursor = committed.cursor;
+          if (!cancelled) mergeHistoryIntoState(committed.messages);
         }
         historyLoadedOk = true;
       } catch (err) {
@@ -454,6 +549,7 @@ const Chat = () => {
           if (historyLoadedOk) {
             historyLoadedRef.current = true;
             pendingDrainReadyRef.current = true;
+            setTimelineReady(true);
             // Advance watermark ONLY from confirmed backend data.
             // Never fallback to Date.now() here: a failed/empty load must not
             // skip pending messages that still need to be drained.
@@ -461,17 +557,16 @@ const Chat = () => {
             if (maxHistoryTs > 0) {
               lastFetchTsRef.current = maxHistoryTs;
             }
-            const maxHistoryTurnId = getMaxTurnId(historyMessages);
-            if (maxHistoryTurnId > 0) {
-              lastFetchTurnIdRef.current = maxHistoryTurnId;
-              persistTurnCursor(maxHistoryTurnId);
+            if (durableHistoryCursor > 0) {
+              lastFetchTurnIdRef.current = durableHistoryCursor;
+              persistTurnCursor(lastFetchTurnIdRef.current);
             }
           }
         }
       }
     })();
     return () => { cancelled = true; };
-  }, [lifecycleState, sessionId, mergeHistoryIntoState, getMaxTimestamp, getMaxTurnId]);
+  }, [continuityReady, lifecycleState, sessionId, mergeHistoryIntoState, getMaxTimestamp, getMaxTurnId]);
 
   const scrollToBottom = useCallback((instant?: boolean) => {
     const doScroll = () => {
@@ -577,7 +672,8 @@ const Chat = () => {
       try {
         let cursor = afterTurnId;
         let maxReceivedTs = afterTs;
-        const pendingMessages: any[] = [];
+        let received = 0;
+        let appended = 0;
         const PAGE_LIMIT = 250;
         const MAX_CURSOR_PAGES = 20;
 
@@ -589,7 +685,6 @@ const Chat = () => {
             PAGE_LIMIT,
           );
           const pageMessages = result?.messages ?? [];
-          pendingMessages.push(...pageMessages);
 
           for (const message of pageMessages) {
             const ts = typeof message?.timestamp === "number"
@@ -600,43 +695,47 @@ const Chat = () => {
             if (Number.isFinite(ts) && ts > maxReceivedTs) maxReceivedTs = ts;
           }
 
-          const responseCursor = Number(result?.next_cursor ?? 0);
-          const derivedCursor = getMaxTurnId(pageMessages);
-          const nextCursor = Math.max(
-            cursor,
-            Number.isSafeInteger(responseCursor) ? responseCursor : 0,
-            derivedCursor,
-          );
+          // fetchPendingMessages already validates cursor_kind and next_cursor.
+          // Message ids are data, never cursor authority.
+          const nextCursor = result.next_cursor;
           const hasMore = Boolean(result?.has_more);
           if (hasMore && nextCursor <= cursor) {
             throw new Error("pending cursor did not advance");
           }
-          cursor = nextCursor;
+          const committed = await ingestTimelinePage({
+            timelineKey: DEFAULT_CONVERSATION_ID,
+            fromCursor: cursor,
+            nextCursor,
+            cursorKind: "conversation_turn_id",
+            messages: pageMessages,
+            batchId: `pending:${sessionId}:${cursor}:${nextCursor}`,
+          });
+          cursor = committed.cursor;
+          lastFetchTurnIdRef.current = cursor;
+          // Compatibility mirror only. IndexedDB committed the page and cursor
+          // in one transaction before this non-authoritative localStorage write.
+          persistTurnCursor(cursor);
+          received += committed.messages.length;
+          if (committed.messages.length) {
+            const newMessages: ChatMessage[] = committed.messages.map(mapBackendMsg);
+            setMessages((previous) => {
+              const combined = mergeMessagesIdempotent(previous, newMessages);
+              appended += combined.length - previous.length;
+              return combined;
+            });
+          }
           if (!hasMore) break;
           if (page === MAX_CURSOR_PAGES - 1) {
             throw new Error("pending cursor page limit exceeded");
           }
         }
 
-        const received = pendingMessages.length;
         if (maxReceivedTs > afterTs) lastFetchTsRef.current = maxReceivedTs;
-        if (cursor > afterTurnId) {
-          lastFetchTurnIdRef.current = cursor;
-          persistTurnCursor(cursor);
-        }
 
         if (!received) {
           emitTelemetry("softResync.merged", { received: 0, appended: 0 });
           return;
         }
-
-        let appended = 0;
-        setMessages((prev) => {
-          const newMsgs: ChatMessage[] = pendingMessages.map(mapBackendMsg);
-          const combined = mergeMessagesIdempotent(prev, newMsgs);
-          appended = combined.length - prev.length;
-          return combined;
-        });
 
         emitTelemetry("softResync.merged", { received, appended });
         scrollToBottom();
@@ -653,7 +752,109 @@ const Chat = () => {
     } finally {
       fetchInFlightRef.current = null;
     }
-  }, [sessionId, mapBackendMsg, scrollToBottom, getMaxTurnId]);
+  }, [sessionId, mapBackendMsg, scrollToBottom]);
+
+  const applyOutboxResults = useCallback((results: TextOutboxDrainResult[]) => {
+    for (const result of results) {
+      if (result.timelineMessages?.length) {
+        const durableMessages = result.timelineMessages.map(mapBackendMsg);
+        setMessages((previous) => mergeMessagesIdempotent(previous, durableMessages));
+      }
+
+      if (result.kind === "reply" || result.kind === "replay" || result.kind === "silence") {
+        setIsTyping(false);
+        window.dispatchEvent(new CustomEvent("kael-observatory-refresh"));
+        if (result.response?.avatar_job_id && result.response.assistant_turn_id != null) {
+          const assistantTurnId = String(result.response.assistant_turn_id);
+          pollAndFetchAvatarVideo(result.response.avatar_job_id).then((videoDataUrl) => {
+            if (!videoDataUrl) return;
+            setMessages((previous) =>
+              previous.map((message) =>
+                message.backend_turn_id === assistantTurnId
+                  ? { ...message, videoUrl: videoDataUrl }
+                  : message
+              )
+            );
+          });
+        }
+        continue;
+      }
+
+      if (result.kind === "in_progress") {
+        setIsTyping(true);
+        continue;
+      }
+      if (result.kind === "recovery_required") {
+        setIsTyping(false);
+        toast.warning("Messaggio conservato: il recupero richiede verifica, nessun reinvio automatico");
+        continue;
+      }
+      if (result.kind === "terminal_failure" || result.kind === "integrity_failure") {
+        setIsTyping(false);
+        toast.error("Messaggio conservato nell'outbox: invio non completato");
+        continue;
+      }
+      if (result.kind === "retryable_failure" || result.kind === "transport_deferred") {
+        setIsTyping(false);
+      }
+    }
+    if (results.some((result) => result.timelineMessages?.length)) scrollToBottom();
+  }, [mapBackendMsg, scrollToBottom]);
+
+  const scheduleNextOutboxDrain = useCallback(async () => {
+    if (outboxRetryTimerRef.current) {
+      clearTimeout(outboxRetryTimerRef.current);
+      outboxRetryTimerRef.current = null;
+    }
+    const nextAttemptAt = await nextTextOutboxAttemptAt();
+    if (nextAttemptAt === null) return;
+    const delay = Math.max(250, Math.min(30_000, nextAttemptAt - Date.now()));
+    outboxRetryTimerRef.current = setTimeout(() => {
+      outboxRetryTimerRef.current = null;
+      window.dispatchEvent(new CustomEvent("kael-outbox-retry"));
+    }, delay);
+  }, []);
+  const refreshOutboxSummary = useCallback(async () => {
+    const summary = await getTextOutboxSummary();
+    setOutboxSummary(summary);
+    return summary;
+  }, []);
+
+  const runTextOutboxDrain = useCallback(async (): Promise<TextOutboxDrainResult[]> => {
+    if (!continuityReady || lifecycleState !== "online") return [];
+    try {
+      const results = await drainTextOutbox();
+      applyOutboxResults(results);
+      await refreshOutboxSummary();
+      await scheduleNextOutboxDrain();
+      return results;
+    } catch (error) {
+      // Transport failures are classified and retained by drainTextOutbox.
+      // Reaching this branch means the local durable continuity contract itself
+      // failed; stop new sends until a fresh boot can recover IndexedDB.
+      const name = error instanceof Error ? error.name : "unknown";
+      emitTelemetry("chatContinuity.failed", { error: name });
+      setContinuityError("Archivio durevole chat non disponibile");
+      setContinuityReady(false);
+      setIsTyping(false);
+      throw error;
+    }
+  }, [continuityReady, lifecycleState, applyOutboxResults, refreshOutboxSummary, scheduleNextOutboxDrain]);
+
+  // Boot/online and explicit retry triggers all converge on the same module-level
+  // single-flight FIFO drain. No lifecycle event can start a parallel text send.
+  useEffect(() => {
+    if (!continuityReady || lifecycleState !== "online") return;
+    const retry = () => { runTextOutboxDrain().catch(() => {}); };
+    window.addEventListener("kael-outbox-retry", retry);
+    runTextOutboxDrain().catch(() => {});
+    if (timelineReady) fetchAndAppendPending().catch(() => {});
+    return () => window.removeEventListener("kael-outbox-retry", retry);
+  }, [continuityReady, timelineReady, lifecycleState, runTextOutboxDrain, fetchAndAppendPending]);
+
+  useEffect(() => () => {
+    if (outboxRetryTimerRef.current) clearTimeout(outboxRetryTimerRef.current);
+  }, []);
 
   // Visibility resume catch-up (moved here from above the fetchAndAppendPending
   // declaration to avoid TDZ in minified prod bundle — see note above).
@@ -662,6 +863,7 @@ const Chat = () => {
     const handleResume = () => {
       if (document.visibilityState === "visible") {
         fetchAndAppendPending();
+        runTextOutboxDrain().catch(() => {});
       }
     };
     document.addEventListener("visibilitychange", handleResume);
@@ -674,13 +876,14 @@ const Chat = () => {
       if (!isActive) return;
       historyLoadedRef.current = false;
       fetchAndAppendPending();
+      runTextOutboxDrain().catch(() => {});
     }).then((l) => { capListener = l; }).catch(() => {});
 
     return () => {
       document.removeEventListener("visibilitychange", handleResume);
       capListener?.remove();
     };
-  }, [lifecycleState, fetchAndAppendPending]);
+  }, [lifecycleState, fetchAndAppendPending, runTextOutboxDrain]);
 
   useEffect(() => {
     if (lifecycleState !== "online") return;
@@ -692,6 +895,7 @@ const Chat = () => {
     const handleReconnect = () => {
       // Catch up on any messages missed while disconnected
       fetchAndAppendPending();
+      runTextOutboxDrain().catch(() => {});
     };
 
     const handleServerRestarted = (evt: Event) => {
@@ -710,6 +914,7 @@ const Chat = () => {
       // and the useEffect for initial load never fires again, leaving the chat
       // showing stale (or no) messages after a backend restart.
       historyLoadedRef.current = false;
+      setTimelineReady(false);
       (async () => {
         try {
           const data = await chatApi.getChatHistory(sessionId);
@@ -723,20 +928,31 @@ const Chat = () => {
             }
           }
           if (historyMessages.length) {
-            mergeHistoryIntoState(historyMessages);
+            const currentDurableCursor = await getTimelineCursor(DEFAULT_CONVERSATION_ID);
+            const maxHistoryTurnId = getMaxTurnId(historyMessages);
+            const committed = await ingestTimelinePage({
+              timelineKey: DEFAULT_CONVERSATION_ID,
+              fromCursor: currentDurableCursor,
+              // A bounded history snapshot never advances the contiguous
+              // pending cursor on restart.
+              nextCursor: currentDurableCursor,
+              cursorKind: "snapshot",
+              messages: historyMessages,
+              batchId: `restart-history:${sessionId}:${maxHistoryTurnId}:${historyMessages.length}`,
+            });
+            mergeHistoryIntoState(committed.messages);
           }
           // Mark loaded so the useEffect doesn't double-fire on the same state tick
           historyLoadedRef.current = true;
           pendingDrainReadyRef.current = true;
+          setTimelineReady(true);
           const maxHistoryTs = getMaxTimestamp(historyMessages);
           if (maxHistoryTs > 0) {
             lastFetchTsRef.current = maxHistoryTs;
           }
-          const maxHistoryTurnId = getMaxTurnId(historyMessages);
-          if (maxHistoryTurnId > 0) {
-            lastFetchTurnIdRef.current = maxHistoryTurnId;
-            persistTurnCursor(maxHistoryTurnId);
-          }
+          const durableCursor = await getTimelineCursor(DEFAULT_CONVERSATION_ID);
+          lastFetchTurnIdRef.current = durableCursor;
+          persistTurnCursor(lastFetchTurnIdRef.current);
         } catch (err) {
           console.warn("[Chat] History merge after restart failed:", err);
           // Leave historyLoadedRef.current = false so a future lifecycle
@@ -753,7 +969,7 @@ const Chat = () => {
       window.removeEventListener("kael-sse-connected", handleReconnect);
       window.removeEventListener("kael-server-restarted", handleServerRestarted);
     };
-  }, [lifecycleState, fetchAndAppendPending, mergeHistoryIntoState, sessionId, getMaxTimestamp, getMaxTurnId]);
+  }, [lifecycleState, fetchAndAppendPending, runTextOutboxDrain, mergeHistoryIntoState, sessionId, getMaxTimestamp, getMaxTurnId]);
 
   // Listen for agent mode toggle from BottomNav
   useEffect(() => {
@@ -767,118 +983,53 @@ const Chat = () => {
 
   const handleSend = useCallback(
     async (text: string) => {
-      // If editing a previous message, remove it (and its Kael reply) before re-sending
-      setMessages((prev) => {
-        const editingIdx = prev.findIndex((m) => m.isEditing);
-        if (editingIdx >= 0) {
-          // Remove the edited user message and all subsequent messages
-          // (they belong to the old conversation branch)
-          return prev.slice(0, editingIdx);
-        }
-        return prev;
-      });
+      if (!continuityReady) {
+        toast.error(continuityError ?? "Archivio durevole chat non ancora pronto");
+        return;
+      }
 
-      // Stable UUID for this send — survives restarts and is used to reconcile
-      // the optimistic message with the backend-persisted turn on history reload.
-      const clientMsgId = crypto.randomUUID();
+      const quotedSnapshot = quotedMessagePayload;
+      let exchange;
+      try {
+        // This transaction is the acceptance boundary: no optimistic UI and no
+        // HTTP request exist until the exact body has been durably committed.
+        exchange = await enqueueTextExchange({
+          timelineKey: DEFAULT_CONVERSATION_ID,
+          sessionId,
+          text,
+          quotedMessage: quotedSnapshot,
+        });
+        await refreshOutboxSummary();
+      } catch {
+        toast.error("Messaggio non inviato: impossibile salvarlo nell'outbox durevole");
+        return;
+      }
 
+      const clientMsgId = exchange.clientMessageId;
       const userMsg: ChatMessage = {
         id: clientMsgId,
-        text,
-        time: now(),
-        timestamp: Date.now() / 1000,
+        text: exchange.requestBody.text,
+        time: new Date(exchange.createdAtMs).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
+        timestamp: exchange.createdAtMs / 1000,
         sender: "user",
         feedback: null,
         client_message_id: clientMsgId,
+        meta: { exchange_status: "queued", durable_outbox: true },
       };
-      setMessages((prev) => [...prev, userMsg]);
+      setMessages((previous) => {
+        const editingIndex = previous.findIndex((message) => message.isEditing);
+        const retained = editingIndex >= 0 ? previous.slice(0, editingIndex) : previous;
+        return mergeMessagesIdempotent(retained, [userMsg]);
+      });
       setQuotedPreview(null);
       setQuotedMessagePayload(null);
       scrollToBottom();
 
-      // --- Kael is ALWAYS the primary chat route ---
       setIsTyping(true);
       try {
-        const startTime = Date.now();
-        const response = await chatApi.sendMessage(
-          text,
-          sessionId,
-          undefined,
-          clientMsgId,
-          quotedMessagePayload,
-        );
-        const latency = Date.now() - startTime;
-
-        setIsTyping(false);
-
-        // ACK: promote the optimistic user message with its backend_turn_id now
-        // that the server has confirmed persistence. This prevents mergeHistoryIntoState
-        // from treating it as "local-only" and appending it again on history reload.
-        if (response.user_turn_id != null) {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.client_message_id === clientMsgId
-                ? { ...m, backend_turn_id: String(response.user_turn_id) }
-                : m
-            )
-          );
-        }
-
-        const assistantIdentity = resolveAssistantIdentity(
-          response as unknown as Record<string, unknown>,
-          sessionId,
-          response.reply ?? "",
-          Date.now() / 1000,
-        );
-        if (assistantIdentity.idSource === "fallback") {
-          console.warn("[Chat] assistant_turn_id missing: using stable fallback id", {
-            sessionId,
-            messageId: assistantIdentity.messageId,
-          });
-        }
-        const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
-        const responseBubbles = Array.isArray(response.bubbles)
-          ? response.bubbles
-              .map((part) => String(part ?? "").trim())
-              .filter((part) => part.length > 0)
-          : undefined;
-
-        const responseMsg: ChatMessage = {
-          id: assistantIdentity.messageId,
-          text: normalizedReply.text,
-          bubbles: responseBubbles && responseBubbles.length > 0 ? responseBubbles : undefined,
-          time: now(),
-          timestamp: Date.now() / 1000,
-          sender: response.sender || "kael",
-          feedback: null,
-          backend_turn_id: assistantIdentity.backendTurnId,
-          latency,
-          meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
-          delivery_mode: response.delivery_mode ?? undefined,
-          audioUrl: resolveAudioUrlFromPayload(response as unknown as Record<string, unknown>, getApiConfig().baseUrl),
-          image: response.image_base64
-            ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
-            : undefined,
-          agent_id: response.agent_id,
-          agent_name: response.agent_name,
-          agent_avatar: response.agent_avatar,
-        };
-        setMessages((prev) => mergeMessagesIdempotent(prev, [responseMsg]));
-        scrollToBottom();
-        // Trigger instant Observatory refresh after chat interaction
-        window.dispatchEvent(new CustomEvent("kael-observatory-refresh"));
-        if (response.avatar_job_id) {
-          const msgId = responseMsg.id;
-          pollAndFetchAvatarVideo(response.avatar_job_id).then((videoDataUrl) => {
-            if (videoDataUrl) {
-              setMessages((prev) =>
-                prev.map((m) => (m.id === msgId ? { ...m, videoUrl: videoDataUrl } : m))
-              );
-            }
-          });
-        }
-
-        if (agentMode) {
+        const results = await runTextOutboxDrain();
+        const ownResult = results.find((result) => result.clientMessageId === clientMsgId);
+        if (agentMode && (ownResult?.kind === "reply" || ownResult?.kind === "replay")) {
           try {
             const agentHistory: ExternalChatMessage[] = [...messages, userMsg]
               .filter((m) => m.sender === "user" || m.sender === "external_agent")
@@ -907,39 +1058,24 @@ const Chat = () => {
             console.warn("[Chat] External agent unavailable:", error);
           }
         }
-      } catch (error) {
+      } catch {
         setIsTyping(false);
-        const isTimeout =
-          error instanceof Error &&
-          (error.name === "AbortError" || error.message.includes("timeout"));
-
-        if (isTimeout) {
-          // Timeout doesn't mean the backend failed — long replies (60-180s) can
-          // exceed the client AbortController window. Show a softer message and
-          // keep polling for the response.
-          toast.error("Risposta in ritardo — Kael sta elaborando...", { duration: 6000 });
-          // Poll aggressively: try at 5s, 15s, 30s after timeout
-          setTimeout(() => fetchAndAppendPending(), 5_000);
-          setTimeout(() => fetchAndAppendPending(), 15_000);
-          setTimeout(() => fetchAndAppendPending(), 30_000);
-        } else {
-          const errorMsg = error instanceof Error ? error.message : "Failed to send message";
-          toast.error(errorMsg);
-          // Do NOT invalidateBackendCache — user URL is source of truth.
-          // Just trigger re-discovery which will probe without overwriting.
-          probeAndResolveBackend().catch(() => {});
-          // Reconcile: backend may have completed the reply after client timeout.
-          setTimeout(() => fetchAndAppendPending(), 5_000);
-        }
+        // The exact envelope remains in IndexedDB. Reconnect/boot retries the
+        // same logical request; never synthesize a second UUID here.
+        toast.error("Connessione interrotta: messaggio conservato e retry sicuro in coda");
+        probeAndResolveBackend().catch(() => {});
       }
     },
     [
       sessionId,
       agentMode,
       messages,
-      fetchAndAppendPending,
-      normalizeAssistantPayload,
+      continuityReady,
+      continuityError,
       quotedMessagePayload,
+      refreshOutboxSummary,
+      runTextOutboxDrain,
+      scrollToBottom,
     ]
   );
 
@@ -1024,8 +1160,8 @@ const Chat = () => {
 
           setIsTyping(false);
           // Warn user if vision failed (Kael replied without seeing the image)
-          if ((response as any).vision_ok === false && (response as any).failure_kind) {
-            const failureKind: string = (response as any).failure_kind ?? "";
+          if (response.vision_ok === false && response.failure_kind) {
+            const failureKind = response.failure_kind;
             const visionErrorMsgs: Record<string, string> = {
               not_configured: "La visione non è configurata — assicurati che Moondream sia installato in Ollama",
               ollama_unreachable: "Ollama non è raggiungibile",
@@ -1039,7 +1175,7 @@ const Chat = () => {
           }
 
           // Assign backend_turn_id to the user image message so it persists across reloads
-          const userTurnId = (response as any).user_turn_id;
+          const userTurnId = response.user_turn_id;
           if (userTurnId != null) {
             setMessages((prev) =>
               prev.map((m) =>
@@ -1113,7 +1249,7 @@ const Chat = () => {
       };
       reader.readAsDataURL(file);
     },
-    [sessionId, fetchAndAppendPending, normalizeAssistantPayload]
+    [sessionId, fetchAndAppendPending, normalizeAssistantPayload, scrollToBottom]
   );
 
   const handleVoiceNote = useCallback(
@@ -1206,7 +1342,7 @@ const Chat = () => {
         setTimeout(() => fetchAndAppendPending(), 5000);
       }
     },
-    [sessionId, fetchAndAppendPending]
+    [sessionId, fetchAndAppendPending, normalizeAssistantPayload, scrollToBottom]
   );
 
   const handleFeedback = useCallback(
@@ -1269,6 +1405,62 @@ const Chat = () => {
     );
   }, []);
 
+  const handleManualOutboxRetry = useCallback(async (clientMessageId: string) => {
+    const entry = outboxSummary.attention.find((item) => item.clientMessageId === clientMessageId);
+    if (!entry) return;
+    const recoveryNote = entry.state === "recovery_required"
+      ? "Il backend ha bloccato il recupero cognitivo. Verrà reinviato soltanto lo stesso envelope con lo stesso UUID, per rileggere il receipt idempotente; non verrà creato un nuovo messaggio."
+      : "Verrà reinviato soltanto lo stesso envelope con lo stesso UUID.";
+    if (!window.confirm(recoveryNote + "\n\nConfermi il tentativo manuale?")) return;
+
+    setOutboxActionBusy(clientMessageId);
+    try {
+      await retryTextExchangeManually(
+        clientMessageId,
+        MANUAL_OUTBOX_CONFIRMATION,
+      );
+      await refreshOutboxSummary();
+      await runTextOutboxDrain();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Retry manuale non riuscito");
+    } finally {
+      await refreshOutboxSummary().catch(() => {});
+      setOutboxActionBusy(null);
+    }
+  }, [outboxSummary.attention, refreshOutboxSummary, runTextOutboxDrain]);
+
+  const handleManualOutboxRemove = useCallback(async (clientMessageId: string) => {
+    const entry = outboxSummary.attention.find((item) => item.clientMessageId === clientMessageId);
+    if (!entry) return;
+    if (!window.confirm(
+      "Rimuovere questo envelope soltanto dall'outbox locale? L'operazione non cancella eventuali turni già registrati nel backend e sblocca i messaggi successivi.",
+    )) return;
+
+    setOutboxActionBusy(clientMessageId);
+    try {
+      await removeTextExchangeManually(
+        clientMessageId,
+        MANUAL_OUTBOX_CONFIRMATION,
+      );
+      setMessages((previous) => previous.filter((message) =>
+        message.client_message_id !== clientMessageId
+      ));
+      await refreshOutboxSummary();
+      await runTextOutboxDrain();
+      fetchAndAppendPending().catch(() => {});
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Rimozione manuale non riuscita");
+    } finally {
+      await refreshOutboxSummary().catch(() => {});
+      setOutboxActionBusy(null);
+    }
+  }, [
+    fetchAndAppendPending,
+    outboxSummary.attention,
+    refreshOutboxSummary,
+    runTextOutboxDrain,
+  ]);
+
   // Bubble wallpaper style props
   const bubbleWallpaperStyle = wallpaper?.displaySettings ?? null;
 
@@ -1295,6 +1487,13 @@ const Chat = () => {
               <Phone size={16} />
             </button>
         }
+      />
+
+      <OutboxAttentionPanel
+        summary={outboxSummary}
+        busyClientMessageId={outboxActionBusy}
+        onRetry={handleManualOutboxRetry}
+        onRemove={handleManualOutboxRemove}
       />
 
       {/* Messages — long press on background triggers wallpaper menu */}
@@ -1355,7 +1554,7 @@ const Chat = () => {
           setQuotedPreview(null);
           setQuotedMessagePayload(null);
         }}
-        disabled={lifecycleState !== "online"}
+        disabled={lifecycleState !== "online" || !continuityReady || Boolean(continuityError)}
         sessionId={sessionId}
       />
 

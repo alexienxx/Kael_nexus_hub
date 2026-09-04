@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "e2e": "playwright test tests/e2e/ui tests/e2e/contracts",
     "e2e:ui": "playwright test tests/e2e/ui",
+    "e2e:chat-continuity": "playwright test tests/e2e/ui/chat-continuity-diagnostic.spec.ts --workers=1",
     "e2e:contract": "playwright test tests/e2e/contracts",
     "e2e:live": "playwright test tests/e2e/live"
   },
@@ -93,6 +94,7 @@
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",
+    "fake-indexeddb": "^6.2.5",
     "globals": "^15.15.0",
     "jsdom": "^20.0.3",
     "lovable-tagger": "^1.1.13",

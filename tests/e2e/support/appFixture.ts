@@ -34,7 +34,7 @@ export async function seedAppStorage(page: Page, backendUrl = MOCK_BACKEND_URL) 
 
 export async function installMockBackend(page: Page) {
   const persistedMessages: Array<Record<string, unknown>> = [];
-  let turnCounter = 0;
+  const chatAttempts = new Map<string, number>();
   await page.route(`${MOCK_BACKEND_URL}/**`, async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -45,23 +45,129 @@ export async function installMockBackend(page: Page) {
     if (path === "/chat/session/default") return json(route, { session_id: "mobile_kael", aliases: [] });
     if (path === "/chat" && request.method() === "POST") {
       const body = request.postDataJSON() as { text: string; session_id: string; client_message_id?: string };
-      turnCounter += 1;
+      const clientMessageId = String(body.client_message_id ?? "");
+      const attempt = (chatAttempts.get(clientMessageId) ?? 0) + 1;
+      chatAttempts.set(clientMessageId, attempt);
       const timestamp = Date.now() / 1000;
-      const userTurnId = `user-e2e-${turnCounter}`;
-      const assistantTurnId = `assistant-e2e-${turnCounter}`;
-      persistedMessages.push(
-        { id: userTurnId, backend_turn_id: userTurnId, client_message_id: body.client_message_id, text: body.text, sender: "user", timestamp },
-        { id: assistantTurnId, backend_turn_id: assistantTurnId, text: `Risposta E2E: ${body.text}`, sender: "kael", timestamp: timestamp + 0.001 },
+      const existingUser = persistedMessages.find((message) =>
+        message.client_message_id === clientMessageId && message.sender === "user"
       );
+      const stableNumber = Math.max(1, persistedMessages.length + 1);
+      const userTurnId = existingUser?.id ?? stableNumber;
+      const assistantTurnId = Number(userTurnId) + 1;
+
+      if (!existingUser) {
+        persistedMessages.push({
+          id: userTurnId,
+          backend_turn_id: userTurnId,
+          client_message_id: clientMessageId,
+          text: body.text,
+          sender: "user",
+          timestamp,
+        });
+      }
+
+      if (body.text === "E2E_IN_PROGRESS_ONCE" && attempt === 1) {
+        return json(route, {
+          reply: "",
+          session_id: body.session_id,
+          client_message_id: clientMessageId,
+          exchange_id: `exchange-${clientMessageId}`,
+          exchange_status: "processing",
+          outcome_kind: null,
+          idempotent_replay: true,
+          user_turn_id: userTurnId,
+          assistant_turn_id: null,
+          error: { code: "exchange_in_progress", retryable: true },
+        }, 202);
+      }
+
+      if (body.text === "E2E_FIFO_FIRST") {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+      if (body.text === "E2E_DURABLE_BEFORE_FETCH") {
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+
+      if (body.text === "E2E_RECOVERY_REQUIRED") {
+        return json(route, {
+          reply: "",
+          session_id: body.session_id,
+          client_message_id: clientMessageId,
+          exchange_id: `exchange-${clientMessageId}`,
+          exchange_status: "recovery_required",
+          outcome_kind: "failure",
+          idempotent_replay: true,
+          user_turn_id: userTurnId,
+          assistant_turn_id: null,
+          error: { code: "cognition_outcome_requires_recovery", retryable: false },
+        }, 409);
+      }
+
+      if (body.text === "E2E_SILENCE") {
+        return json(route, {
+          reply: "",
+          session_id: body.session_id,
+          client_message_id: clientMessageId,
+          exchange_id: `exchange-${clientMessageId}`,
+          exchange_status: "silence",
+          outcome_kind: "silence",
+          idempotent_replay: attempt > 1,
+          user_turn_id: userTurnId,
+          assistant_turn_id: null,
+        });
+      }
+
+      const replyText = `Risposta E2E: ${body.text}`;
+      const existingAssistant = persistedMessages.find((message) =>
+        message.client_message_id === clientMessageId && message.sender === "kael"
+      );
+      const canonicalAssistantTurnId = existingAssistant?.id ?? assistantTurnId;
+      if (!existingAssistant) {
+        persistedMessages.push({
+          id: canonicalAssistantTurnId,
+          backend_turn_id: canonicalAssistantTurnId,
+          client_message_id: clientMessageId,
+          text: replyText,
+          sender: "kael",
+          timestamp: timestamp + 0.001,
+        });
+      }
       return json(route, {
-        reply: `Risposta E2E: ${body.text}`,
+        reply: replyText,
         sender: "kael",
+        session_id: body.session_id,
+        client_message_id: clientMessageId,
+        exchange_id: `exchange-${clientMessageId}`,
+        exchange_status: "complete",
+        outcome_kind: "reply",
+        idempotent_replay: attempt > 1,
         user_turn_id: userTurnId,
-        assistant_turn_id: assistantTurnId,
+        assistant_turn_id: canonicalAssistantTurnId,
         meta: {},
       });
     }
-    if (path.startsWith("/chat/history/")) return json(route, { messages: persistedMessages, count: persistedMessages.length });
+    if (path === "/chat/history/pending") {
+      const fromCursor = Number(url.searchParams.get("after_turn_id") ?? "0");
+      const limit = Math.max(1, Math.min(2_000, Number(url.searchParams.get("limit") ?? "250")));
+      const remaining = persistedMessages
+        .filter((message) => Number(message.id ?? 0) > fromCursor)
+        .sort((left, right) => Number(left.id ?? 0) - Number(right.id ?? 0));
+      const messages = remaining.slice(0, limit);
+      const nextCursor = messages.reduce(
+        (cursor, message) => Math.max(cursor, Number(message.id ?? 0)),
+        fromCursor,
+      );
+      return json(route, {
+        messages,
+        next_cursor: nextCursor,
+        has_more: remaining.length > messages.length,
+        cursor_kind: "conversation_turn_id",
+      });
+    }
+    if (path === "/chat/history/messages") {
+      return json(route, { messages: persistedMessages, count: persistedMessages.length });
+    }
     if (path === "/chat/pending-autonomous") return json(route, { count: 0, messages: [] });
     if (path === "/chat/events/stats") return json(route, { events_total: 0, clients_connected: 1, pending_autonomous_count: 0, pending_sse_tokens: 0 });
     if (path === "/chat/review") return json(route, { messages: [] });
