@@ -29,7 +29,11 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import * as chatApi from "@/lib/api/chat";
 import type { BackendChatMessage, QuotedMessagePayload } from "@/lib/api/chat";
-import { requestTTS } from "@/lib/api/voice";
+import {
+  getAuthenticatedVoiceAudioUrl,
+  getVoiceAudioResourcePath,
+  requestTTS,
+} from "@/lib/api/voice";
 import { fetchAvatarVideo, getVideoJobStatus } from "@/lib/api/avatar";
 import { emitTelemetry } from "@/lib/telemetry/sseTelemetry";
 import {
@@ -285,15 +289,24 @@ const Chat = () => {
 
   // Helper: convert backend message object to local ChatMessage
   const mapBackendMsg = useCallback((m: BackendChatMessage): ChatMessage => {
-    // Resolve image: prefer inline data URL, then resolve asset ID to backend URL.
-    // "__asset__:ID" placeholders are replaced with the actual /media/gallery/{id}/file URL
-    // so images load correctly after reload without needing a local cache.
+    // Keep durable asset identity separate from the short-lived display URL.
+    // The scoped URL is resolved asynchronously into React state and is never
+    // persisted into the timeline WAL or localStorage.
     let imageUrl: string | undefined = m.image;
-    if (!imageUrl && m.image_asset_id) {
-      imageUrl = getGalleryFileUrl(m.image_asset_id);
-    } else if (imageUrl?.startsWith("__asset__:")) {
-      const assetId = imageUrl.slice("__asset__:".length);
-      imageUrl = getGalleryFileUrl(assetId);
+    let imageAssetId = m.image_asset_id;
+    if (imageUrl?.startsWith("__asset__:")) {
+      imageAssetId = imageUrl.slice("__asset__:".length);
+      imageUrl = undefined;
+    } else if (imageUrl) {
+      const legacyAsset = imageUrl.match(
+        /\/media\/gallery\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})\/file(?:[?#]|$)/,
+      );
+      if (legacyAsset) {
+        imageAssetId = legacyAsset[1];
+        imageUrl = undefined;
+      }
+    } else if (!imageUrl && imageAssetId) {
+      imageUrl = undefined;
     }
 
     // BUG-M20 fix (2026-05-09): Autonomy messages with timestamp=0 from DB would
@@ -325,6 +338,7 @@ const Chat = () => {
       : typeof m.duration === "number"
         ? Math.max(0, m.duration)
         : undefined;
+    const audioAssetPath = getVoiceAudioResourcePath(m);
 
     return {
       id: resolveHistoryMessageId(m, sessionId),
@@ -349,9 +363,11 @@ const Chat = () => {
       //   2. voice_audio    — ephemeral base64
       //   3. audioUrl       — legacy fallback
       // voice_asset_id is NOT a direct audio src.
-      audioUrl: resolveAudioUrlFromPayload(m, baseUrl),
+      audioUrl: audioAssetPath ? undefined : resolveAudioUrlFromPayload(m, baseUrl),
+      audioAssetPath,
       audioDuration,
       image: imageUrl,
+      imageAssetId,
       meta: normalizedMessage.meta,
       delivery_mode: m.delivery_mode ?? m.deliveryMode ?? (m.message_type === "voice_note" ? "voice_note" : undefined),
       agent_id: m.agent_id,
@@ -359,6 +375,73 @@ const Chat = () => {
       agent_avatar: m.agent_avatar,
     };
   }, [normalizeAssistantPayload, sessionId]);
+
+  const resolvingImageAssetsRef = useRef<Set<string>>(new Set());
+  const resolvingAudioAssetsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    const pendingIds = Array.from(new Set(
+      messages
+        .filter((message) => message.imageAssetId && !message.image)
+        .map((message) => message.imageAssetId as string)
+        .filter((assetId) => !resolvingImageAssetsRef.current.has(assetId)),
+    ));
+    if (pendingIds.length === 0) return () => { cancelled = true; };
+    pendingIds.forEach((assetId) => resolvingImageAssetsRef.current.add(assetId));
+
+    void Promise.all(pendingIds.map(async (assetId) => {
+      try {
+        return [assetId, await getGalleryFileUrl(assetId)] as const;
+      } catch {
+        return [assetId, ""] as const;
+      } finally {
+        resolvingImageAssetsRef.current.delete(assetId);
+      }
+    })).then((resolved) => {
+      if (cancelled) return;
+      const urls = new Map(resolved.filter((entry) => Boolean(entry[1])));
+      if (urls.size === 0) return;
+      setMessages((current) => current.map((message) => {
+        const url = message.imageAssetId ? urls.get(message.imageAssetId) : undefined;
+        return url ? { ...message, image: url } : message;
+      }));
+    });
+
+    return () => { cancelled = true; };
+  }, [messages]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const pendingPaths = Array.from(new Set(
+      messages
+        .filter((message) => message.audioAssetPath && !message.audioUrl)
+        .map((message) => message.audioAssetPath as string)
+        .filter((path) => !resolvingAudioAssetsRef.current.has(path)),
+    ));
+    if (pendingPaths.length === 0) return () => { cancelled = true; };
+    pendingPaths.forEach((path) => resolvingAudioAssetsRef.current.add(path));
+
+    void Promise.all(pendingPaths.map(async (path) => {
+      try {
+        return [path, await getAuthenticatedVoiceAudioUrl(path)] as const;
+      } catch {
+        return [path, ""] as const;
+      } finally {
+        resolvingAudioAssetsRef.current.delete(path);
+      }
+    })).then((resolved) => {
+      if (cancelled) return;
+      const urls = new Map(resolved.filter((entry) => Boolean(entry[1])));
+      if (urls.size === 0) return;
+      setMessages((current) => current.map((message) => {
+        const url = message.audioAssetPath ? urls.get(message.audioAssetPath) : undefined;
+        return url ? { ...message, audioUrl: url } : message;
+      }));
+    });
+
+    return () => { cancelled = true; };
+  }, [messages]);
 
   // Merge backend history into local state without losing local-only messages.
   //
@@ -1199,6 +1282,8 @@ const Chat = () => {
             });
           }
           const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
+          const responsePayload = response as unknown as Record<string, unknown>;
+          const audioAssetPath = getVoiceAudioResourcePath(responsePayload);
 
           const responseMsg: ChatMessage = {
             id: assistantIdentity.messageId,
@@ -1210,7 +1295,10 @@ const Chat = () => {
             backend_turn_id: assistantIdentity.backendTurnId,
             latency,
             meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
-            audioUrl: resolveAudioUrlFromPayload(response as unknown as Record<string, unknown>, getApiConfig().baseUrl),
+            audioUrl: audioAssetPath
+              ? undefined
+              : resolveAudioUrlFromPayload(responsePayload, getApiConfig().baseUrl),
+            audioAssetPath,
             // Image generation: if backend generated an image, embed it.
             image: response.image_base64
               ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
@@ -1302,6 +1390,8 @@ const Chat = () => {
           });
         }
         const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
+        const responsePayload = response as unknown as Record<string, unknown>;
+        const audioAssetPath = getVoiceAudioResourcePath(responsePayload);
 
         const responseMsg: ChatMessage = {
           id: assistantIdentity.messageId,
@@ -1314,7 +1404,10 @@ const Chat = () => {
           latency,
           meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
           delivery_mode: (response.tts_url || response.voice_audio) ? "voice_note" : undefined,
-          audioUrl: resolveAudioUrlFromPayload(response as unknown as Record<string, unknown>, getApiConfig().baseUrl),
+          audioUrl: audioAssetPath
+            ? undefined
+            : resolveAudioUrlFromPayload(responsePayload, getApiConfig().baseUrl),
+          audioAssetPath,
           // Image generation: if backend generated an image, embed it.
           image: response.image_base64
             ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`

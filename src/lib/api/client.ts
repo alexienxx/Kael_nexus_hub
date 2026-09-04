@@ -395,6 +395,80 @@ export async function apiRequest<T = UntypedJsonPayload>(
   return apiRequestWithConfig<T>(getApiConfig(), path, options);
 }
 
+export type ScopedResourceMethod = "GET" | "WEBSOCKET";
+
+interface ScopedResourceTokenResponse {
+  token: string;
+  expires_in: number;
+  max_uses: number;
+  method: string;
+  path: string;
+}
+
+function validateScopedResourcePath(path: string): string {
+  const normalized = String(path ?? "").trim();
+  if (
+    !normalized.startsWith("/") ||
+    normalized.startsWith("//") ||
+    normalized.includes("?") ||
+    normalized.includes("#") ||
+    normalized.includes("\\") ||
+    normalized.includes("\0") ||
+    normalized.split("/").includes("..")
+  ) {
+    throw new Error("Resource path is not eligible for scoped transport");
+  }
+  return normalized;
+}
+
+/**
+ * Exchange the configured first-party header for one short-lived URL token.
+ *
+ * This is only for browser-managed resources that cannot attach headers
+ * (`img`, MJPEG, native download and WebSocket). The primary credential is
+ * never copied into the returned URL and the token is never persisted here.
+ */
+export async function requestScopedResourceUrl(
+  path: string,
+  method: ScopedResourceMethod = "GET",
+): Promise<string> {
+  const config = getApiConfig();
+  if (!config.baseUrl) throw new Error("Backend URL not configured.");
+  if (!config.apiKey) throw new Error("Kael API credential is required");
+  const canonicalPath = validateScopedResourcePath(path);
+  const response = await apiRequest<ScopedResourceTokenResponse>(
+    "/auth/resource-token",
+    {
+      method: "POST",
+      body: JSON.stringify({ method, path: canonicalPath }),
+    },
+  );
+  if (
+    !response ||
+    typeof response.token !== "string" ||
+    response.token.length < 32 ||
+    response.method !== method ||
+    response.path !== canonicalPath ||
+    !Number.isFinite(response.expires_in) ||
+    response.expires_in <= 0 ||
+    !Number.isSafeInteger(response.max_uses) ||
+    response.max_uses <= 0
+  ) {
+    throw new ApiProtocolError("invalid_json");
+  }
+
+  const base = new URL(config.baseUrl);
+  if (method === "WEBSOCKET") {
+    base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+  }
+  const resourceUrl = new URL(canonicalPath, base);
+  if (resourceUrl.origin !== base.origin) {
+    throw new Error("Resource path escaped the configured backend origin");
+  }
+  resourceUrl.searchParams.set("kael_access_token", response.token);
+  return resourceUrl.toString();
+}
+
 export interface BackendVerificationResult {
   health: HealthPayload;
   authentication: AuthVerificationPayload;

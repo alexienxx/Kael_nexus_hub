@@ -8,7 +8,7 @@
  */
 
 import { APP_VERSION, APP_VERSION_CODE } from "@/lib/constants";
-import { getApiConfig, parseStrictJsonBody } from "@/lib/api/client";
+import { getApiConfig, parseStrictJsonBody, requestScopedResourceUrl } from "@/lib/api/client";
 import { Capacitor } from "@capacitor/core";
 
 export interface UpdateManifest {
@@ -188,19 +188,34 @@ export async function downloadApk(
   apkUrl: string,
   onProgress?: (percent: number) => void
 ): Promise<void> {
+  let transportUrl = apkUrl;
+  const config = getApiConfig();
+  try {
+    const backend = new URL(config.baseUrl);
+    const requested = new URL(apkUrl, backend);
+    if (requested.origin === backend.origin) {
+      if (requested.search || requested.hash) {
+        throw new Error("Backend APK URL must not contain query or fragment data");
+      }
+      transportUrl = await requestScopedResourceUrl(requested.pathname);
+    }
+  } catch (error) {
+    if (config.baseUrl) throw error;
+  }
+
   // On native Android, delegate to system browser for proper APK install flow
   const isNative = Capacitor.isNativePlatform();
 
   if (isNative) {
     // Dynamic import to avoid bundling Browser in web builds
     const { Browser } = await import("@capacitor/browser");
-    await Browser.open({ url: apkUrl });
+    await Browser.open({ url: transportUrl });
     onProgress?.(100);
     return;
   }
 
   // Web fallback: fetch + blob download
-  const res = await fetch(apkUrl);
+  const res = await fetch(transportUrl);
   if (!res.ok) throw new Error(`Download fallito: ${res.status}`);
 
   const contentLength = res.headers.get("Content-Length");

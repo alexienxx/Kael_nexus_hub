@@ -1,4 +1,9 @@
-import { apiRequest, ensureBackendAlive } from "./client";
+import {
+  apiRequest,
+  ensureBackendAlive,
+  getApiConfig,
+  requestScopedResourceUrl,
+} from "./client";
 import type { CallSession } from "@/types";
 
 /**
@@ -13,6 +18,48 @@ import type { CallSession } from "@/types";
  * - POST /mobile/call/incoming/dismiss (dismiss incoming)
  *
  */
+
+/**
+ * Create a first-party call socket without placing the primary API credential
+ * in the URL. The current Calls screen still uses the bounded HTTP audio path;
+ * this factory is the authenticated transport boundary for WebSocket clients.
+ */
+export async function createAuthenticatedCallWebSocket(): Promise<WebSocket> {
+  const url = await requestScopedResourceUrl("/mobile/ws/call", "WEBSOCKET");
+  return new WebSocket(url);
+}
+
+const VOICE_AUDIO_PATH = /^\/voice\/audio\/[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * Recover only the durable local asset path from a chat payload. A scoped URL
+ * is deliberately never returned from, or written back into, durable chat.
+ */
+export function getVoiceAudioResourcePath(
+  payload: Record<string, unknown>,
+): string | undefined {
+  const raw = payload.tts_url ?? payload.ttsUrl;
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  const value = raw.trim();
+  try {
+    const configBase = new URL(getApiConfig().baseUrl);
+    const resource = new URL(value, configBase);
+    if (resource.origin !== configBase.origin || !VOICE_AUDIO_PATH.test(resource.pathname)) {
+      return undefined;
+    }
+    return resource.pathname;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Resolve one persisted voice asset to an ephemeral, same-origin audio URL. */
+export async function getAuthenticatedVoiceAudioUrl(path: string): Promise<string> {
+  if (!VOICE_AUDIO_PATH.test(String(path ?? ""))) {
+    throw new Error("Invalid voice audio resource path");
+  }
+  return requestScopedResourceUrl(path);
+}
 
 /** Request TTS playback audio for a text message */
 export async function requestTTS(text: string, language: string = "it", sessionId: string = "default"): Promise<Blob> {
