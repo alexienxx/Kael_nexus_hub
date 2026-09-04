@@ -312,9 +312,11 @@ POST /visual-context
 | Campo | Tipo | Descrizione |
 |-------|------|-------------|
 | Backend URL | Input URL | URL base del backend Kael |
-| API Key | Input password | Chiave opzionale per autenticazione |
-| Salva e Testa | Button | Salva config + health check |
+| Credenziale Kael | Input password | Credenziale backend obbligatoria; non viene scritta nei log |
+| Salva e Testa | Button | Verifica `/health` pubblico e poi `GET /auth/verify` protetto; salva solo se entrambi passano |
 | Status | Badge | idle / checking / ok / error |
+
+Un health check positivo prova soltanto che il processo giusto è raggiungibile: non autorizza l'APK. Una credenziale assente, errata o un backend privo di configurazione auth non può quindi mostrare lo stato “connesso”. La migrazione di boot può azzerare un URL scoperto diventato obsoleto, ma conserva sempre la credenziale già configurata.
 
 ### Aggiornamenti (`UpdateSettings`)
 | Elemento | Descrizione |
@@ -363,6 +365,8 @@ Il client prova questi URL in ordine:
 2. `http://192.168.178.78:8002` — Home LAN
 3. `http://100.89.31.50:8002` — Tailscale VPN
 
+La discovery usa esclusivamente `/health`, che è pubblico. Tutte le API applicative JSON inviano `X-KAEL-KEY` tramite il client centrale. Nei test live la credenziale proviene solo dalla variabile d'ambiente `KAEL_LIVE_API_KEY`: non va hardcodata, stampata o inserita in URL/query string.
+
 ### Sentinel (porta 8099)
 Server leggero sempre attivo che può svegliare il backend principale.
 - `GET /health` → verifica sentinel attivo
@@ -396,7 +400,7 @@ L'agente esterno è integrato direttamente nella chat principale di Kael. Il pul
 - **Stessa conversazione**: I messaggi dell'agente e di Kael coesistono nello stesso thread
 
 ### Configurazione (Settings → Agente Esterno)
-- **API Key**: Input password per la chiave del provider selezionato
+- **Credenziali provider**: rimangono esclusivamente nel backend; l'APK invia al proxy solo modello, messaggi e la credenziale Kael centrale
 - **Selezione modello**: Lista scrollabile raggruppata per provider
 - **System Prompt** (⚙️ rotellina in alto a destra): Editor testuale per istruzioni persistenti inviate come messaggio `system` all'agente. Es: "Rispondi sempre in italiano". Indicatore viola quando attivo.
 - **Persistenza config**: `localStorage` key `kael_external_agent_config` → `{ apiKey, modelId }`
@@ -589,6 +593,14 @@ La copertura crash-safe è per ora deliberatamente limitata al testo. Immagini e
 | `kael-update-manifest-url` | URL override per manifest update |
 | `kael-chat-turn-cursor-v1` | Mirror compatibile del cursore; l'autorità transazionale è IndexedDB |
 | `kael-mobile-installation-id` | Identificatore stabile e non segreto dell'installazione Android |
+
+### Bloccanti di deployment del default-deny
+
+Il primo batch Gate-A autentica le chiamate JSON, inclusi TTS e proxy agente esterno. Non rende ancora distribuibile il default-deny su tutti i percorsi APK: gli URL assegnati direttamente a elementi HTML (`audio`, `img`, `video`), lo stream MJPEG, il download APK aperto dal browser e un futuro handshake WebSocket non possono aggiungere in modo affidabile `X-KAEL-KEY`.
+
+Prima del rollout su dispositivo, questi percorsi devono ricevere un contratto dedicato: token scoped e a vita breve oppure fetch autenticato seguito da Blob locale, secondo il tipo di risorsa. La chiave condivisa non deve mai finire nella query string, nei log o su HTTP LAN in chiaro; usare loopback USB/`adb reverse` oppure TLS. Finché questa batteria non è chiusa, media/download/WebSocket restano blocker dichiarati, non funzionalità implicitamente verdi.
+
+Quando `POST /chat` riceve `401`, `403` o `503 api-auth-not-configured`, l'outbox conserva l'envelope esatto nello stato `authentication_required`, lo mostra all'utente e ferma il FIFO. Dopo aver corretto Settings, “Riprova stesso invio” riutilizza ID, body e hash originari; il messaggio non viene cancellato né reinviato in loop.
 
 ---
 

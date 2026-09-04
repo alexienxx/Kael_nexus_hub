@@ -247,6 +247,54 @@ describe("durable chat IndexedDB contract (diagnostic; not live acceptance)", ()
     expect(transport).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps an auth-rejected envelope visible and preserves FIFO until explicit retry", async () => {
+    const a = "10000000-0000-4000-8000-000000000025";
+    const b = "10000000-0000-4000-8000-000000000026";
+    const original = await enqueue(a, "A autenticazione", new Date("2026-09-04T10:00:00.000Z"));
+    await enqueue(b, "B resta fermo", new Date("2026-09-04T10:00:00.000Z"));
+    let credentialFixed = false;
+    const transport = vi.fn(async (body: { client_message_id: string }) => {
+      if (!credentialFixed && body.client_message_id === a) {
+        return {
+          status: 503,
+          statusText: "Service Unavailable",
+          body: { detail: { code: "api_auth_not_configured", retryable: false } },
+        } satisfies ChatHttpResult;
+      }
+      return canonicalReply(body.client_message_id, {
+        user_turn_id: body.client_message_id === a ? 201 : 203,
+        assistant_turn_id: body.client_message_id === a ? 202 : 204,
+      });
+    });
+
+    expect((await drainTextOutbox({ transport }))[0]).toEqual(expect.objectContaining({
+      clientMessageId: a,
+      kind: "authentication_required",
+      errorCode: "api_auth_not_configured",
+    }));
+    expect(await drainTextOutbox({ transport })).toEqual([]);
+    expect(transport).toHaveBeenCalledTimes(1);
+    expect(await listTextExchanges()).toEqual([
+      expect.objectContaining({ clientMessageId: a, state: "authentication_required" }),
+      expect.objectContaining({ clientMessageId: b, state: "queued" }),
+    ]);
+    expect(await getTextOutboxSummary()).toEqual(expect.objectContaining({
+      blocked: true,
+      attention: [expect.objectContaining({ clientMessageId: a, state: "authentication_required" })],
+    }));
+
+    credentialFixed = true;
+    const retried = await retryTextExchangeManually(a, MANUAL_OUTBOX_CONFIRMATION);
+    expect(retried.requestBody).toEqual(original.requestBody);
+    expect(retried.bodyHash).toBe(original.bodyHash);
+    expect(retried.state).toBe("queued");
+
+    const resumed = await drainTextOutbox({ transport });
+    expect(resumed.map((item) => item.clientMessageId)).toEqual([a, b]);
+    expect(resumed.every((item) => item.kind === "reply")).toBe(true);
+    expect(await listTextExchanges()).toEqual([]);
+  });
+
   it("manual retry preserves the exact envelope and requires confirmation", async () => {
     const id = "10000000-0000-4000-8000-000000000030";
     const original = await enqueue(id);

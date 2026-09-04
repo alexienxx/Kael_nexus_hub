@@ -9,6 +9,7 @@ interface OutboxAttentionPanelProps {
 }
 
 function stateLabel(state: string): string {
+  if (state === "authentication_required") return "Autenticazione richiesta";
   return state === "recovery_required" ? "Recupero da verificare" : "Invio bloccato";
 }
 

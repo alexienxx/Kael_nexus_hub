@@ -8,7 +8,8 @@
  */
 
 import { APP_VERSION, APP_VERSION_CODE } from "@/lib/constants";
-import { getApiConfig } from "@/lib/api/client";
+import { getApiConfig, parseStrictJsonBody } from "@/lib/api/client";
+import { Capacitor } from "@capacitor/core";
 
 export interface UpdateManifest {
   app_name: string;
@@ -93,17 +94,44 @@ export async function fetchUpdateManifest(): Promise<UpdateManifest> {
     throw new Error("Backend URL non configurato. Vai in Impostazioni.");
   }
 
-  const res = await fetch(url, {
-    method: "GET",
-    headers: { "Accept": "application/json" },
-    signal: AbortSignal.timeout(10000),
-  });
+  const config = getApiConfig();
+  const headers = new Headers({ "Accept": "application/json" });
+  try {
+    // Send the Kael credential only to the configured backend origin. A custom
+    // manifest URL must never become a credential-exfiltration primitive.
+    if (
+      config.apiKey &&
+      config.baseUrl &&
+      new URL(url).origin === new URL(config.baseUrl).origin
+    ) {
+      headers.set("X-KAEL-KEY", config.apiKey);
+    }
+  } catch {
+    // Invalid URLs are rejected by fetch; never attach a credential meanwhile.
+  }
+
+  const timeoutMs = 10_000;
+  const hasNativeTimeout = typeof AbortSignal.timeout === "function";
+  const controller = hasNativeTimeout ? undefined : new AbortController();
+  const timer = hasNativeTimeout
+    ? undefined
+    : setTimeout(() => controller!.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "GET",
+      headers,
+      signal: hasNativeTimeout ? AbortSignal.timeout(timeoutMs) : controller!.signal,
+    });
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 
   if (!res.ok) {
     throw new Error(`Manifest non disponibile: ${res.status}`);
   }
 
-  const data = await res.json();
+  const data = parseStrictJsonBody<UpdateManifest>(await res.text());
   // Normalize backend manifest fields to match our interface
   return {
     ...data,
@@ -161,8 +189,7 @@ export async function downloadApk(
   onProgress?: (percent: number) => void
 ): Promise<void> {
   // On native Android, delegate to system browser for proper APK install flow
-  const isNative = typeof (window as any).Capacitor?.isNativePlatform === "function"
-    && (window as any).Capacitor.isNativePlatform();
+  const isNative = Capacitor.isNativePlatform();
 
   if (isNative) {
     // Dynamic import to avoid bundling Browser in web builds

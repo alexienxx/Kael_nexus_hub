@@ -12,6 +12,7 @@ vi.mock("@/lib/api/client", () => ({
   apiUpload: apiUploadMock,
   ensureBackendAlive: ensureBackendAliveMock,
   getApiConfig: getApiConfigMock,
+  parseStrictJsonBody: (text: string) => JSON.parse(text),
 }));
 
 import {
@@ -122,7 +123,7 @@ describe("chat api time contract", () => {
       client_message_id: "0b2d6122-32ad-4674-840f-f676338d5797",
     };
     const fetchMock = vi.fn().mockResolvedValue(new Response(
-      `: keepalive\n${JSON.stringify({
+      ` \r\n\t${JSON.stringify({
         reply: "",
         session_id: "mobile_kael",
         client_message_id: requestBody.client_message_id,
@@ -162,6 +163,30 @@ describe("chat api time contract", () => {
     expect(result.body).toEqual({});
     expect(result.bodyParseError).toBe(parseError);
   });
+
+  it.each([
+    [": keepalive\n", "colon transport comment"],
+    ["proxy banner\n", "arbitrary proxy text"],
+    ["<html>gateway notice</html>", "HTML proxy prefix"],
+  ])("rejects %s before an otherwise valid durable JSON receipt", async (prefix) => {
+    const requestBody = {
+      text: "corpo identico",
+      session_id: "mobile_kael",
+      client_time: "2026-09-04T10:00:00.000Z",
+      client_message_id: "0b2d6122-32ad-4674-840f-f676338d5797",
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      `${prefix}${JSON.stringify({ exchange_status: "processing" })}`,
+      { status: 202 },
+    )));
+
+    const result = await sendDurableTextEnvelope(requestBody);
+
+    expect(result.status).toBe(202);
+    expect(result.body).toEqual({});
+    expect(result.bodyParseError).toBe("invalid_json");
+  });
+
   it("media sends also attach client_time to form payloads", async () => {
     apiUploadMock.mockResolvedValue({ ok: true });
 

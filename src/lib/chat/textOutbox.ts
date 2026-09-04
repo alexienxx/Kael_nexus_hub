@@ -19,6 +19,7 @@ export type ChatOutcomeClassification =
   | "replay"
   | "silence"
   | "in_progress"
+  | "authentication_required"
   | "retryable_failure"
   | "recovery_required"
   | "terminal_failure";
@@ -137,6 +138,7 @@ export function classifyChatOutcome(result: ChatHttpResult): ClassifiedChatOutco
     (typeof body.detail === "string" ? body.detail : undefined),
   );
   const normalizedErrorCode = errorCode?.toLowerCase();
+  const canonicalErrorCode = normalizedErrorCode?.replace(/-/g, "_");
   const retryable = body.error?.retryable === true || detail.retryable === true || detailError.retryable === true;
   const hasReply = typeof body.reply === "string" && body.reply.length > 0;
   const hasAssistantTurn = body.assistant_turn_id !== undefined && body.assistant_turn_id !== null;
@@ -158,6 +160,20 @@ export function classifyChatOutcome(result: ChatHttpResult): ClassifiedChatOutco
     return {
       kind: "recovery_required",
       errorCode: errorCode ?? "cognition_outcome_requires_recovery",
+    };
+  }
+
+  // Authentication failures are a user-action barrier, not a terminal
+  // discard and not an automatic retry storm. Preserve the exact envelope in
+  // FIFO until Settings contains a valid credential and the user retries it.
+  if (
+    status === 401 ||
+    status === 403 ||
+    (status === 503 && canonicalErrorCode === "api_auth_not_configured")
+  ) {
+    return {
+      kind: "authentication_required",
+      errorCode: errorCode ?? `http_${status}${malformedBodySuffix(result)}`,
     };
   }
 
@@ -364,7 +380,11 @@ async function runDrain(options: TextOutboxDrainOptions): Promise<TextOutboxDrai
     // explicitly retry or remove A before a later cognitive turn is dispatched.
     const entry = entries[0];
     if (!entry) break;
-    if (entry.state === "recovery_required" || entry.state === "terminal_failed") break;
+    if (
+      entry.state === "authentication_required" ||
+      entry.state === "recovery_required" ||
+      entry.state === "terminal_failed"
+    ) break;
 
     const currentTime = nowMs();
     if (entry.nextAttemptAtMs > currentTime) {
@@ -492,7 +512,11 @@ async function runDrain(options: TextOutboxDrainOptions): Promise<TextOutboxDrai
     }
 
     await patchTextExchange(sending.clientMessageId, {
-      state: classified.kind === "recovery_required" ? "recovery_required" : "terminal_failed",
+      state: classified.kind === "authentication_required"
+        ? "authentication_required"
+        : classified.kind === "recovery_required"
+          ? "recovery_required"
+          : "terminal_failed",
       nextAttemptAtMs: 0,
       errorCode: classified.errorCode,
       ...receiptPatch(response),

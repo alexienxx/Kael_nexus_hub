@@ -6,6 +6,13 @@
 ---
 ## [Unreleased — Gate A crash-safe text chat] — 2026-09-04
 
+### Associazione autenticata APK ↔ runtime
+- La configurazione backend salva una candidata soltanto dopo due prove distinte: `/health` pubblico e `/auth/verify` protetto. La migrazione di boot può correggere l'URL di discovery senza cancellare né stampare la chiave.
+- Il client HTTP centrale, chat, TTS, agente esterno e manifest aggiornamenti sul medesimo origin trasmettono `X-KAEL-KEY`; un override del manifest su origin diverso non riceve mai la credenziale.
+- I body JSON devono contenere un singolo documento completo: whitespace JSON è ammesso, prefissi HTML/commenti o spazzatura vengono respinti invece di essere ripuliti silenziosamente.
+- Un rifiuto di autenticazione mette l'envelope durevole in `authentication_required`: resta una barriera FIFO visibile e può essere ritentato manualmente con lo stesso UUID/body dopo aver corretto l'associazione.
+- Il download diretto, MJPEG/media HTML e WebSocket non hanno ancora un trasporto autenticato sicuro. Il backend **non va portato a default-deny in produzione** finché questi confini non usano token scoped o `fetch` autenticato + Blob.
+
 ### Outbox e identità logica
 - Il testo viene accettato dalla UI soltanto dopo aver salvato in IndexedDB, con transazione `strict`, l'envelope esatto e il `client_message_id` UUID generato dal client.
 - Boot, foreground, reconnect e invio convergono su un solo drain FIFO single-flight. Ogni retry riusa lo stesso ID e lo stesso body verificato via SHA-256; nessun body viene scritto nei log.
@@ -20,7 +27,7 @@
 
 ### Verifica diagnostica e confini
 - Aggiunti test Vitest per contratti HTTP/classificatore/dedup e una batteria Playwright IndexedDB/reload separata (`npm run e2e:chat-continuity`). È diagnostica browser, non live acceptance.
-- Checkpoint locale riverificato il 2026-09-04: Vitest 107/107, Playwright continuity 8/8 e build Vite di produzione verdi. Le batterie UI/contract, `tsc --noEmit` e il lint dei file Gate A restano evidenza del checkpoint precedente; il lint globale conserva debito storico fuori da questo intervento e non viene dichiarato verde.
+- Checkpoint locale riverificato il 2026-09-04: Vitest 122/122, Playwright continuity 8/8, Playwright contract 2/2, `tsc --noEmit`, lint dei soli file modificati e build Vite di produzione verdi. Il lint globale conserva debito storico fuori da questo intervento e non viene dichiarato verde.
 - La live acceptance resta da eseguire sul runtime Arrakis reale, PostgreSQL reale e APK Android installata con kill/restart/reconnect ai confini F0–F7 della PR #25.
 - Questo Gate A copre soltanto la chat testuale. Upload immagine, nota vocale e chiamate richiedono un futuro envelope durevole specifico per blob/asset.
 - Il trasporto `POST /chat` resta request/response: SSE notifica nuovi turni ma non è token streaming della risposta. Il vero streaming richiede un contratto backend resumable separato.

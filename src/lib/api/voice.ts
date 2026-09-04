@@ -1,4 +1,4 @@
-import { apiRequest, apiUpload, getApiConfig, ensureBackendAlive } from "./client";
+import { apiRequest, ensureBackendAlive } from "./client";
 import type { CallSession } from "@/types";
 
 /**
@@ -19,16 +19,12 @@ export async function requestTTS(text: string, language: string = "it", sessionI
   if (!(await ensureBackendAlive())) {
     throw new Error("Backend non raggiungibile — riprova tra poco");
   }
-  // Backend expects POST /chat/voice/tts with JSON body
-  const config = getApiConfig();
-  const baseUrl = config.baseUrl.replace(/\/$/, "");
-  const response = await fetch(`${baseUrl}/chat/voice/tts`, {
+  // Protected JSON calls go through the canonical client so the configured
+  // Kael credential and strict response contract are always applied.
+  const data = await apiRequest<{ audio_base64: string }>("/chat/voice/tts", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, language, session_id: sessionId }),
   });
-  if (!response.ok) throw new Error(`TTS failed: ${response.status}`);
-  const data = await response.json();
   // Decode base64 audio_base64 to Blob
   const binaryStr = atob(data.audio_base64);
   const bytes = new Uint8Array(binaryStr.length);

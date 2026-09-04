@@ -196,6 +196,17 @@ describe("durable text outbox response classifier (diagnostic contract)", () => 
     });
   });
 
+  it.each([
+    [401, { detail: { code: "authentication_required", retryable: false } }, "authentication_required"],
+    [403, { detail: { code: "invalid_credentials", retryable: false } }, "invalid_credentials"],
+    [503, { detail: { code: "api-auth-not-configured", retryable: false } }, "api-auth-not-configured"],
+  ])("keeps HTTP %i authentication failures blocked and retryable by the user", (status, body, code) => {
+    expect(classifyChatOutcome(response(status, body))).toEqual({
+      kind: "authentication_required",
+      errorCode: code,
+    });
+  });
+
   it("uses the preserved HTTP status when the body is empty or malformed", () => {
     expect(classifyChatOutcome({
       status: 401,
@@ -203,7 +214,7 @@ describe("durable text outbox response classifier (diagnostic contract)", () => 
       body: {},
       bodyParseError: "empty",
     })).toEqual({
-      kind: "terminal_failure",
+      kind: "authentication_required",
       errorCode: "http_401_empty",
     });
     expect(classifyChatOutcome({

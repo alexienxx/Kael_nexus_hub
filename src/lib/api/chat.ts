@@ -1,4 +1,10 @@
-import { apiRequest, apiUpload, ensureBackendAlive, getApiConfig } from "./client";
+import {
+  apiRequest,
+  apiUpload,
+  ensureBackendAlive,
+  getApiConfig,
+  parseStrictJsonBody,
+} from "./client";
 import type { ChatMessage, FeedbackPayload } from "@/types";
 import type { ExactTextChatRequestBody } from "@/lib/chat/durableExchangeStore";
 
@@ -163,13 +169,12 @@ function parseChatResponseText(text: string): {
   body: ChatResponse;
   bodyParseError?: ChatHttpResult["bodyParseError"];
 } {
-  // The runtime can prepend transport keepalives while cognition runs.  They
-  // are never part of Kael's reply; the first JSON object is authoritative.
-  const jsonStart = text.search(/[{[]/);
-  const jsonText = jsonStart >= 0 ? text.slice(jsonStart) : text;
-  if (!jsonText.trim()) return { body: {}, bodyParseError: "empty" };
+  // Only one complete JSON document is valid. Ordinary whitespace used as a
+  // transport keepalive is legal JSON padding; comments, proxy banners and
+  // arbitrary prefixes must fail closed instead of being silently discarded.
+  if (!text.trim()) return { body: {}, bodyParseError: "empty" };
   try {
-    const parsed = JSON.parse(jsonText) as unknown;
+    const parsed = parseStrictJsonBody<unknown>(text);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return { body: {}, bodyParseError: "invalid_json" };
     }

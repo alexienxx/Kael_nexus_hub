@@ -30,6 +30,7 @@ export type TextExchangeState =
   | "sending"
   | "in_progress"
   | "server_committed"
+  | "authentication_required"
   | "recovery_required"
   | "terminal_failed";
 
@@ -364,7 +365,9 @@ export async function listTextExchanges(): Promise<DurableTextExchange[]> {
 export async function getTextOutboxSummary(): Promise<TextOutboxSummary> {
   const entries = await listTextExchanges();
   const attention = entries.filter((entry) =>
-    entry.state === "recovery_required" || entry.state === "terminal_failed"
+    entry.state === "authentication_required" ||
+    entry.state === "recovery_required" ||
+    entry.state === "terminal_failed"
   );
   return {
     total: entries.length,
@@ -445,7 +448,11 @@ export async function retryTextExchangeManually(
   if (!snapshot) {
     throw new Error("Durable chat exchange no longer exists");
   }
-  if (snapshot.state !== "recovery_required" && snapshot.state !== "terminal_failed") {
+  if (
+    snapshot.state !== "authentication_required" &&
+    snapshot.state !== "recovery_required" &&
+    snapshot.state !== "terminal_failed"
+  ) {
     throw new Error("Only a blocked exchange can be retried manually");
   }
   const actualHash = await sha256(snapshot.requestBody);
@@ -484,7 +491,11 @@ export async function removeTextExchangeManually(
     transaction.abort();
     throw new Error("Durable chat exchange no longer exists");
   }
-  if (entry.state !== "recovery_required" && entry.state !== "terminal_failed") {
+  if (
+    entry.state !== "authentication_required" &&
+    entry.state !== "recovery_required" &&
+    entry.state !== "terminal_failed"
+  ) {
     transaction.abort();
     throw new Error("Only a blocked exchange can be removed manually");
   }

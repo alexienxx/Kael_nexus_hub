@@ -5,7 +5,7 @@
  * via Kael backend proxy (API key stored server-side for security).
  */
 
-import { getApiConfig } from "@/lib/api/client";
+import { apiRequest } from "@/lib/api/client";
 
 export type AgentProvider = "openai" | "anthropic" | "google";
 
@@ -51,7 +51,9 @@ export function getExternalAgentConfig(): ExternalAgentConfig {
       const parsed = JSON.parse(raw);
       return { modelId: parsed.modelId || "gpt-4o" };
     }
-  } catch {}
+  } catch {
+    // Ignore malformed local preferences and fall back to the canonical model.
+  }
   return { modelId: "gpt-4o" };
 }
 
@@ -93,25 +95,13 @@ export async function sendExternalAgentMessage(
     ? [{ role: "system", content: systemPrompt }, ...messages.map(m => ({ role: m.role, content: m.content }))]
     : messages.map(m => ({ role: m.role, content: m.content }));
 
-  const baseUrl = getApiConfig().baseUrl.replace(/\/$/, "");
-  const response = await fetch(
-    `${baseUrl}/services/external-agent/chat`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: apiMessages,
-        model_id: model.id,
-        provider: model.provider,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "Unknown error");
-    throw new Error(`Errore ${response.status}: ${errText}`);
-  }
-
-  const data = await response.json();
+  const data = await apiRequest<{ reply: string }>("/services/external-agent/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      messages: apiMessages,
+      model_id: model.id,
+      provider: model.provider,
+    }),
+  });
   return data.reply;
 }

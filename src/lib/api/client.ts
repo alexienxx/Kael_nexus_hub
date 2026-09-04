@@ -65,6 +65,19 @@ export interface HealthPayload {
   [key: string]: unknown;
 }
 
+export interface AuthVerificationPayload {
+  ok: boolean;
+  authenticated: boolean;
+  principal?: {
+    user_id?: string;
+    role?: string;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+type UntypedJsonPayload = Awaited<ReturnType<Response["json"]>>;
+
 /**
  * Initial fallback URL — empty string.
  * The user MUST configure the backend URL in Settings.
@@ -79,11 +92,13 @@ export function getApiConfig(): ApiConfig {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed.baseUrl) {
-        console.debug("[API CONFIG] current:", parsed.baseUrl);
-        return parsed;
-      }
+      const parsed = JSON.parse(stored) as Record<string, unknown>;
+      const config = {
+        baseUrl: typeof parsed?.baseUrl === "string" ? parsed.baseUrl : INITIAL_FALLBACK_URL,
+        apiKey: typeof parsed?.apiKey === "string" ? parsed.apiKey : "",
+      };
+      if (config.baseUrl) console.debug("[API CONFIG] current:", config.baseUrl);
+      return config;
     }
   } catch {
     // ignore
@@ -96,6 +111,16 @@ export function setApiConfig(config: ApiConfig) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
 }
 
+/**
+ * Boot migrations may invalidate a stale discovered URL, but the credential is
+ * user configuration and must survive.  This helper intentionally never logs
+ * or returns the credential.
+ */
+export function resetBackendUrlForDiscovery(): void {
+  const current = getApiConfig();
+  setApiConfig({ baseUrl: INITIAL_FALLBACK_URL, apiKey: current.apiKey });
+}
+
 // ── Errors ───────────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
@@ -106,6 +131,26 @@ export class ApiError extends Error {
   ) {
     super(`API error ${status}: ${statusText}`);
     this.name = "ApiError";
+  }
+}
+
+export class ApiProtocolError extends Error {
+  constructor(public code: "empty_json" | "invalid_json") {
+    super(code === "empty_json" ? "Backend returned an empty JSON body" : "Backend returned invalid JSON");
+    this.name = "ApiProtocolError";
+  }
+}
+
+/**
+ * Parse one complete JSON document. Leading/trailing JSON whitespace is valid;
+ * transport comments, proxy banners, HTML and any other prefix/suffix are not.
+ */
+export function parseStrictJsonBody<T = unknown>(text: string): T {
+  if (!text.trim()) throw new ApiProtocolError("empty_json");
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new ApiProtocolError("invalid_json");
   }
 }
 
@@ -162,7 +207,10 @@ async function probeHealthValidated(
  * or rejects if all reject.  Safe for older Android WebView (< Chrome 85).
  */
 function promiseAny<T>(promises: Promise<T>[]): Promise<T> {
-  if (typeof (Promise as any).any === "function") return (Promise as any).any(promises);
+  const constructor = Promise as unknown as {
+    any?: <Value>(values: Iterable<Value | PromiseLike<Value>>) => Promise<Value>;
+  };
+  if (typeof constructor.any === "function") return constructor.any(promises);
   return new Promise<T>((resolve, reject) => {
     let remaining = promises.length;
     if (remaining === 0) return reject(new Error("All promises rejected"));
@@ -290,68 +338,100 @@ export async function probeHealthPayload(): Promise<HealthPayload | null> {
 
 // ── API request helpers ──────────────────────────────────────────────────
 
-export async function apiRequest<T = any>(
+async function apiRequestWithConfig<T>(
+  config: ApiConfig,
   path: string,
   options: RequestInit & { timeout?: number } = {}
 ): Promise<T> {
-  const config = getApiConfig();
   if (!config.baseUrl) {
     throw new Error("Backend URL not configured. Go to Settings → Connection.");
   }
 
   const url = `${config.baseUrl.replace(/\/$/, "")}${path}`;
-  const timeout = options.timeout ?? DEFAULT_TIMEOUT;
+  const { timeout: requestedTimeout, ...requestOptions } = options;
+  const timeout = requestedTimeout ?? DEFAULT_TIMEOUT;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(config.apiKey ? { "X-KAEL-KEY": config.apiKey } : {}),
-    ...(options.headers as Record<string, string> || {}),
-  };
+  const headers = new Headers(requestOptions.headers);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  // The configured credential is authoritative and cannot be shadowed by an
+  // individual call-site. It is intentionally never written to diagnostics.
+  if (config.apiKey) headers.set("X-KAEL-KEY", config.apiKey);
 
   try {
     const res = await fetch(url, {
-      ...options,
+      ...requestOptions,
       headers,
-      signal: options.signal || controller.signal,
+      signal: requestOptions.signal || controller.signal,
     });
-
-    clearTimeout(timeoutId);
 
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new ApiError(res.status, res.statusText, body);
     }
 
-    // Strip HTTP keepalive comment lines (": keepalive\n") that the chat endpoint
-    // inserts during long LLM generations to keep the TCP/adb-reverse connection alive.
-    // FIX 2026-05-10: the old line-filter approach incorrectly removed any line
-    // starting with ": " — including lines inside Kael's reply text — causing
-    // "Unexpected token" parse errors on responses that began with e.g. ": certo…".
-    // Safe approach: keepalive lines are ALWAYS prepended before the JSON body,
-    // so we just skip forward to the first { or [ to find the real JSON start.
-    const text = await res.text();
-    const jsonStart = text.search(/[{[]/);
-    const jsonText = jsonStart >= 0 ? text.slice(jsonStart) : text;
-    return JSON.parse(jsonText) as T;
+    return parseStrictJsonBody<T>(await res.text());
   } catch (error) {
-    clearTimeout(timeoutId);
-
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error("Request timeout - backend not responding");
     }
 
-    if (!navigator.onLine) {
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
       throw new Error("No internet connection");
     }
 
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
-export async function apiUpload<T = any>(
+export async function apiRequest<T = UntypedJsonPayload>(
+  path: string,
+  options: RequestInit & { timeout?: number } = {}
+): Promise<T> {
+  return apiRequestWithConfig<T>(getApiConfig(), path, options);
+}
+
+export interface BackendVerificationResult {
+  health: HealthPayload;
+  authentication: AuthVerificationPayload;
+}
+
+/**
+ * Validate both backend identity and the protected API credential before a
+ * candidate configuration is persisted by Settings.
+ */
+export async function verifyBackendConfig(candidate: ApiConfig): Promise<BackendVerificationResult> {
+  const config = {
+    baseUrl: candidate.baseUrl.trim().replace(/\/+$/, ""),
+    apiKey: candidate.apiKey.trim(),
+  };
+  if (!config.baseUrl) throw new Error("Backend URL is required");
+  if (!config.apiKey) throw new Error("Kael API credential is required");
+
+  const health = await probeHealthValidated(config.baseUrl, 5000);
+  if (!health) throw new Error("Backend health validation failed");
+
+  const authentication = await apiRequestWithConfig<AuthVerificationPayload>(
+    config,
+    "/auth/verify",
+    { method: "GET", timeout: 5000 },
+  );
+  if (
+    !authentication ||
+    typeof authentication !== "object" ||
+    authentication.ok !== true ||
+    authentication.authenticated !== true
+  ) {
+    throw new ApiProtocolError("invalid_json");
+  }
+  return { health, authentication };
+}
+
+export async function apiUpload<T = UntypedJsonPayload>(
   path: string,
   formData: FormData,
   options: { timeout?: number } = {}
