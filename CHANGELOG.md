@@ -4,6 +4,22 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [1.0.14 — Scoped resources + Android wireless test transport] — 2026-09-04
+
+- Download APK, galleria, wallpaper/avatar, audio voce, MJPEG e WebSocket
+  chiamate consumano URL/token scoped a breve durata senza mettere la chiave
+  primaria nelle URL.
+- Aggiunto il flusso operativo ADB via LAN: update-preserving install, reverse
+  tunnel, pairing della configurazione WebView e avvio remoto, tutti vincolati
+  al seriale hardware del telefono.
+- Prova fisica: build 114 installata due volte attraverso il seriale ADB di
+  rete; backend/XTTS/avatar reverse attivi e configurazione
+  protetta validata senza stampare la credenziale.
+- Il primo smoke dopo pairing non mostra piu errori history/SSE/presence; resta
+  rosso il finding indipendente Firebase non configurato. Una falsa positività
+  proveniente da un vecchio crash di un'altra app è stata rimossa limitando il
+  crash scan al package/PID Kael.
+
 ## [Unreleased — Gate A crash-safe text chat] — 2026-09-04
 
 ### Associazione autenticata APK ↔ runtime
@@ -11,7 +27,10 @@
 - Il client HTTP centrale, chat, TTS, agente esterno e manifest aggiornamenti sul medesimo origin trasmettono `X-KAEL-KEY`; un override del manifest su origin diverso non riceve mai la credenziale.
 - I body JSON devono contenere un singolo documento completo: whitespace JSON è ammesso, prefissi HTML/commenti o spazzatura vengono respinti invece di essere ripuliti silenziosamente.
 - Un rifiuto di autenticazione mette l'envelope durevole in `authentication_required`: resta una barriera FIFO visibile e può essere ritentato manualmente con lo stesso UUID/body dopo aver corretto l'associazione.
-- Il download diretto, MJPEG/media HTML e WebSocket non hanno ancora un trasporto autenticato sicuro. Il backend **non va portato a default-deny in produzione** finché questi confini non usano token scoped o `fetch` autenticato + Blob.
+- Download diretto, MJPEG/media HTML e WebSocket usano ora token scoped
+  monouso/a breve durata e vincolati a metodo/percorso; il rollout default-deny
+  e stato provato sul runtime locale e resta soggetto alla chiusura completa del
+  Gate A.
 
 ### Outbox e identità logica
 - Il testo viene accettato dalla UI soltanto dopo aver salvato in IndexedDB, con transazione `strict`, l'envelope esatto e il `client_message_id` UUID generato dal client.
@@ -28,7 +47,9 @@
 ### Verifica diagnostica e confini
 - Aggiunti test Vitest per contratti HTTP/classificatore/dedup e una batteria Playwright IndexedDB/reload separata (`npm run e2e:chat-continuity`). È diagnostica browser, non live acceptance.
 - Checkpoint locale riverificato il 2026-09-04: Vitest 122/122, Playwright continuity 8/8, Playwright contract 2/2, `tsc --noEmit`, lint dei soli file modificati e build Vite di produzione verdi. Il lint globale conserva debito storico fuori da questo intervento e non viene dichiarato verde.
-- La live acceptance resta da eseguire sul runtime Arrakis reale, PostgreSQL reale e APK Android installata con kill/restart/reconnect ai confini F0–F7 della PR #25.
+- La build Android e installata e associata sul dispositivo reale anche via
+  rete. Restano da chiudere stop/restart con ricevuta e i fault F0–F7 sul
+  runtime Arrakis/PostgreSQL reale della PR #25.
 - Questo Gate A copre soltanto la chat testuale. Upload immagine, nota vocale e chiamate richiedono un futuro envelope durevole specifico per blob/asset.
 - Il trasporto `POST /chat` resta request/response: SSE notifica nuovi turni ma non è token streaming della risposta. Il vero streaming richiede un contratto backend resumable separato.
 

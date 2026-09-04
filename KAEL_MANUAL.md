@@ -1,7 +1,7 @@
 # 📖 KAEL COMPANION — Manuale Tecnico Completo
 
 > Documento di riferimento per agenti AI e sviluppatori che lavorano al progetto Kael Companion.
-> Versione corrente dell'app: **1.0.13** (build 113)
+> Versione corrente dell'app: **1.0.14** (build 114)
 
 ---
 
@@ -15,6 +15,21 @@
 - **Backend**: API REST esterna (Python FastAPI) — nessun backend integrato in Lovable Cloud per la logica Kael
 - **Mobile**: Capacitor (Android APK sideloaded, live-reload via `server.url`)
 - **App ID**: `app.lovable.kael.companion`
+
+### Installazione e test Android via Wi-Fi
+
+Il trasporto di sviluppo canonico e
+`..\tools\mobile\Connect-KaelAndroidWireless.ps1`. Una prima esecuzione con
+`-BootstrapFromUsb` abilita ADB sulla LAN e salva soltanto endpoint e seriale
+hardware in `state/android_wireless_device.json`; le esecuzioni successive
+possono installare con `-InstallApk`, associare in modo secret-free la
+configurazione backend con `-PairAppConfig` e avviare l'app con `-LaunchApp`
+senza selezionare il cavo USB. Ogni operazione verifica il seriale fisico e
+ripristina i reverse tunnel 8002/8010/8025.
+
+Il bootstrap TCP può dover essere ripetuto dopo un riavvio del telefono o un
+cambio rete. La batteria dispositivo accetta il seriale Wi-Fi esplicito tramite
+`..\tools\test_mode\run_android_usb_smoke.ps1 -Serial '<ip>:5555'`.
 
 ### Landscape Mode
 - **Supporto completo**: L'app funziona in landscape senza interruzioni
