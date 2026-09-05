@@ -75,15 +75,15 @@ export async function storeServiceToken(
 
 /** Get Drive files (requires connected Drive service) */
 export async function getDriveFiles(pageSize = 20) {
-  return apiRequest<{ files: any[] }>(`/services/drive/files?page_size=${pageSize}`);
+  return apiRequest<{ files: Record<string, unknown>[] }>(`/services/drive/files?page_size=${pageSize}`);
 }
 
 /** Get Calendar events (requires connected Calendar service) */
 export async function getCalendarEvents(maxResults = 10) {
-  return apiRequest<{ events: any[] }>(`/services/calendar/events?max_results=${maxResults}`);
+  return apiRequest<{ events: Record<string, unknown>[] }>(`/services/calendar/events?max_results=${maxResults}`);
 }
 
 /** Get GitHub repos (requires connected GitHub service) */
 export async function getGitHubRepos(perPage = 30) {
-  return apiRequest<{ repos: any[] }>(`/services/github/repos?per_page=${perPage}`);
+  return apiRequest<{ repos: Record<string, unknown>[] }>(`/services/github/repos?per_page=${perPage}`);
 }

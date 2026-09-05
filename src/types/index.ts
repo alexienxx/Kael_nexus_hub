@@ -10,7 +10,11 @@ export interface ChatMessage {
   timestamp?: number;
   sender: "user" | "kael" | "external_agent";
   image?: string;
+  /** Durable backend asset ID; scoped display URL is resolved only in memory. */
+  imageAssetId?: string;
   audioUrl?: string;
+  /** Durable local WAV path; scoped playback URL is resolved only in memory. */
+  audioAssetPath?: string;
   audioDuration?: number;
   videoUrl?: string;
   trackCard?: TrackCard;

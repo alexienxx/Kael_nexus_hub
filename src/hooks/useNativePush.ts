@@ -1,9 +1,8 @@
 import { useEffect } from "react";
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { App as CapacitorApp } from "@capacitor/app";
 import {
   PushNotifications,
-  type PluginListenerHandle,
   type PushNotificationSchema,
 } from "@capacitor/push-notifications";
 import {

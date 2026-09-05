@@ -40,8 +40,8 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
     try {
       await downloadApk(manifest.apk_url, (p) => setProgress(p));
       setDownloadState("success");
-    } catch (err: any) {
-      setError(err?.message || "Download failed");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Download failed");
       setDownloadState("error");
     }
   };

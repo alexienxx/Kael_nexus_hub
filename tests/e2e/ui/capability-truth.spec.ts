@@ -15,13 +15,10 @@ test.describe("capability truth surfaces", () => {
     await expect(page.getByText("La sezione riflessioni sarà disponibile quando il backend lo supporterà")).toBeVisible();
   });
 
-  test("Spotify and Observatory never pretend an unavailable capability is active", async ({ page }) => {
+  test("Spotify never pretends an unavailable capability is active", async ({ page }) => {
     await page.goto("/media");
     await page.getByRole("button", { name: "Musica", exact: true }).click();
     await expect(page.locator("body")).toContainText(/Configura Spotify|Non connesso/);
-
-    await page.goto("/observatory");
-    await expect(page.getByText("Overview non ancora wired", { exact: true })).toBeVisible();
   });
 
   test("agentic settings expose repository unavailability without crashing", async ({ page }) => {

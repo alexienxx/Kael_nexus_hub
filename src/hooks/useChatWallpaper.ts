@@ -15,7 +15,9 @@ function loadWallpapers(): Record<string, ConversationWallpaper> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
-  } catch {}
+  } catch (error) {
+    console.warn("[Wallpaper] Ignoring invalid stored wallpaper state:", error);
+  }
   return {};
 }
 

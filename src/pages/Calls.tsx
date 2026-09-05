@@ -24,14 +24,14 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { PhoneOff, Mic, MicOff, CameraOff, Camera } from "lucide-react";
-import { useTheme } from "@/lib/store/theme";
+import { useTheme } from "@/lib/store/theme-context";
 import { useSession } from "@/hooks/useSession";
 import { useCapability } from "@/hooks/useCapability";
 import CapabilityGuard from "@/components/common/CapabilityGuard";
 import KaelHeader from "@/components/layout/KaelHeader";
 import type { CallState, TranscriptEntry } from "@/types";
 import { initiateCall, endCall, getActiveCall, sendCallVoiceMessage } from "@/lib/api/voice";
-import { startAvatarStream, stopAvatarStream, getAvatarStreamUrl } from "@/lib/api/avatar";
+import { startAvatarStream, stopAvatarStream } from "@/lib/api/avatar";
 import { toast } from "sonner";
 
 const Calls = () => {
@@ -240,8 +240,8 @@ const Calls = () => {
 
       // Start Kael's MJPEG avatar stream (best-effort)
       try {
-        await startAvatarStream("neutral");
-        setAvatarStreamUrl(getAvatarStreamUrl());
+        const avatarStream = await startAvatarStream("neutral");
+        setAvatarStreamUrl(avatarStream.stream_url ?? null);
       } catch {
         setAvatarStreamUrl(null); // fallback to static photo
       }

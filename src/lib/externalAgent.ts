@@ -5,7 +5,7 @@
  * via Kael backend proxy (API key stored server-side for security).
  */
 
-import { getApiConfig } from "@/lib/api/client";
+import { apiRequest } from "@/lib/api/client";
 
 export type AgentProvider = "openai" | "anthropic" | "google";
 
@@ -51,7 +51,9 @@ export function getExternalAgentConfig(): ExternalAgentConfig {
       const parsed = JSON.parse(raw);
       return { modelId: parsed.modelId || "gpt-4o" };
     }
-  } catch {}
+  } catch {
+    // Ignore malformed local preferences and fall back to the canonical model.
+  }
   return { modelId: "gpt-4o" };
 }
 
@@ -77,6 +79,37 @@ export interface ExternalChatMessage {
   content: string;
 }
 
+export interface ExternalAgentProvenance {
+  provider: AgentProvider;
+  agent_id: string;
+  exchange_id: string;
+  conversation_id: string;
+  source_event_id: string;
+  received_at: number;
+  content_sha256: string;
+  verification_method: string;
+  transport_verified: true;
+  claim_trust: "attributed_external_statement";
+}
+
+export interface ExternalAgentChatResponse {
+  reply: string;
+  turn_id: number;
+  created: boolean;
+  replayed: boolean;
+  observation: {
+    observation_id: string;
+    observation_type: "external_agent_message";
+    event_type: "message";
+    provenance: ExternalAgentProvenance;
+  };
+}
+
+export interface ExternalAgentExchangeIdentity {
+  exchangeId: string;
+  sessionId: string;
+}
+
 /**
  * Send a message to the external agent via Kael backend proxy.
  * The backend holds the API key securely — the APK never touches it.
@@ -84,7 +117,8 @@ export interface ExternalChatMessage {
  */
 export async function sendExternalAgentMessage(
   messages: ExternalChatMessage[],
-): Promise<string> {
+  identity: ExternalAgentExchangeIdentity,
+): Promise<ExternalAgentChatResponse> {
   const model = getSelectedModel();
   const systemPrompt = getSystemPrompt();
 
@@ -93,25 +127,14 @@ export async function sendExternalAgentMessage(
     ? [{ role: "system", content: systemPrompt }, ...messages.map(m => ({ role: m.role, content: m.content }))]
     : messages.map(m => ({ role: m.role, content: m.content }));
 
-  const baseUrl = getApiConfig().baseUrl.replace(/\/$/, "");
-  const response = await fetch(
-    `${baseUrl}/services/external-agent/chat`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: apiMessages,
-        model_id: model.id,
-        provider: model.provider,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "Unknown error");
-    throw new Error(`Errore ${response.status}: ${errText}`);
-  }
-
-  const data = await response.json();
-  return data.reply;
+  return apiRequest<ExternalAgentChatResponse>("/services/external-agent/chat", {
+    method: "POST",
+    body: JSON.stringify({
+      messages: apiMessages,
+      model_id: model.id,
+      provider: model.provider,
+      exchange_id: identity.exchangeId,
+      session_id: identity.sessionId,
+    }),
+  });
 }

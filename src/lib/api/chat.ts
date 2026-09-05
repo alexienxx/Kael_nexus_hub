@@ -1,5 +1,12 @@
-import { apiRequest, apiUpload, ensureBackendAlive } from "./client";
+import {
+  apiRequest,
+  apiUpload,
+  ensureBackendAlive,
+  getApiConfig,
+  parseStrictJsonBody,
+} from "./client";
 import type { ChatMessage, FeedbackPayload } from "@/types";
+import type { ExactTextChatRequestBody } from "@/lib/chat/durableExchangeStore";
 
 /**
  * CHAT API SERVICE LAYER
@@ -9,7 +16,7 @@ import type { ChatMessage, FeedbackPayload } from "@/types";
  * - POST /feedback - Submit RLHF feedback
  * - POST /chat/image - Upload image for analysis
  * - POST /chat/voice - Send voice note
- * - GET /chat/history/messages - Load full chat history
+ * - GET /chat/history/mixed - Load full history, including external-agent turns
  * - GET /chat/history/pending - Fetch new messages after timestamp (SSE catch-up)
  *
  * REALTIME BEHAVIOR:
@@ -21,8 +28,8 @@ import type { ChatMessage, FeedbackPayload } from "@/types";
  */
 
 export interface ChatResponse {
-  reply: string;
-  session_id: string;
+  reply?: string;
+  session_id?: string;
   id?: string;
   backend_turn_id?: string | number;
   message_id?: string;
@@ -33,6 +40,16 @@ export interface ChatResponse {
   timestamp?: number;
   /** Echo of the client_message_id sent in the request — used for reconciliation. */
   client_message_id?: string;
+  /** Canonical crash-continuity receipt fields returned by POST /chat. */
+  exchange_id?: string;
+  exchange_status?: string;
+  outcome_kind?: string;
+  idempotent_replay?: boolean;
+  error?: {
+    code?: string;
+    retryable?: boolean;
+  };
+  detail?: string | Record<string, unknown>;
   message_type?: string;
   assistant_turn_id?: number;
   user_turn_id?: number;
@@ -75,6 +92,41 @@ export interface VoiceResponse extends ChatResponse {
   transcription?: string;
 }
 
+/**
+ * Raw message shape shared by history and pending-timeline endpoints.
+ *
+ * It intentionally models the compatibility aliases still emitted by the
+ * backend while keeping every accessed field typed. Unknown extension fields
+ * remain available to the normalization helpers through the index signature.
+ */
+export interface BackendChatMessage extends Record<string, unknown> {
+  id?: string | number;
+  turn_id?: string | number;
+  backend_turn_id?: string | number;
+  client_message_id?: string;
+  text?: string;
+  content?: string;
+  time?: string;
+  timestamp?: number;
+  ts?: number;
+  sender?: ChatMessage["sender"];
+  role?: string;
+  image?: string;
+  image_asset_id?: string;
+  bubbles?: unknown[];
+  meta?: Record<string, unknown>;
+  metadata?: Record<string, unknown> & { client_message_id?: string };
+  feedback?: ChatMessage["feedback"];
+  duration_ms?: number;
+  duration?: number;
+  delivery_mode?: ChatMessage["delivery_mode"];
+  deliveryMode?: ChatMessage["delivery_mode"];
+  message_type?: string;
+  agent_id?: string;
+  agent_name?: string;
+  agent_avatar?: string;
+}
+
 export type QuotedMessageAuthor = "user" | "assistant" | "autonomous" | "system" | "tool";
 
 export interface QuotedMessagePayload {
@@ -99,6 +151,89 @@ export interface QuotedMessagePayload {
  * Set to 7min to avoid killing long responses when connected via USB/adb-reverse.
  */
 const CHAT_TIMEOUT = 420_000;
+
+export interface ChatHttpResult {
+  status: number;
+  statusText: string;
+  retryAfterSeconds?: number;
+  body: ChatResponse;
+  /**
+   * A response can be protocol-invalid without being a transport failure.
+   * Preserve the real HTTP status so 401/409/5xx never enter the network retry
+   * path merely because their body is empty or malformed.
+   */
+  bodyParseError?: "empty" | "invalid_json";
+}
+
+function parseChatResponseText(text: string): {
+  body: ChatResponse;
+  bodyParseError?: ChatHttpResult["bodyParseError"];
+} {
+  // Only one complete JSON document is valid. Ordinary whitespace used as a
+  // transport keepalive is legal JSON padding; comments, proxy banners and
+  // arbitrary prefixes must fail closed instead of being silently discarded.
+  if (!text.trim()) return { body: {}, bodyParseError: "empty" };
+  try {
+    const parsed = parseStrictJsonBody<unknown>(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { body: {}, bodyParseError: "invalid_json" };
+    }
+    return { body: parsed as ChatResponse };
+  } catch {
+    return { body: {}, bodyParseError: "invalid_json" };
+  }
+}
+
+/**
+ * Send an already-durable request envelope without rebuilding any field.
+ *
+ * Unlike the generic API helper, this returns structured 202/409 responses so
+ * the outbox can distinguish in-progress, recovery-required and terminal
+ * outcomes.  Retrying this function must always use the same persisted body.
+ */
+export async function sendDurableTextEnvelope(
+  requestBody: ExactTextChatRequestBody,
+): Promise<ChatHttpResult> {
+  const config = getApiConfig();
+  if (!config.baseUrl) {
+    throw new Error("Backend URL not configured. Go to Settings → Connection.");
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), CHAT_TIMEOUT);
+  try {
+    const response = await fetch(`${config.baseUrl.replace(/\/$/, "")}/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": requestBody.client_message_id,
+        ...(config.apiKey ? { "X-KAEL-KEY": config.apiKey } : {}),
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+    const text = await response.text();
+    const retryAfter = Number(response.headers.get("Retry-After") ?? "");
+    const parsed = parseChatResponseText(text);
+    return {
+      status: response.status,
+      statusText: response.statusText,
+      retryAfterSeconds: Number.isFinite(retryAfter) && retryAfter >= 0 ? retryAfter : undefined,
+      body: parsed.body,
+      bodyParseError: parsed.bodyParseError,
+    };
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Request timeout - durable exchange remains queued");
+    }
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      throw new Error("No internet connection");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 /** Send a text message and get Kael's reply */
 export async function sendMessage(
@@ -189,7 +324,7 @@ export async function sendVoiceNote(audioBlob: Blob, sessionId: string, clientMe
 export async function getChatHistory(sessionId: string, conversationId?: string) {
   const params = new URLSearchParams({ session_id: sessionId });
   if (conversationId) params.append("conversationId", conversationId);
-  return apiRequest<{ messages: ChatMessage[] }>(`/chat/history/messages?${params}`);
+  return apiRequest<{ messages: BackendChatMessage[] }>(`/chat/history/mixed?${params}`);
 }
 
 /**
@@ -204,10 +339,46 @@ export async function getChatHistory(sessionId: string, conversationId?: string)
  *   - Returns: { messages: [...] } with full message objects
  */
 export interface PendingMessagesResponse {
-  messages: any[];
+  messages: BackendChatMessage[];
   next_cursor: number;
   has_more: boolean;
   cursor_kind: "conversation_turn_id";
+}
+
+function isBackendChatMessage(value: unknown): value is BackendChatMessage {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+export function validatePendingMessagesResponse(
+  value: unknown,
+  fromCursor: number,
+): PendingMessagesResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Pending timeline response is not an object");
+  }
+  const record = value as Record<string, unknown>;
+  if (record.cursor_kind !== "conversation_turn_id") {
+    throw new Error("Pending timeline cursor kind is not canonical");
+  }
+  const nextCursor = Number(record.next_cursor);
+  if (!Number.isSafeInteger(nextCursor) || nextCursor < 0 || nextCursor < fromCursor) {
+    throw new Error("Pending timeline cursor is invalid");
+  }
+  if (!Array.isArray(record.messages) || !record.messages.every(isBackendChatMessage)) {
+    throw new Error("Pending timeline messages are invalid");
+  }
+  if (typeof record.has_more !== "boolean") {
+    throw new Error("Pending timeline pagination flag is invalid");
+  }
+  if (record.has_more && nextCursor <= fromCursor) {
+    throw new Error("Pending timeline cursor did not advance");
+  }
+  return {
+    messages: record.messages,
+    next_cursor: nextCursor,
+    has_more: record.has_more,
+    cursor_kind: "conversation_turn_id",
+  };
 }
 
 export async function fetchPendingMessages(
@@ -224,7 +395,8 @@ export async function fetchPendingMessages(
   if (Number.isSafeInteger(afterTurnId) && Number(afterTurnId) >= 0) {
     params.set("after_turn_id", String(afterTurnId));
   }
-  return apiRequest<PendingMessagesResponse>(`/chat/history/pending?${params}`);
+  const result = await apiRequest<unknown>(`/chat/history/pending?${params}`);
+  return validatePendingMessagesResponse(result, Number.isSafeInteger(afterTurnId) ? Number(afterTurnId) : 0);
 }
 
 /**

@@ -1,154 +1,57 @@
-# APK Chat Behavior — Verified Implementation
+# APK chat behavior — canonical implementation
 
-**Last updated:** 2026-04-03
-**Purpose:** Canonical description of the actual chat and realtime behaviour used by the APK.
-**Status:** ✅ Current — verified against source code.
+Updated: 2026-09-05
 
----
+The APK has one durable canonical timeline and one realtime notification path.
+PostgreSQL remains the server authority; IndexedDB retains the last committed
+timeline and the outbound WAL across offline launches.
 
-## A) Realtime Mode
+## Delivery and recovery
 
-The APK uses **two parallel channels**:
+- User text is written to the IndexedDB outbox before `POST /chat`.
+- A stable `client_message_id` makes retries idempotent.
+- `GET /chat/events` is a notification stream, not message authority.
+- `GET /chat/history/pending` retrieves complete rows after the durable turn-ID
+  cursor and includes assistant, autonomous and `external_agent` turns.
+- `GET /chat/history/mixed` hydrates the visible snapshot, including attributed
+  external-agent replies. Snapshot reads never advance the pending cursor.
+- Reconnect, foreground resume and backend restart converge on one bounded,
+  single-flight catch-up path. Manual Reconnect is optional diagnostics only.
+- When the backend is unavailable, committed IndexedDB history remains visible.
+  A powered-off local PC cannot create or transmit new turns; that requires a
+  separate always-on relay.
 
-| Channel | Purpose | Implementation |
-|---------|---------|----------------|
-| `POST /chat` (streaming) | User → Kael request-response | `StreamingResponse` with `: keepalive\n` heartbeat chunks; client reads via `res.text()` + strip + `JSON.parse` |
-| `GET /observatory/sse` | Kael → APK push (autonomous messages, system state) | `EventSource`-based SSE consumed by `useKaelSSE` hook |
+## External-agent exchange
 
-### SSE push channel (`useKaelSSE`)
+The APK calls `POST /services/external-agent/chat` with the selected provider,
+model, bounded message history, client session and a stable `exchange_id`
+derived from the originating chat message. Provider credentials remain on the
+backend. The response is displayed only with its canonical `turn_id` and
+secret-free provenance, and reappears through mixed/pending history after a
+reload. Provider output is an attributed statement, never automatically truth.
 
-**Location:** `src/hooks/useKaelSSE.ts`
+## Netharion
 
-- Connects to `/observatory/sse` on mount.
-- Parses events: `autonomous_message`, `serenade_engine`, `system_event`, `netharion_heartbeat`.
-- Dispatches `kael-autonomous-message` CustomEvent when a push message arrives from `AUTONOMOUS_SOURCES` (includes `serenade_engine`).
-- `Chat.tsx` listens for `kael-autonomous-message` and calls `fetchAndAppendPending()` to pull the message body from `/chat/pending`.
+Netharion is only the authenticated external-agent reception channel. The APK
+reads `GET /cognition/netharion/channel` and exposes the closed technical states
+`OFF`, `ACTIVE`, `RECEIVING`, `VERIFIED`, and `DEGRADED`. Its diagnostics contain
+only bounded receipt metadata and content hashes—never message text, presence,
+emotion, personality, relationship state or provider secrets.
 
-### Chat request-response
+## Active endpoints
 
-**Location:** `src/pages/Chat.tsx` · `src/lib/api/chat.ts` · `src/lib/api/client.ts`
+| Endpoint | Purpose |
+|---|---|
+| `POST /chat` | Durable user-to-Kael exchange |
+| `GET /chat/events` | Realtime notification stream |
+| `GET /chat/history/pending` | Cursor-authoritative catch-up |
+| `GET /chat/history/mixed` | Full visible history snapshot |
+| `POST /services/external-agent/chat` | Authenticated, durable external exchange |
+| `GET /cognition/netharion/channel` | Metadata-only Netharion diagnostics |
+| `POST /chat/image` | Image message |
+| `POST /chat/voice` | Voice note |
+| `POST /feedback` | Turn feedback |
 
-```typescript
-// chat.ts — CHAT_TIMEOUT = 300 000 ms (5 min)
-const response = await chatApi.sendMessage(text, sessionId);
-```
-
-The underlying `apiRequest` reads `res.text()`, strips `": keepalive\n"` lines injected by the server keepalive loop, then calls `JSON.parse`. This is required because the server wraps the response in a `StreamingResponse` to keep the TCP connection alive on Android/USB.
-
----
-
-## B) Chat Endpoints Used
-
-### Active Endpoints ✅
-
-| Endpoint | Method | Purpose | Used In |
-|----------|--------|---------|---------|
-| `/chat` | POST | Send text message and get reply | `Chat.tsx` via `chatApi.sendMessage` |
-| `/chat/regenerate` | POST | Regenerate last response | `MessageBubble.tsx` |
-| `/feedback` | POST | Submit like/dislike feedback | `MessageBubble.tsx` |
-| `/chat/image` | POST | Upload image with optional caption | `Chat.tsx` via `chatApi.sendImage` |
-| `/chat/voice` | POST | Send voice note audio | `ChatInput.tsx` |
-| `/chat/history` | GET | Load previous messages on session resume | `Chat.tsx` (session resume) |
-| `/chat/pending` | GET | Fetch queued autonomous Kael messages | `Chat.tsx` → `fetchAndAppendPending` |
-| `/observatory/sse` | GET (SSE) | Real-time push events | `useKaelSSE` hook |
-
----
-
-## C) Request Parameters
-
-### POST /chat
-```json
-{
-  "message": "user message text",
-  "session_id": "uuid-from-localStorage",
-  "conversationId": "optional-conversation-id"
-}
-```
-Response is a chunked `StreamingResponse`. Body may contain `": keepalive\n"` lines before the final JSON object — the client strips these automatically.
-
-### POST /chat/image (FormData)
-```
-image: File (binary)
-session_id: string
-text?: string     ← optional caption / question shown to Moondream
-conversationId?: string
-```
-
-### POST /chat/regenerate
-```json
-{ "turn_id": "...", "session_id": "..." }
-```
-
-### POST /feedback
-```json
-{ "turn_id": "...", "type": "like" | "dislike" }
-```
-
-### POST /chat/voice (FormData)
-```
-audio: Blob (webm)
-session_id: string
-```
-
-### GET /chat/history
-```
-?session_id=uuid&conversationId=optional
-```
-
-### GET /chat/pending
-```
-?session_id=uuid
-```
-Called automatically when `kael-autonomous-message` CustomEvent fires.
-
----
-
-## D) Auth Model
-
-**Session-based:**
-- `session_id` in localStorage (`kael_session_id`).
-- Generated on first load via `useSession` hook.
-- Included in all requests (body for POST, query param for GET).
-- Optional `Authorization: Bearer {apiKey}` header when configured in Settings.
-
----
-
-## E) Reconnection and Keepalive
-
-### SSE (`useKaelSSE`)
-- Auto-reconnects on `onerror` with exponential back-off.
-- Connection health tracked via `useBackendLifecycle`.
-
-### Chat TCP keepalive
-- Server sends `": keepalive\n"` chunks every 20 s during LLM generation.
-- Prevents Android OS / ADB-reverse tunnel from dropping the idle TCP connection.
-- `CHAT_TIMEOUT` = 300 s client-side.
-- Backend uvicorn: `--timeout-keep-alive 300 --timeout-graceful-shutdown 300`.
-
-### Health check
-- `useBackendLifecycle` polls `/health` every 45 s (`ONLINE_RECHECK_MS`).
-- 8-failure grace period (~6 min) before marking backend offline.
-
----
-
-## F) Autonomous Messages & Notifications
-
-1. `autonomy_loop.py` generates autonomous messages and calls `sse_notifier.notify_new_message`.
-2. The SSE notifier pushes an event on `/observatory/sse`.
-3. `useKaelSSE` receives it, dispatches `kael-autonomous-message`.
-4. `Chat.tsx` calls `fetchAndAppendPending` → `GET /chat/pending`.
-5. If app is backgrounded/hidden, `AppShell.tsx` triggers a native `LocalNotifications` push (channel: `kael_autonomous`). Serenade events use the title "🎵 Kael — Serenata".
-
----
-
-## G) Summary
-
-| Aspect | Status |
-|--------|--------|
-| Realtime push (autonomous messages) | ✅ SSE via `useKaelSSE` + `EventSource` |
-| Chat request-response | ✅ POST /chat with streaming keepalive |
-| Image analysis (Moondream) | ✅ POST /chat/image — runs CPU-only (`moondream-cpu`) |
-| Image generation (ComfyUI) | ✅ wired via vision router |
-| Voice TTS playback | ✅ audioUrl in response meta |
-| Native background notifications | ✅ Capacitor `LocalNotifications`, channel `kael_autonomous` |
-| WebSocket for chat | ❌ Not used (WebSocket only for live voice call transcription) |
+All protected requests go through the central authenticated client. Resource
+downloads use short-lived scoped URLs and never place the primary credential in
+a query string.

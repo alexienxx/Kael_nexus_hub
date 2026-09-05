@@ -1,6 +1,7 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import { resetBackendUrlForDiscovery } from "./lib/api/client";
 
 /**
  * Boot diagnostics — silent, console-only.
@@ -18,7 +19,6 @@ function logFatal(stage: string, err: unknown): void {
   try {
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error && err.stack ? err.stack : "(no stack)";
-    // eslint-disable-next-line no-console
     console.error("[KAEL_BOOT_FATAL]", stage, msg, stack);
   } catch {
     /* swallow — last-resort path */
@@ -29,7 +29,6 @@ function logFatal(stage: string, err: unknown): void {
 window.addEventListener("error", (ev) => logFatal("window.error", ev.error ?? ev.message));
 window.addEventListener("unhandledrejection", (ev) => logFatal("unhandledrejection", ev.reason));
 
-// eslint-disable-next-line no-console
 console.log("[KAEL_BOOT] start");
 
 /**
@@ -43,8 +42,7 @@ function bootMigration(): void {
   // 1. Backend config: RESET to empty so auto-discovery can find port 8002.
   //    v3: always clear stale URLs (e.g. old :8000 from previous builds).
   //    Discovery will re-scan KNOWN_HOSTS × PORT_RANGE and persist the correct one.
-  const configKey = "kael-backend-config";
-  localStorage.setItem(configKey, JSON.stringify({ baseUrl: "", apiKey: "" }));
+  resetBackendUrlForDiscovery();
 
   // 2. Ensure session ID is canonical
   const sessionKey = "kael_session_id";
@@ -66,7 +64,7 @@ function bootMigration(): void {
 
   // Mark migration as done
   localStorage.setItem(MIGRATION_KEY, new Date().toISOString());
-  console.log("[KAEL_BOOT] Migration v3 complete — URL reset, discovery active");
+  console.log("[KAEL_BOOT] Migration v3 complete — URL reset, credential preserved, discovery active");
 }
 
 try {
@@ -74,20 +72,16 @@ try {
 } catch (err) {
   // Don't paint fatal yet — migration failure shouldn't kill the app.
   // Just log and continue to mount; the app can still work without migration.
-  // eslint-disable-next-line no-console
   console.error("[KAEL_BOOT] migration failed (non-fatal):", err);
 }
 
 try {
-  // eslint-disable-next-line no-console
   console.log("[KAEL_BOOT] migration ok");
   const rootEl = document.getElementById("root");
   if (!rootEl) throw new Error("getElementById('root') returned null");
   const reactRoot = createRoot(rootEl);
-  // eslint-disable-next-line no-console
   console.log("[KAEL_BOOT] createRoot ok");
   reactRoot.render(<App />);
-  // eslint-disable-next-line no-console
   console.log("[KAEL_BOOT] render ok");
 } catch (err) {
   logFatal("mount", err);

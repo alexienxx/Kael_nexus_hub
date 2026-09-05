@@ -11,6 +11,8 @@ import TrackCard from "@/components/media/TrackCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import type { CapabilityResult } from "@/hooks/useCapability";
+import type { SpotifyContext } from "@/lib/api/spotify";
 
 /**
  * Combined Spotify Music Tab:
@@ -41,8 +43,8 @@ const SpotifyMusicTab = () => {
   const handleLogin = async () => {
     try {
       await startSpotifyLogin();
-    } catch (e: any) {
-      toast.error(e.message || "Errore login Spotify");
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : "Errore login Spotify");
     }
   };
 
@@ -50,7 +52,7 @@ const SpotifyMusicTab = () => {
     try {
       await spotify.play({ uris: [uri] });
       toast.success("Riproduzione avviata");
-    } catch (e: any) {
+    } catch {
       toast.error("Apri Spotify su un dispositivo per riprodurre");
     }
   };
@@ -169,7 +171,7 @@ const SpotifyMusicTab = () => {
 
 // ─── Kael Backend Suggestions ───────────────────────────
 
-function KaelSuggestions({ kaelContext }: { kaelContext: ReturnType<typeof useCapability<any>> }) {
+function KaelSuggestions({ kaelContext }: { kaelContext: CapabilityResult<SpotifyContext> }) {
   if (kaelContext.state !== "available" || !kaelContext.data) return null;
 
   const ctx = kaelContext.data;
@@ -192,7 +194,7 @@ function KaelSuggestions({ kaelContext }: { kaelContext: ReturnType<typeof useCa
         <div>
           <p className="mb-2 text-xs font-semibold text-muted-foreground">💜 Suggeriti da Kael</p>
           <div className="space-y-2">
-            {ctx.suggestions.map((track: any, i: number) => (
+            {ctx.suggestions.map((track, i) => (
               <TrackCard
                 key={i}
                 title={track.title}

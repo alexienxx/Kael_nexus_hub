@@ -5,10 +5,28 @@ import {
   normalizeAfterTs,
   resolveAudioUrlFromPayload,
   resolveAssistantIdentity,
+  resolveBackendMessageIdentity,
   resolveHistoryMessageId,
 } from "@/lib/chat/reliability";
 
 describe("chat reliability", () => {
+  it("restores external-agent role and provenance from durable mixed history", () => {
+    const identity = resolveBackendMessageIdentity({
+      role: "external_agent",
+      metadata: {
+        external_provider: "openai",
+        external_agent_id: "gpt-test",
+      },
+    });
+
+    expect(identity).toEqual({
+      sender: "external_agent",
+      agentId: "gpt-test",
+      agentName: "openai · gpt-test",
+      agentAvatar: undefined,
+    });
+  });
+
   it("A: builds stable assistant fallback id when assistant_turn_id is null", () => {
     const response = {
       reply: "ciao mondo",
@@ -120,6 +138,34 @@ describe("chat reliability", () => {
 
     expect(afterLateDirect).toHaveLength(2);
     expect(afterLateDirect[1].text).toBe("risposta lunga");
+  });
+
+  it("D2: causal client id shared by USER and ASSISTANT does not collapse the reply", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "user-501",
+        backend_turn_id: "501",
+        client_message_id: "client-shared",
+        text: "domanda",
+        time: "10:00",
+        timestamp: 10,
+        sender: "user",
+        feedback: null,
+      },
+      {
+        id: "assistant-502",
+        backend_turn_id: "502",
+        client_message_id: "client-shared",
+        text: "risposta",
+        time: "10:01",
+        timestamp: 11,
+        sender: "kael",
+        feedback: null,
+      },
+    ];
+
+    const merged = mergeMessagesIdempotent([], messages);
+    expect(merged.map((message) => message.text)).toEqual(["domanda", "risposta"]);
   });
 
   it("E: audio fields survive history/pending merge", () => {

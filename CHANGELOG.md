@@ -4,6 +4,134 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [1.0.17 — Netharion receptor e risposte esterne durevoli] — 2026-09-05
+
+- Sostituiti heartbeat/presence/probe Netharion con il solo canale tecnico
+  autenticato `OFF|ACTIVE|RECEIVING|VERIFIED|DEGRADED`.
+- Il pannello APK mostra esclusivamente ricevute metadata-only e hash; nessun
+  contenuto raw, segreto provider o falsa proiezione emotiva/cognitiva.
+- Ogni scambio esterno usa un `exchange_id` stabile. La risposta diventa
+  `VERIFIED` solo dopo persistenza canonica, usa il `turn_id` del backend e il
+  replay non richiama nuovamente il provider.
+- La chat iniziale usa `/chat/history/mixed` e il catch-up `/history/pending`
+  include `external_agent`: reload e reconnect non fanno più sparire la bolla.
+- Corretto anche il mapper di ripristino: una riga canonica con
+  `role=external_agent` conserva ruolo, provider e agent ID dopo il cold reload,
+  anche quando il payload storico non contiene il vecchio alias `sender`.
+- Release 1.0.17 (117); test, build firmata e installazione fisica sono parte
+  del gate di rilascio di questa voce.
+
+## [1.0.16 — Ritiro Observatory e collaudo fisico continuita] — 2026-09-05
+
+- Rimossa integralmente la superficie APK Observatory: route, navigazione,
+  pagina, pannelli, hook, client API, listener SSE e contratti E2E obsoleti.
+  La diagnostica generica resta di competenza delle API runtime provider-neutral.
+- Netharion non consuma piu la proiezione Observatory. Fino al redesign P0-B
+  usa esclusivamente il heartbeat REST in sola lettura e non viene presentato
+  come autorita cognitiva, emotiva o di presenza generale di Arrakis.
+- La validazione TypeScript a riferimenti di progetto ha chiuso undici difetti
+  di contratto che lint, build Vite e Vitest non rilevavano; nessun controllo e
+  stato disabilitato o indebolito. I cache file `*.tsbuildinfo` prodotti dal
+  build mode sono ora classificati come artefatti generati e ignorati da Git.
+- Corretto il verdetto finale di `build_apk.ps1`: con `-SkipInstall` dichiara
+  ora l'APK come generato, non piu falsamente come installato.
+- Aggiornato il mock backend Playwright con gli endpoint realmente consumati
+  da SSE, presence e heartbeat. La fixture usa uno stream deterministico che
+  resta aperto invece di generare falsi reconnect, mentre le richieste presence
+  metadata-only usano `keepalive` per sopravvivere a reload/background.
+- Build release firmata 1.0.16 (116) installata sul Samsung SM-S908B con update
+  preservando i dati. Il telefono era ancora su 1.0.14 (114): il blocco visibile
+  a mezzanotte era quindi un gap di sincronizzazione del vecchio client, mentre
+  PostgreSQL conservava la timeline canonica fino al turno 4980 delle 16:48.
+- Collaudo fisico superato senza usare il pulsante Reconnect: al ritorno del
+  backend l'app ha recuperato automaticamente il delta fino alle 16:48. Dopo
+  arresto ufficiale del runtime, force-stop e riapertura a porta 8002 chiusa,
+  lo stesso ultimo turno e rimasto leggibile dalla cache IndexedDB.
+- Confine dichiarato: un PC locale spento non puo trasmettere nuovi dati. La
+  consegna di nuovi turni dopo lo spegnimento richiede un relay push/cloud
+  always-on separato; non viene simulata da una falsa garanzia locale.
+
+## [1.0.15 — Autoriconnessione backend durevole] — 2026-09-05
+
+- Eliminata la dipendenza dal pulsante manuale `Reconnect`: dopo un backend
+  irraggiungibile o una rete assente, il client continua a tentare in autonomia.
+- I retry degradati usano una sola catena single-flight con backoff esponenziale,
+  jitter e tetto a 30 secondi; successo, retry esplicito e unmount cancellano i timer.
+- Gli eventi ravvicinati di rete condividono un solo warmup e non possono generare
+  ventagli di probe concorrenti.
+- Il ritorno allo stato `online` riattiva il percorso gia esistente di catch-up
+  autorevole: pagine `/chat/history/pending`, cursore canonico, WAL IndexedDB e
+  merge idempotente, inclusi i messaggi autonomi prodotti durante il distacco.
+- Verifica automatica: 10/10 test lifecycle, 46/46 test trasporto/cursore/WAL/SSE/
+  push e suite completa 134/134 verdi; TypeScript, build Vite, sync Capacitor e
+  Gradle `assembleDebug` sono verdi.
+- Chiuso integralmente il lint repository: 34 errori TypeScript/ESLint corretti
+  con tipi `unknown`/contratti espliciti e 11 warning Fast Refresh risolti
+  separando hook, context e varianti dai componenti. Nessuna regola disabilitata.
+- Lo snapshot SSE Netharion consuma prima i campi canonici e usa gli alias legacy
+  soltanto come fallback derivato; `calm` non può più essere scambiato per
+  autorità di origine. Due regressioni dedicate coprono priorità e fallback.
+- Rimossi gli import dinamici inefficaci e suddiviso il bundle di produzione in
+  chunk espliciti: la build Vite 8 non emette più warning e il chunk maggiore
+  resta sotto 500 kB. I config usano `import.meta.dirname` e il plugin React
+  supportato dalla nuova toolchain.
+- Aggiornate le dipendenze vulnerabili, inclusi React Router, Vite e Vitest:
+  `npm audit` ora riporta zero advisory. `npm` è l'unica autorità dichiarata;
+  eliminati i due lockfile Bun concorrenti che rendevano non riproducibile la
+  manutenzione Browserslist.
+- La prova fisica Android resta da eseguire quando telefono e workstation
+  saranno di nuovo raggiungibili sulla stessa rete.
+
+## [1.0.14 — Scoped resources + Android wireless test transport] — 2026-09-04
+
+- Download APK, galleria, wallpaper/avatar, audio voce, MJPEG e WebSocket
+  chiamate consumano URL/token scoped a breve durata senza mettere la chiave
+  primaria nelle URL.
+- Aggiunto il flusso operativo ADB via LAN: update-preserving install, reverse
+  tunnel, pairing della configurazione WebView e avvio remoto, tutti vincolati
+  al seriale hardware del telefono.
+- Prova fisica: build 114 installata due volte attraverso il seriale ADB di
+  rete; backend/XTTS/avatar reverse attivi e configurazione
+  protetta validata senza stampare la credenziale.
+- Il primo smoke dopo pairing non mostra piu errori history/SSE/presence; resta
+  rosso il finding indipendente Firebase non configurato. Una falsa positività
+  proveniente da un vecchio crash di un'altra app è stata rimossa limitando il
+  crash scan al package/PID Kael.
+
+## [Unreleased — Gate A crash-safe text chat] — 2026-09-04
+
+### Associazione autenticata APK ↔ runtime
+- La configurazione backend salva una candidata soltanto dopo due prove distinte: `/health` pubblico e `/auth/verify` protetto. La migrazione di boot può correggere l'URL di discovery senza cancellare né stampare la chiave.
+- Il client HTTP centrale, chat, TTS, agente esterno e manifest aggiornamenti sul medesimo origin trasmettono `X-KAEL-KEY`; un override del manifest su origin diverso non riceve mai la credenziale.
+- I body JSON devono contenere un singolo documento completo: whitespace JSON è ammesso, prefissi HTML/commenti o spazzatura vengono respinti invece di essere ripuliti silenziosamente.
+- Un rifiuto di autenticazione mette l'envelope durevole in `authentication_required`: resta una barriera FIFO visibile e può essere ritentato manualmente con lo stesso UUID/body dopo aver corretto l'associazione.
+- Download diretto, MJPEG/media HTML e WebSocket usano ora token scoped
+  monouso/a breve durata e vincolati a metodo/percorso; il rollout default-deny
+  e stato provato sul runtime locale e resta soggetto alla chiusura completa del
+  Gate A.
+
+### Outbox e identità logica
+- Il testo viene accettato dalla UI soltanto dopo aver salvato in IndexedDB, con transazione `strict`, l'envelope esatto e il `client_message_id` UUID generato dal client.
+- Boot, foreground, reconnect e invio convergono su un solo drain FIFO single-flight. Ogni retry riusa lo stesso ID e lo stesso body verificato via SHA-256; nessun body viene scritto nei log.
+- Gli esiti backend sono classificati senza bolle sintetiche: reply, replay idempotente, `SILENCE`, `in_progress`, errore retryable, `recovery_required` e fallimento terminale.
+- Il classificatore è allineato ai valori canonici backend (`processing`, `complete`, `silence`, `recovery_required`); eventuali alias storici sono marcati compatibilità non autorevole. Una collisione chiave/payload HTTP 409 resta terminale.
+- `recovery_required` e fallimenti terminali restano ispezionabili nell'outbox e non vengono reinviati alla cieca; l'outbox è bounded a 100 record e blocca nuovi invii quando piena.
+
+### Inbox WAL e cursore
+- Le pagine timeline passano da un WAL IndexedDB: messaggi, cursore monotono e rimozione del batch vengono committati atomicamente prima del merge React e del mirror `localStorage`.
+- I batch rimasti staged per process-death vengono recuperati al boot; la cache timeline è bounded a 1.500 righe.
+- Corretto il dedup: `client_message_id` identifica il turno USER; una risposta ASSISTANT può ecoarlo come nesso causale senza essere rimossa come duplicato.
+
+### Verifica diagnostica e confini
+- Aggiunti test Vitest per contratti HTTP/classificatore/dedup e una batteria Playwright IndexedDB/reload separata (`npm run e2e:chat-continuity`). È diagnostica browser, non live acceptance.
+- Checkpoint locale riverificato il 2026-09-04: Vitest 122/122, Playwright continuity 8/8, Playwright contract 2/2, `tsc --noEmit`, lint dei soli file modificati e build Vite di produzione verdi. Il lint globale conserva debito storico fuori da questo intervento e non viene dichiarato verde.
+- La build Android e installata e associata sul dispositivo reale anche via
+  rete. Restano da chiudere stop/restart con ricevuta e i fault F0–F7 sul
+  runtime Arrakis/PostgreSQL reale della PR #25.
+- Questo Gate A copre soltanto la chat testuale. Upload immagine, nota vocale e chiamate richiedono un futuro envelope durevole specifico per blob/asset.
+- Il trasporto `POST /chat` resta request/response: SSE notifica nuovi turni ma non è token streaming della risposta. Il vero streaming richiede un contratto backend resumable separato.
+
+---
 ## [1.0.13 — Swipe-to-reply cognitivo] — 2026-08-12
 
 - Aggiunta gesture hold-then-drag verso destra sulle bolle, con soglia, feedback elastico e cancellazione sullo scroll verticale.
