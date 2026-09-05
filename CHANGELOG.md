@@ -16,11 +16,16 @@
   autorevole: pagine `/chat/history/pending`, cursore canonico, WAL IndexedDB e
   merge idempotente, inclusi i messaggi autonomi prodotti durante il distacco.
 - Verifica automatica: 10/10 test lifecycle, 46/46 test trasporto/cursore/WAL/SSE/
-  push e suite completa 132/132 verdi; TypeScript, build Vite, sync Capacitor,
-  Gradle `assembleDebug` e lint dei soli file modificati verdi.
-- Il lint globale conserva debito storico fuori dal checkpoint e non viene
-  dichiarato verde. La prova fisica Android resta da eseguire quando telefono e
-  workstation saranno di nuovo raggiungibili sulla stessa rete.
+  push e suite completa 134/134 verdi; TypeScript, build Vite, sync Capacitor e
+  Gradle `assembleDebug` sono verdi.
+- Chiuso integralmente il lint repository: 34 errori TypeScript/ESLint corretti
+  con tipi `unknown`/contratti espliciti e 11 warning Fast Refresh risolti
+  separando hook, context e varianti dai componenti. Nessuna regola disabilitata.
+- Lo snapshot SSE Netharion consuma prima i campi canonici e usa gli alias legacy
+  soltanto come fallback derivato; `calm` non può più essere scambiato per
+  autorità di origine. Due regressioni dedicate coprono priorità e fallback.
+- La prova fisica Android resta da eseguire quando telefono e workstation
+  saranno di nuovo raggiungibili sulla stessa rete.
 
 ## [1.0.14 — Scoped resources + Android wireless test transport] — 2026-09-04
 

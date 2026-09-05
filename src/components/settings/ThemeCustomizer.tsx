@@ -1,4 +1,4 @@
-import { useTheme, themePresets, bubbleStylePresets } from "@/lib/store/theme";
+import { useTheme, themePresets, bubbleStylePresets } from "@/lib/store/theme-context";
 import { useRef } from "react";
 
 const ThemeCustomizer = () => {

@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import KaelHeader from "@/components/layout/KaelHeader";
-import { useBackendConnection } from "@/context/BackendConnectionContext";
+import { useBackendConnection } from "@/context/backend-connection";
 import {
   Activity, Gauge, Fingerprint, Brain, Heart,
   Database, User, Package, Zap, Code, Shield, StickyNote

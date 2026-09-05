@@ -31,6 +31,22 @@ export interface LiveResult<T = unknown> {
 
 const POLL_INTERVAL = 3000;
 
+interface ObservatoryMeta {
+  content_hash?: string;
+  updated_at?: unknown;
+}
+
+function readObservatoryMeta(value: unknown): ObservatoryMeta | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const meta = (value as Record<string, unknown>)._meta;
+  if (typeof meta !== "object" || meta === null || Array.isArray(meta)) return null;
+  const record = meta as Record<string, unknown>;
+  return {
+    content_hash: typeof record.content_hash === "string" ? record.content_hash : undefined,
+    updated_at: record.updated_at,
+  };
+}
+
 export function useObservatoryLive<T>(
   fetcher: () => Promise<T>,
   options: {
@@ -80,7 +96,7 @@ export function useObservatoryLive<T>(
       // incoming hash AND the stored hash are non-empty and different sections
       // would share the same hash source (which we can't distinguish here).
       // Simplest correct fix: only skip if updated_at is also unchanged.
-      const meta = (result as any)?._meta;
+      const meta = readObservatoryMeta(result);
       const newHash = meta?.content_hash;
       const newUpdatedAt = meta?.updated_at;
       const lastHash = lastHashRef.current;
@@ -92,7 +108,7 @@ export function useObservatoryLive<T>(
         // Also require updated_at to be identical — prevents false dedup when
         // backend regenerates the same hash with new timestamp (rare but possible)
         newUpdatedAt != null &&
-        newUpdatedAt === (data as any)?._meta?.updated_at
+        newUpdatedAt === readObservatoryMeta(data)?.updated_at
       ) {
         return;
       }
@@ -106,23 +122,29 @@ export function useObservatoryLive<T>(
       } else {
         setState("available");
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (!mountedRef.current) return;
       setData(null);
+      const failure =
+        typeof err === "object" && err !== null
+          ? (err as { message?: unknown; status?: unknown })
+          : {};
+      const message =
+        typeof failure.message === "string" ? failure.message : "Errore sconosciuto";
 
       if (
-        err?.message?.includes("Backend URL not configured") ||
-        err?.message?.includes("No internet connection") ||
-        err?.message?.includes("Request timeout")
+        message.includes("Backend URL not configured") ||
+        message.includes("No internet connection") ||
+        message.includes("Request timeout")
       ) {
         setState("unavailable");
-        setError(err.message);
-      } else if (err?.status === 404 || err?.status === 501) {
+        setError(message);
+      } else if (failure.status === 404 || failure.status === 501) {
         setState("pending");
         setError("Funzionalità non ancora disponibile");
       } else {
         setState("error");
-        setError(err?.message || "Errore sconosciuto");
+        setError(message);
       }
     }
   }, [isPending, isEmpty, data]);

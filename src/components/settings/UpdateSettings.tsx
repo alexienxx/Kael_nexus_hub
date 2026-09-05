@@ -50,8 +50,8 @@ const UpdateSettings = () => {
       if (res.updateAvailable) {
         setShowDialog(true);
       }
-    } catch (err: any) {
-      setError(err?.message || "Errore durante il controllo");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Errore durante il controllo");
     } finally {
       setChecking(false);
     }

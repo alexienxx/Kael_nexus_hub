@@ -24,7 +24,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { PhoneOff, Mic, MicOff, CameraOff, Camera } from "lucide-react";
-import { useTheme } from "@/lib/store/theme";
+import { useTheme } from "@/lib/store/theme-context";
 import { useSession } from "@/hooks/useSession";
 import { useCapability } from "@/hooks/useCapability";
 import CapabilityGuard from "@/components/common/CapabilityGuard";

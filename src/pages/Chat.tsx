@@ -1,10 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Phone } from "lucide-react";
 import { App as CapApp } from "@capacitor/app";
-import { useTheme } from "@/lib/store/theme";
+import { useTheme } from "@/lib/store/theme-context";
 import { useSession } from "@/hooks/useSession";
 import { useAgenticActions } from "@/hooks/useAgenticActions";
-import { useBackendConnection } from "@/context/BackendConnectionContext";
+import { useBackendConnection } from "@/context/backend-connection";
 import { useServiceHealthToast } from "@/hooks/useServiceHealthToast";
 import { useChatWallpaper } from "@/hooks/useChatWallpaper";
 import { useLongPress } from "@/hooks/useLongPress";

@@ -12,9 +12,10 @@ import {
 import NetharionButton from "@/components/common/NetharionButton";
 import NetharionRealEventsSheet from "@/components/common/NetharionRealEventsSheet";
 import SpotifyIcon from "@/components/common/SpotifyIcon";
-import { useBackendConnection } from "@/context/BackendConnectionContext";
+import { useBackendConnection } from "@/context/backend-connection";
 import { useNetharion } from "@/hooks/useNetharion";
 import type { BackendLifecycleState } from "@/types";
+import { Capacitor } from "@capacitor/core";
 
 const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
@@ -83,7 +84,7 @@ const BottomNav = () => {
   const handleSpotifyPress = () => {
     const spotifyDeepLink = "spotify://";
     const spotifyWeb = "https://open.spotify.com";
-    const isCapacitor = !!(window as any).Capacitor;
+    const isCapacitor = Capacitor.isNativePlatform();
     if (isCapacitor) {
       window.location.href = spotifyDeepLink;
       setTimeout(() => {

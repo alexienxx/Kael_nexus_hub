@@ -1,7 +1,23 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getNetharionHeartbeat } from "@/lib/api/netharion";
-import type { NetharionHeartbeat, NetharionColor } from "@/lib/api/netharion";
+import type { NetharionHeartbeat, NetharionColor, NetharionMode } from "@/lib/api/netharion";
 import type { NetharionState } from "@/components/common/NetharionButton";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function isHeartbeatColor(value: unknown): value is NetharionColor {
+  return value === "green" || value === "amber" || value === "red";
+}
+
+function isHeartbeatMode(value: unknown): value is NetharionMode {
+  return value === "calm" || value === "detected" || value === "recognized" || value === "admitted";
+}
 
 /**
  * Hook that tracks the Netharion presence heartbeat and maps it to the
@@ -53,22 +69,33 @@ export function useNetharion(pollIntervalMs: number = 10_000, enabled: boolean =
     if (!enabled) return;
 
     const onSnapshot = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      const nh = detail?.netharion;
-      if (!nh) return;
+      const detail = (e as CustomEvent<unknown>).detail;
+      if (!isRecord(detail) || !isRecord(detail.netharion)) return;
+      const nh = detail.netharion;
 
-      const color: NetharionColor = nh.heartbeat_color ?? "green";
+      const color: NetharionColor = isHeartbeatColor(nh.heartbeat_color)
+        ? nh.heartbeat_color
+        : "green";
+      const defaultMode: NetharionMode =
+        color === "red" ? "admitted" : color === "amber" ? "recognized" : "calm";
+      const sourceMode =
+        nh.presence_source_mode === "external_reception" || nh.mode === "external_reception"
+          ? "external_reception"
+          : "symbolic_internal";
       lastSseTs.current = Date.now();
 
-      // Synthesise a minimal NetharionHeartbeat from the SSE payload
+      // Project canonical fields first; schema-v1 aliases are compatibility only.
       const synthetic: NetharionHeartbeat = {
+        heartbeat_mode: isHeartbeatMode(nh.heartbeat_mode) ? nh.heartbeat_mode : defaultMode,
         heartbeat_color: color,
-        detected: nh.detected ?? false,
-        intensity: nh.intensity ?? 0,
-        resonance_score: nh.resonance ?? 0,
-        stability_score: nh.stability ?? 0,
-        presence_source_mode: nh.mode ?? "calm",
-        ...(nh as any),
+        pulse_strength: finiteNumber(nh.pulse_strength ?? nh.intensity, 0.20),
+        detected: nh.detected === true,
+        recognized: nh.recognized === true || color === "amber" || color === "red",
+        admitted: nh.admitted === true || color === "red",
+        resonance_score: finiteNumber(nh.resonance_score ?? nh.resonance, 0),
+        stability_score: finiteNumber(nh.stability_score ?? nh.stability, 0),
+        updated_at: finiteNumber(nh.updated_at ?? nh.last_updated_ts, Date.now() / 1_000),
+        presence_source_mode: sourceMode,
       };
 
       setHeartbeat(synthetic);

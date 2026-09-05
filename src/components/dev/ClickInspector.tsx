@@ -22,6 +22,11 @@ interface InspectedElement {
   timestamp: number;
 }
 
+interface ReactFiberLike {
+  type?: unknown;
+  return?: ReactFiberLike | null;
+}
+
 /** Walk React fiber tree to find nearest component name */
 function getReactComponentName(el: HTMLElement): string {
   const fiberKey = Object.keys(el).find(
@@ -29,17 +34,19 @@ function getReactComponentName(el: HTMLElement): string {
   );
   if (!fiberKey) return "—";
 
-  let fiber = (el as any)[fiberKey];
+  let fiber = (el as unknown as Record<string, ReactFiberLike | undefined>)[fiberKey];
   // Walk up the fiber tree to find a named function component or class
   for (let i = 0; i < 15 && fiber; i++) {
     const type = fiber.type;
     if (type) {
-      const name =
-        typeof type === "function"
-          ? type.displayName || type.name
-          : typeof type === "string"
-            ? null // skip DOM elements like "div"
-            : type.displayName || type.name;
+      let name: string | null = null;
+      if (typeof type === "function") {
+        const component = type as { displayName?: string; name?: string };
+        name = component.displayName || component.name;
+      } else if (typeof type === "object" && type !== null) {
+        const component = type as { displayName?: string; name?: string };
+        name = component.displayName || component.name || null;
+      }
       if (name && name !== "Anonymous" && !name.startsWith("_")) {
         return name;
       }

@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
-  const listeners = new Map<string, (payload: any) => void>();
+  const listeners = new Map<string, (payload: unknown) => void>();
   const removed = vi.fn();
   return {
     listeners,
@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => {
     requestPermissions: vi.fn().mockResolvedValue({ receive: "granted" }),
     registerBackend: vi.fn().mockResolvedValue({ ok: true, configured: false }),
     fetchStatus: vi.fn().mockResolvedValue({ configured: true }),
-    addListener: vi.fn((name: string, handler: (payload: any) => void) => {
+    addListener: vi.fn((name: string, handler: (payload: unknown) => void) => {
       listeners.set(name, handler);
       return Promise.resolve({ remove: removed });
     }),
