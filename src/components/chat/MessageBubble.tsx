@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { Reply } from "lucide-react";
+import { toast } from "sonner";
 import { useTheme } from "@/lib/store/theme-context";
+import { saveToGallery } from "@/lib/api/media";
 import MessageActions from "./MessageActions";
 import AudioMessage from "./AudioMessage";
 import ImageMessage from "./ImageMessage";
@@ -208,12 +210,9 @@ const MessageBubble = ({
               reader.readAsDataURL(blob);
             });
           }
-          const { saveToGallery } = await import("@/lib/api/media");
           await saveToGallery({ type, data_b64: b64, source: "chat_save" });
-          const { toast } = await import("sonner");
           toast.success("Salvato in galleria");
         } catch {
-          const { toast } = await import("sonner");
           toast.error("Errore salvataggio in galleria");
         }
       }}

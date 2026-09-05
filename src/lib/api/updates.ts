@@ -9,6 +9,7 @@
 
 import { APP_VERSION, APP_VERSION_CODE } from "@/lib/constants";
 import { getApiConfig, parseStrictJsonBody, requestScopedResourceUrl } from "@/lib/api/client";
+import { Browser } from "@capacitor/browser";
 import { Capacitor } from "@capacitor/core";
 
 export interface UpdateManifest {
@@ -207,8 +208,6 @@ export async function downloadApk(
   const isNative = Capacitor.isNativePlatform();
 
   if (isNative) {
-    // Dynamic import to avoid bundling Browser in web builds
-    const { Browser } = await import("@capacitor/browser");
     await Browser.open({ url: transportUrl });
     onProgress?.(100);
     return;

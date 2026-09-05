@@ -24,6 +24,14 @@
 - Lo snapshot SSE Netharion consuma prima i campi canonici e usa gli alias legacy
   soltanto come fallback derivato; `calm` non può più essere scambiato per
   autorità di origine. Due regressioni dedicate coprono priorità e fallback.
+- Rimossi gli import dinamici inefficaci e suddiviso il bundle di produzione in
+  chunk espliciti: la build Vite 8 non emette più warning e il chunk maggiore
+  resta sotto 500 kB. I config usano `import.meta.dirname` e il plugin React
+  supportato dalla nuova toolchain.
+- Aggiornate le dipendenze vulnerabili, inclusi React Router, Vite e Vitest:
+  `npm audit` ora riporta zero advisory. `npm` è l'unica autorità dichiarata;
+  eliminati i due lockfile Bun concorrenti che rendevano non riproducibile la
+  manutenzione Browserslist.
 - La prova fisica Android resta da eseguire quando telefono e workstation
   saranno di nuovo raggiungibili sulla stessa rete.
 
