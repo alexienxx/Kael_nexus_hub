@@ -846,7 +846,6 @@ const Chat = () => {
 
       if (result.kind === "reply" || result.kind === "replay" || result.kind === "silence") {
         setIsTyping(false);
-        window.dispatchEvent(new CustomEvent("kael-observatory-refresh"));
         if (result.response?.avatar_job_id && result.response.assistant_turn_id != null) {
           const assistantTurnId = String(result.response.assistant_turn_id);
           pollAndFetchAvatarVideo(result.response.avatar_job_id).then((videoDataUrl) => {

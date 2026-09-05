@@ -4,6 +4,36 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [1.0.16 — Ritiro Observatory e collaudo fisico continuita] — 2026-09-05
+
+- Rimossa integralmente la superficie APK Observatory: route, navigazione,
+  pagina, pannelli, hook, client API, listener SSE e contratti E2E obsoleti.
+  La diagnostica generica resta di competenza delle API runtime provider-neutral.
+- Netharion non consuma piu la proiezione Observatory. Fino al redesign P0-B
+  usa esclusivamente il heartbeat REST in sola lettura e non viene presentato
+  come autorita cognitiva, emotiva o di presenza generale di Arrakis.
+- La validazione TypeScript a riferimenti di progetto ha chiuso undici difetti
+  di contratto che lint, build Vite e Vitest non rilevavano; nessun controllo e
+  stato disabilitato o indebolito. I cache file `*.tsbuildinfo` prodotti dal
+  build mode sono ora classificati come artefatti generati e ignorati da Git.
+- Corretto il verdetto finale di `build_apk.ps1`: con `-SkipInstall` dichiara
+  ora l'APK come generato, non piu falsamente come installato.
+- Aggiornato il mock backend Playwright con gli endpoint realmente consumati
+  da SSE, presence e heartbeat. La fixture usa uno stream deterministico che
+  resta aperto invece di generare falsi reconnect, mentre le richieste presence
+  metadata-only usano `keepalive` per sopravvivere a reload/background.
+- Build release firmata 1.0.16 (116) installata sul Samsung SM-S908B con update
+  preservando i dati. Il telefono era ancora su 1.0.14 (114): il blocco visibile
+  a mezzanotte era quindi un gap di sincronizzazione del vecchio client, mentre
+  PostgreSQL conservava la timeline canonica fino al turno 4980 delle 16:48.
+- Collaudo fisico superato senza usare il pulsante Reconnect: al ritorno del
+  backend l'app ha recuperato automaticamente il delta fino alle 16:48. Dopo
+  arresto ufficiale del runtime, force-stop e riapertura a porta 8002 chiusa,
+  lo stesso ultimo turno e rimasto leggibile dalla cache IndexedDB.
+- Confine dichiarato: un PC locale spento non puo trasmettere nuovi dati. La
+  consegna di nuovi turni dopo lo spegnimento richiede un relay push/cloud
+  always-on separato; non viene simulata da una falsa garanzia locale.
+
 ## [1.0.15 — Autoriconnessione backend durevole] — 2026-09-05
 
 - Eliminata la dipendenza dal pulsante manuale `Reconnect`: dopo un backend

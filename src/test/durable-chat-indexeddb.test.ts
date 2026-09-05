@@ -409,7 +409,9 @@ describe("durable chat IndexedDB contract (diagnostic; not live acceptance)", ()
     expect(await listTextExchanges()).toHaveLength(1);
 
     const completed = await drainTextOutbox({ transport });
-    expect(completed.at(-1)).toEqual(expect.objectContaining({ kind: "reply" }));
+    expect(completed[completed.length - 1]).toEqual(
+      expect.objectContaining({ kind: "reply" }),
+    );
     expect(await listTextExchanges()).toEqual([]);
     expect(await listTimelineMessages("kael-main")).toHaveLength(2);
     if (bodies.length === 2) expect(bodies[1]).toEqual(bodies[0]);

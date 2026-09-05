@@ -6,7 +6,6 @@ import {
   FolderKanban,
   Settings,
   RefreshCw,
-  BrainCircuit,
   Bot,
 } from "lucide-react";
 import NetharionButton from "@/components/common/NetharionButton";
@@ -21,7 +20,6 @@ const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
   { to: "/media", icon: Paperclip, label: "Allegati" },
   { to: "/workspace", icon: FolderKanban, label: "Workspace" },
-  { to: "/observatory", icon: BrainCircuit, label: "Observatory" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
@@ -50,7 +48,7 @@ const ReconnectButton = () => {
   return (
     <button
       type="button"
-      onClick={retry}
+      onClick={() => retry()}
       disabled={isRetrying}
       className="absolute right-2 top-2 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/20 text-muted-foreground shadow-sm transition-all hover:text-foreground active:scale-95 disabled:opacity-50"
       aria-label={state === "online" ? "Backend online" : "Riconnetti al backend"}
@@ -119,7 +117,7 @@ const BottomNav = () => {
 
       <NetharionRealEventsSheet open={showRealEvents} onClose={() => setShowRealEvents(false)} />
 
-      <div className="grid grid-cols-6 gap-1 px-12 pt-4">
+      <div className="grid grid-cols-5 gap-1 px-12 pt-4">
         {navItems.map(({ to, icon: Icon, label }) => (
           <RouterNavLink
             key={to}

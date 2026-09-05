@@ -10,7 +10,6 @@ import Calls from "@/pages/Calls";
 import Media from "@/pages/Media";
 import Workspace from "@/pages/Workspace";
 import Settings from "@/pages/Settings";
-import Observatory from "@/pages/Observatory";
 
 import SpotifyCallback from "@/pages/SpotifyCallback";
 import ServiceCallback from "@/pages/ServiceCallback";
@@ -78,9 +77,7 @@ const AppRoutes = () => {
           <Route path="/calls" element={<Calls />} />
           <Route path="/media" element={<Media />} />
           <Route path="/workspace" element={<Workspace />} />
-          
           <Route path="/settings" element={<Settings />} />
-          <Route path="/observatory" element={<Observatory />} />
         </Route>
         <Route path="/spotify-callback" element={<SpotifyCallback />} />
         <Route path="/services/callback" element={<ServiceCallback />} />

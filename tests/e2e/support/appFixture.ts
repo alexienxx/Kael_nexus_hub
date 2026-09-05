@@ -29,6 +29,45 @@ export async function seedAppStorage(page: Page, backendUrl = MOCK_BACKEND_URL) 
     localStorage.setItem("kael_boot_migration_v3", "e2e");
     localStorage.setItem("kael-backend-config", JSON.stringify({ baseUrl: url, apiKey: "" }));
     localStorage.setItem("kael_session_id", "mobile_kael");
+
+    // route.fulfill() necessarily closes a synthetic text/event-stream body,
+    // which makes native EventSource reconnect forever and pollutes unrelated
+    // deterministic UI tests. SSE lifecycle has its own focused unit battery;
+    // this fixture supplies one stable, open connection boundary.
+    class DeterministicEventSource extends EventTarget {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSED = 2;
+
+      readonly url: string;
+      readonly withCredentials = false;
+      readyState = DeterministicEventSource.CONNECTING;
+      onopen: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+
+      constructor(sourceUrl: string | URL) {
+        super();
+        this.url = String(sourceUrl);
+        queueMicrotask(() => {
+          if (this.readyState !== DeterministicEventSource.CONNECTING) return;
+          this.readyState = DeterministicEventSource.OPEN;
+          const connected = new MessageEvent("connected", { data: "{}" });
+          this.dispatchEvent(connected);
+          this.onopen?.(connected);
+        });
+      }
+
+      close(): void {
+        this.readyState = DeterministicEventSource.CLOSED;
+      }
+    }
+
+    Object.defineProperty(window, "EventSource", {
+      configurable: true,
+      writable: true,
+      value: DeterministicEventSource,
+    });
   }, { backendUrl });
 }
 
@@ -171,8 +210,24 @@ export async function installMockBackend(page: Page) {
     if (path === "/chat/pending-autonomous") return json(route, { count: 0, messages: [] });
     if (path === "/chat/events/stats") return json(route, { events_total: 0, clients_connected: 1, pending_autonomous_count: 0, pending_sse_tokens: 0 });
     if (path === "/chat/review") return json(route, { messages: [] });
+    if (path === "/chat/events/token") return json(route, { token: "e2e-sse-token" });
     if (path === "/chat/events") {
       return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": e2e connected\n\n" });
+    }
+    if (path === "/presence/state") return json(route, { ok: true });
+    if (path === "/cognition/netharion/heartbeat") {
+      return json(route, {
+        heartbeat_mode: "calm",
+        heartbeat_color: "green",
+        pulse_strength: 0.2,
+        detected: false,
+        recognized: false,
+        admitted: false,
+        resonance_score: 0,
+        stability_score: 1,
+        updated_at: Date.now() / 1000,
+        presence_source_mode: "symbolic_internal",
+      });
     }
 
     if (path === "/services") {
@@ -201,10 +256,6 @@ export async function installMockBackend(page: Page) {
     if (path === "/avatar/live/stream") return route.fulfill({ status: 404, body: "" });
 
     if (path === "/agentic/repo/status") return json(route, { status: "ok", available: true, capabilities: [], repos: [], self_repos: [] });
-    if (path.startsWith("/observatory/") || path.startsWith("/arrakis/observatory/")) {
-      return json(route, { detail: "not wired in deterministic fixture" }, 501);
-    }
-
     return json(route, { detail: `Unhandled E2E route: ${request.method()} ${path}` }, 404);
   });
 }

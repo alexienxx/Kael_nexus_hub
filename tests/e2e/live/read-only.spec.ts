@@ -60,21 +60,6 @@ test.describe("@live Arrakis read-only acceptance", () => {
     expect(status.has_state).toBe(true);
   });
 
-  test("new Observatory runtime and Inner Sheets are wired", async ({ request }) => {
-    const runtime = await (await request.get(
-      `${backend}/arrakis/observatory/runtime`,
-      { headers: protectedHeaders() },
-    )).json();
-    expect(runtime.data.status).not.toBe("not_wired");
-
-    const sheets = await (await request.get(
-      `${backend}/arrakis/observatory/inner_sheets`,
-      { headers: protectedHeaders() },
-    )).json();
-    expect(sheets.data.status).not.toBe("not_wired");
-    expect(sheets.data.total).toBeGreaterThan(0);
-  });
-
   test("agentic status exposes the DTO consumed by the APK", async ({ request }) => {
     const status = await (await request.get(
       `${backend}/agentic/repo/status`,
