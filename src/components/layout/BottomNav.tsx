@@ -65,7 +65,12 @@ const ReconnectButton = () => {
 
 const BottomNav = () => {
   const { state: backendState } = useBackendConnection();
-  const { state: netharionState } = useNetharion(5000, backendState === "online");
+  const {
+    state: netharionState,
+    channel: netharionChannel,
+    error: netharionError,
+    refresh: refreshNetharion,
+  } = useNetharion(5000, backendState === "online");
   const [showRealEvents, setShowRealEvents] = useState(false);
   const [agentActive, setAgentActive] = useState(false);
   const navigate = useNavigate();
@@ -115,7 +120,14 @@ const BottomNav = () => {
         <Bot size={18} />
       </button>
 
-      <NetharionRealEventsSheet open={showRealEvents} onClose={() => setShowRealEvents(false)} />
+      <NetharionRealEventsSheet
+        open={showRealEvents}
+        onClose={() => setShowRealEvents(false)}
+        channel={netharionChannel}
+        state={netharionState}
+        error={netharionError}
+        onRefresh={refreshNetharion}
+      />
 
       <div className="grid grid-cols-5 gap-1 px-12 pt-4">
         {navItems.map(({ to, icon: Icon, label }) => (

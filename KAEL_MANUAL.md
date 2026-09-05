@@ -90,15 +90,18 @@ docs/E2E_TEST_MATRIX.md # Matrice e comandi delle batterie APK
 
 ### Netharion Button (sopra la nav bar)
 Pulsante fluttuante posizionato centralmente sopra la bottom nav.
-- **Tipo**: Indicatore di stato a 3 livelli
+- **Tipo**: stato tecnico del canale autenticato per agenti esterni
 - **Component**: `src/components/common/NetharionButton.tsx`
 - **Stati**:
-  - 🟢 `idle` — Sistema OK (hue: 145, verde)
-  - 🟠 `warning` — Attenzione (hue: 30, arancione)
-  - 🔴 `alert` — Allarme (hue: 0, rosso)
-- **Animazione**: `netharion-heartbeat` — pulsazione lenta e organica
-- **Backend hook**: Lo stato viene determinato dal backend. Il componente accetta `state` come prop.
-- **Punto di integrazione backend**: Il backend deve inviare lo stato via `/netharion/status` o simile → hook che aggiorna `NetharionState`
+  - `OFF` — backend/canale spento
+  - `ACTIVE` — scambio aperto
+  - `RECEIVING` — risposta in ricezione
+  - `VERIFIED` — ricezione autenticata e salvata
+  - `DEGRADED` — ricezione fallita o canale degradato
+- **Animazione**: pulsazione solo durante `RECEIVING`
+- **Backend hook**: polling con backoff di `GET /cognition/netharion/channel`
+- **Long press**: apre ricevute metadata-only; non mostra il testo ricevuto
+- **Confine**: non rappresenta presenza, emozione o stato cognitivo di Kael
 
 ---
 

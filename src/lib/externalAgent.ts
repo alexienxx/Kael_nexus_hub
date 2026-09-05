@@ -79,6 +79,37 @@ export interface ExternalChatMessage {
   content: string;
 }
 
+export interface ExternalAgentProvenance {
+  provider: AgentProvider;
+  agent_id: string;
+  exchange_id: string;
+  conversation_id: string;
+  source_event_id: string;
+  received_at: number;
+  content_sha256: string;
+  verification_method: string;
+  transport_verified: true;
+  claim_trust: "attributed_external_statement";
+}
+
+export interface ExternalAgentChatResponse {
+  reply: string;
+  turn_id: number;
+  created: boolean;
+  replayed: boolean;
+  observation: {
+    observation_id: string;
+    observation_type: "external_agent_message";
+    event_type: "message";
+    provenance: ExternalAgentProvenance;
+  };
+}
+
+export interface ExternalAgentExchangeIdentity {
+  exchangeId: string;
+  sessionId: string;
+}
+
 /**
  * Send a message to the external agent via Kael backend proxy.
  * The backend holds the API key securely — the APK never touches it.
@@ -86,7 +117,8 @@ export interface ExternalChatMessage {
  */
 export async function sendExternalAgentMessage(
   messages: ExternalChatMessage[],
-): Promise<string> {
+  identity: ExternalAgentExchangeIdentity,
+): Promise<ExternalAgentChatResponse> {
   const model = getSelectedModel();
   const systemPrompt = getSystemPrompt();
 
@@ -95,13 +127,14 @@ export async function sendExternalAgentMessage(
     ? [{ role: "system", content: systemPrompt }, ...messages.map(m => ({ role: m.role, content: m.content }))]
     : messages.map(m => ({ role: m.role, content: m.content }));
 
-  const data = await apiRequest<{ reply: string }>("/services/external-agent/chat", {
+  return apiRequest<ExternalAgentChatResponse>("/services/external-agent/chat", {
     method: "POST",
     body: JSON.stringify({
       messages: apiMessages,
       model_id: model.id,
       provider: model.provider,
+      exchange_id: identity.exchangeId,
+      session_id: identity.sessionId,
     }),
   });
-  return data.reply;
 }

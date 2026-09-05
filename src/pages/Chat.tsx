@@ -41,6 +41,7 @@ import {
   normalizeAfterTs,
   resolveAudioUrlFromPayload,
   resolveAssistantIdentity,
+  resolveBackendMessageIdentity,
   resolveHistoryMessageId,
 } from "@/lib/chat/reliability";
 import { getCanonicalTimeMs } from "@/lib/chat/timeNormalization";
@@ -314,7 +315,8 @@ const Chat = () => {
     // at ingestion, ensuring stable chronological order (never recalculated in sort).
     const canonicalTimeMs = getCanonicalTimeMs(m);
     const normalizedTs = canonicalTimeMs / 1000;
-    const sender = (m.sender ?? (m.role === "user" ? "user" : "kael")) as ChatMessage["sender"];
+    const backendIdentity = resolveBackendMessageIdentity(m);
+    const sender = backendIdentity.sender;
     const rawText = m.text ?? m.content ?? "";
     const rawMeta = (m.meta ?? m.metadata ?? undefined) as Record<string, unknown> | undefined;
     const normalizedMessage =
@@ -370,9 +372,9 @@ const Chat = () => {
       imageAssetId,
       meta: normalizedMessage.meta,
       delivery_mode: m.delivery_mode ?? m.deliveryMode ?? (m.message_type === "voice_note" ? "voice_note" : undefined),
-      agent_id: m.agent_id,
-      agent_name: m.agent_name,
-      agent_avatar: m.agent_avatar,
+      agent_id: backendIdentity.agentId,
+      agent_name: backendIdentity.agentName,
+      agent_avatar: backendIdentity.agentAvatar,
     };
   }, [normalizeAssistantPayload, sessionId]);
 
@@ -1122,19 +1124,30 @@ const Chat = () => {
               }));
 
             const model = getSelectedModel();
-            const reply = await sendExternalAgentMessage(agentHistory);
+            const external = await sendExternalAgentMessage(agentHistory, {
+              exchangeId: `external:${clientMsgId}`,
+              sessionId,
+            });
+            const receivedAt = external.observation.provenance.received_at;
 
             const agentMsg: ChatMessage = {
-              id: (Date.now() + 2).toString(),
-              text: reply,
-              time: now(),
-              timestamp: Date.now() / 1000,
+              id: `external-${external.turn_id}`,
+              text: external.reply,
+              time: new Date(receivedAt * 1000).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
+              timestamp: receivedAt,
               sender: "external_agent",
               feedback: null,
-              agent_id: model.id,
+              backend_turn_id: String(external.turn_id),
+              agent_id: external.observation.provenance.agent_id,
               agent_name: `${model.providerLabel} · ${model.label}`,
+              meta: {
+                ...external.observation.provenance,
+                observation_id: external.observation.observation_id,
+                epistemic_status: "attributed_claim_not_verified_truth",
+                idempotent_replay: external.replayed,
+              },
             };
-            setMessages((prev) => [...prev, agentMsg]);
+            setMessages((prev) => mergeMessagesIdempotent(prev, [agentMsg]));
             scrollToBottom();
           } catch (error) {
             console.warn("[Chat] External agent unavailable:", error);

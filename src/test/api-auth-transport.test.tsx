@@ -154,15 +154,43 @@ describe("APK Gate-A authentication and JSON transport", () => {
         return new Response(JSON.stringify({ audio_base64: btoa("wav") }), { status: 200 });
       }
       if (url.endsWith("/services/external-agent/chat")) {
-        return new Response(JSON.stringify({ reply: "risposta esterna" }), { status: 200 });
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          exchange_id: "external:test-message",
+          session_id: "mobile_kael",
+        });
+        return new Response(JSON.stringify({
+          reply: "risposta esterna",
+          turn_id: 42,
+          created: true,
+          replayed: false,
+          observation: {
+            observation_id: "obs-1",
+            observation_type: "external_agent_message",
+            event_type: "message",
+            provenance: {
+              provider: "openai",
+              agent_id: "gpt-4o",
+              exchange_id: "external:test-message",
+              conversation_id: "kael-main",
+              source_event_id: "response-1",
+              received_at: 1234,
+              content_sha256: "a".repeat(64),
+              verification_method: "server_side_provider_credential_and_response",
+              transport_verified: true,
+              claim_trust: "attributed_external_statement",
+            },
+          },
+        }), { status: 200 });
       }
       return new Response("not found", { status: 404 });
     });
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(requestTTS("ciao")).resolves.toBeInstanceOf(Blob);
-    await expect(sendExternalAgentMessage([{ role: "user", content: "ciao" }]))
-      .resolves.toBe("risposta esterna");
+    await expect(sendExternalAgentMessage(
+      [{ role: "user", content: "ciao" }],
+      { exchangeId: "external:test-message", sessionId: "mobile_kael" },
+    )).resolves.toMatchObject({ reply: "risposta esterna", turn_id: 42 });
 
     const protectedUrls = fetchMock.mock.calls
       .map(([input]) => String(input))

@@ -13,6 +13,13 @@ export interface AssistantIdentityResult {
   idSource: AssistantIdSource;
 }
 
+export interface BackendMessageIdentity {
+  sender: ChatMessage["sender"];
+  agentId?: string;
+  agentName?: string;
+  agentAvatar?: string;
+}
+
 export function stableHash(input: string): string {
   let hash = 5381;
   for (let i = 0; i < input.length; i++) {
@@ -38,6 +45,45 @@ function asFiniteTimestamp(value: unknown): number | undefined {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return undefined;
   return num;
+}
+
+/**
+ * Preserve first-class external-agent identity when replaying canonical
+ * history. History rows expose `role` plus durable provenance in metadata,
+ * while live replies may expose the compatibility `sender`/agent fields.
+ */
+export function resolveBackendMessageIdentity(
+  rawMessage: Record<string, unknown>,
+): BackendMessageIdentity {
+  const rawSender = asString(rawMessage.sender);
+  const rawRole = asString(rawMessage.role);
+  const sender: ChatMessage["sender"] =
+    rawSender === "user" || rawSender === "kael" || rawSender === "external_agent"
+      ? rawSender
+      : rawRole === "user"
+        ? "user"
+        : rawRole === "external_agent"
+          ? "external_agent"
+          : "kael";
+
+  const metadata = asObject(rawMessage.meta ?? rawMessage.metadata);
+  const agentId =
+    asString(rawMessage.agent_id) ?? asString(metadata.external_agent_id);
+  const provider = asString(metadata.external_provider);
+  const agentName =
+    asString(rawMessage.agent_name) ??
+    (sender === "external_agent" && provider && agentId
+      ? `${provider} · ${agentId}`
+      : sender === "external_agent"
+        ? provider ?? agentId
+        : undefined);
+
+  return {
+    sender,
+    agentId,
+    agentName,
+    agentAvatar: asString(rawMessage.agent_avatar),
+  };
 }
 
 export function resolveAssistantIdentity(

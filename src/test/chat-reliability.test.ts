@@ -5,10 +5,28 @@ import {
   normalizeAfterTs,
   resolveAudioUrlFromPayload,
   resolveAssistantIdentity,
+  resolveBackendMessageIdentity,
   resolveHistoryMessageId,
 } from "@/lib/chat/reliability";
 
 describe("chat reliability", () => {
+  it("restores external-agent role and provenance from durable mixed history", () => {
+    const identity = resolveBackendMessageIdentity({
+      role: "external_agent",
+      metadata: {
+        external_provider: "openai",
+        external_agent_id: "gpt-test",
+      },
+    });
+
+    expect(identity).toEqual({
+      sender: "external_agent",
+      agentId: "gpt-test",
+      agentName: "openai · gpt-test",
+      agentAvatar: undefined,
+    });
+  });
+
   it("A: builds stable assistant fallback id when assistant_turn_id is null", () => {
     const response = {
       reply: "ciao mondo",

@@ -204,7 +204,7 @@ export async function installMockBackend(page: Page) {
         cursor_kind: "conversation_turn_id",
       });
     }
-    if (path === "/chat/history/messages") {
+    if (path === "/chat/history/mixed") {
       return json(route, { messages: persistedMessages, count: persistedMessages.length });
     }
     if (path === "/chat/pending-autonomous") return json(route, { count: 0, messages: [] });
@@ -215,18 +215,18 @@ export async function installMockBackend(page: Page) {
       return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": e2e connected\n\n" });
     }
     if (path === "/presence/state") return json(route, { ok: true });
-    if (path === "/cognition/netharion/heartbeat") {
+    if (path === "/cognition/netharion/channel") {
       return json(route, {
-        heartbeat_mode: "calm",
-        heartbeat_color: "green",
-        pulse_strength: 0.2,
-        detected: false,
-        recognized: false,
-        admitted: false,
-        resonance_score: 0,
-        stability_score: 1,
+        state: "OFF",
         updated_at: Date.now() / 1000,
-        presence_source_mode: "symbolic_internal",
+        active_exchange_count: 0,
+        accepted_total: 0,
+        rejected_total: 0,
+        last_verified_at: null,
+        last_provider: null,
+        last_agent_id: null,
+        last_error_code: null,
+        recent_observations: [],
       });
     }
 

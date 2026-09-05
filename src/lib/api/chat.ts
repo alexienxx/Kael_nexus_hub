@@ -16,7 +16,7 @@ import type { ExactTextChatRequestBody } from "@/lib/chat/durableExchangeStore";
  * - POST /feedback - Submit RLHF feedback
  * - POST /chat/image - Upload image for analysis
  * - POST /chat/voice - Send voice note
- * - GET /chat/history/messages - Load full chat history
+ * - GET /chat/history/mixed - Load full history, including external-agent turns
  * - GET /chat/history/pending - Fetch new messages after timestamp (SSE catch-up)
  *
  * REALTIME BEHAVIOR:
@@ -324,7 +324,7 @@ export async function sendVoiceNote(audioBlob: Blob, sessionId: string, clientMe
 export async function getChatHistory(sessionId: string, conversationId?: string) {
   const params = new URLSearchParams({ session_id: sessionId });
   if (conversationId) params.append("conversationId", conversationId);
-  return apiRequest<{ messages: BackendChatMessage[] }>(`/chat/history/messages?${params}`);
+  return apiRequest<{ messages: BackendChatMessage[] }>(`/chat/history/mixed?${params}`);
 }
 
 /**

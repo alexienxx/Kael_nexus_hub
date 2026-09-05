@@ -4,6 +4,23 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [1.0.17 — Netharion receptor e risposte esterne durevoli] — 2026-09-05
+
+- Sostituiti heartbeat/presence/probe Netharion con il solo canale tecnico
+  autenticato `OFF|ACTIVE|RECEIVING|VERIFIED|DEGRADED`.
+- Il pannello APK mostra esclusivamente ricevute metadata-only e hash; nessun
+  contenuto raw, segreto provider o falsa proiezione emotiva/cognitiva.
+- Ogni scambio esterno usa un `exchange_id` stabile. La risposta diventa
+  `VERIFIED` solo dopo persistenza canonica, usa il `turn_id` del backend e il
+  replay non richiama nuovamente il provider.
+- La chat iniziale usa `/chat/history/mixed` e il catch-up `/history/pending`
+  include `external_agent`: reload e reconnect non fanno più sparire la bolla.
+- Corretto anche il mapper di ripristino: una riga canonica con
+  `role=external_agent` conserva ruolo, provider e agent ID dopo il cold reload,
+  anche quando il payload storico non contiene il vecchio alias `sender`.
+- Release 1.0.17 (117); test, build firmata e installazione fisica sono parte
+  del gate di rilascio di questa voce.
+
 ## [1.0.16 — Ritiro Observatory e collaudo fisico continuita] — 2026-09-05
 
 - Rimossa integralmente la superficie APK Observatory: route, navigazione,
