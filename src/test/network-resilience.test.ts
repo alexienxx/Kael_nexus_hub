@@ -2,7 +2,7 @@
  * network-resilience.test.ts
  *
  * Tests for useBackendLifecycle network resilience (cellular->WiFi recovery).
- * Covers the 6 behaviors specified in the network-resilience-parity fix:
+ * Covers the behaviors specified in the network-resilience-parity fix:
  *
  * A. connection.change while state=backend_unreachable -> schedules retry with warmup
  * B. manual reconnect (retry() no args) applies NETWORK_RECONNECT_WARMUP_MS warmup
@@ -10,11 +10,18 @@
  * D. online + connection.change + checkHealth OK -> stays online
  * E. online + connection.change + checkHealth KO -> retry with warmup
  * F. PROBE_TIMEOUT_MS = 6000 (behaviorally proven at t=16001ms)
+ * G. degraded state retries automatically without UI or network events
+ * H. automatic retry delay is exponential, jittered, and bounded
+ * I. unmount cancels the degraded retry timer
+ * J. repeated failures keep one bounded backoff chain
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
-import { useBackendLifecycle } from "@/hooks/useBackendLifecycle";
+import {
+  computeAutoRetryDelayMs,
+  useBackendLifecycle,
+} from "@/hooks/useBackendLifecycle";
 
 // -- Mocks -------------------------------------------------------------------
 
@@ -67,6 +74,7 @@ beforeEach(() => {
   mockCheckHealth.mockResolvedValue(true);
   mockProbe.mockResolvedValue(null);
   mockHealthPayload.mockResolvedValue(null);
+  vi.spyOn(Math, "random").mockReturnValue(0.5);
 });
 
 afterEach(() => {
@@ -74,6 +82,7 @@ afterEach(() => {
   // This prevents the 45s online-recheck setInterval from bleeding across tests.
   vi.clearAllTimers();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 // -- Timing constants (mirrored from hook, kept here for test readability) ---
@@ -81,6 +90,7 @@ const WARMUP_MS = 800;           // NETWORK_RECONNECT_WARMUP_MS
 const MIN_ATTEMPT_MS = 1_200;    // minAttemptDurationMs for manual=true probes
 const PROBE_DELAY_MS = 2_000;    // PROBE_RETRY_DELAY_MS between retry attempts
 const PROBE_TIMEOUT_MS = 6_000;  // hook constant under test (was 4000)
+const AUTO_RETRY_INITIAL_MS = 3_000;
 
 // Total time for initial non-manual probe to exhaust 3 null results:
 //   2 inter-attempt delays x 2000ms = 4000ms (each probe resolves instantly via microtask)
@@ -255,6 +265,74 @@ describe("network resilience -- useBackendLifecycle", () => {
     // 6000ms timeout: attempt 3 started at t=16000, still in flight -> "checking"
     // If this were "backend_unreachable", it would prove timeout <= 4000ms (bug)
     expect(result.current.state).toBe("checking");
+  });
+
+  // G -----------------------------------------------------------------------
+
+  it("G: backend recovery is detected automatically without reconnect click or browser events", async () => {
+    const { result } = renderHook(() => useBackendLifecycle());
+    await act(async () => { await vi.advanceTimersByTimeAsync(INITIAL_EXHAUSTION_MS); });
+    expect(result.current.state).toBe("backend_unreachable");
+
+    const callsBeforeRecovery = mockProbe.mock.calls.length;
+    mockProbe.mockResolvedValue("http://192.168.0.1:8002");
+
+    // No retry(), online, visibilitychange, or connection.change event.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTO_RETRY_INITIAL_MS + 100);
+    });
+
+    expect(mockProbe.mock.calls.length).toBeGreaterThan(callsBeforeRecovery);
+    expect(result.current.state).toBe("online");
+    expect(result.current.message).toBe("Connesso");
+  });
+
+  // H -----------------------------------------------------------------------
+
+  it("H: automatic reconnect backoff grows exponentially with bounded jitter and cap", () => {
+    expect(computeAutoRetryDelayMs(1, 0.5)).toBe(3_000);
+    expect(computeAutoRetryDelayMs(2, 0.5)).toBe(6_000);
+    expect(computeAutoRetryDelayMs(3, 0.5)).toBe(12_000);
+    expect(computeAutoRetryDelayMs(1, 0)).toBe(2_400);
+    expect(computeAutoRetryDelayMs(1, 1)).toBe(3_600);
+    expect(computeAutoRetryDelayMs(99, 1)).toBe(30_000);
+  });
+
+  // I -----------------------------------------------------------------------
+
+  it("I: unmount cancels automatic reconnect work", async () => {
+    const { result, unmount } = renderHook(() => useBackendLifecycle());
+    await act(async () => { await vi.advanceTimersByTimeAsync(INITIAL_EXHAUSTION_MS); });
+    expect(result.current.state).toBe("backend_unreachable");
+
+    const callsBeforeUnmount = mockProbe.mock.calls.length;
+    unmount();
+    mockProbe.mockResolvedValue("http://192.168.0.1:8002");
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(mockProbe.mock.calls.length).toBe(callsBeforeUnmount);
+  });
+
+  // J -----------------------------------------------------------------------
+
+  it("J: repeated automatic failures use the next delay instead of parallel timers", async () => {
+    const { result } = renderHook(() => useBackendLifecycle());
+    await act(async () => { await vi.advanceTimersByTimeAsync(INITIAL_EXHAUSTION_MS); });
+    expect(result.current.state).toBe("backend_unreachable");
+    expect(mockProbe).toHaveBeenCalledTimes(3);
+
+    // First automatic retry fires after 3s and exhausts its three probes.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(AUTO_RETRY_INITIAL_MS + INITIAL_EXHAUSTION_MS);
+    });
+    expect(result.current.state).toBe("backend_unreachable");
+    expect(mockProbe).toHaveBeenCalledTimes(6);
+
+    // Attempt 2 uses 6s: no early duplicate timer may fire.
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(mockProbe).toHaveBeenCalledTimes(6);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_100); });
+    expect(mockProbe.mock.calls.length).toBeGreaterThan(6);
   });
 
 });

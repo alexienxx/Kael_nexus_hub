@@ -1,7 +1,7 @@
 # 📖 KAEL COMPANION — Manuale Tecnico Completo
 
 > Documento di riferimento per agenti AI e sviluppatori che lavorano al progetto Kael Companion.
-> Versione corrente dell'app: **1.0.14** (build 114)
+> Versione corrente dell'app: **1.0.15** (build 115)
 
 ---
 

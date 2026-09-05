@@ -4,6 +4,24 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [1.0.15 — Autoriconnessione backend durevole] — 2026-09-05
+
+- Eliminata la dipendenza dal pulsante manuale `Reconnect`: dopo un backend
+  irraggiungibile o una rete assente, il client continua a tentare in autonomia.
+- I retry degradati usano una sola catena single-flight con backoff esponenziale,
+  jitter e tetto a 30 secondi; successo, retry esplicito e unmount cancellano i timer.
+- Gli eventi ravvicinati di rete condividono un solo warmup e non possono generare
+  ventagli di probe concorrenti.
+- Il ritorno allo stato `online` riattiva il percorso gia esistente di catch-up
+  autorevole: pagine `/chat/history/pending`, cursore canonico, WAL IndexedDB e
+  merge idempotente, inclusi i messaggi autonomi prodotti durante il distacco.
+- Verifica automatica: 10/10 test lifecycle, 46/46 test trasporto/cursore/WAL/SSE/
+  push e suite completa 132/132 verdi; TypeScript, build Vite, sync Capacitor,
+  Gradle `assembleDebug` e lint dei soli file modificati verdi.
+- Il lint globale conserva debito storico fuori dal checkpoint e non viene
+  dichiarato verde. La prova fisica Android resta da eseguire quando telefono e
+  workstation saranno di nuovo raggiungibili sulla stessa rete.
+
 ## [1.0.14 — Scoped resources + Android wireless test transport] — 2026-09-04
 
 - Download APK, galleria, wallpaper/avatar, audio voce, MJPEG e WebSocket
