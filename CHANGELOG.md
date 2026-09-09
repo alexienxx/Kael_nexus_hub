@@ -4,6 +4,15 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [Documentazione — manuale Arrakis e addendum roadmap] — 2026-09-09
+
+- Sostituito il template Lovable con un manuale del client117: connessione,
+  cache/catch-up/outbox, Netharion, media/servizi, push e limiti delle prove.
+- Recuperati requisiti futuri tramite PR26: quadernetti/Dream, Vision/ComfyUI,
+  biblioteca, archivio/ricerca, nome Arrakis e avatar desktop separato.
+- Priorità chat preservata; nessuna modifica UI/codice/versione, nuova build
+  o reinstallazione. Il titolo neon resta Kael finché G02 non è implementato.
+
 ## [1.0.17 — Netharion receptor e risposte esterne durevoli] — 2026-09-05
 
 - Sostituiti heartbeat/presence/probe Netharion con il solo canale tecnico

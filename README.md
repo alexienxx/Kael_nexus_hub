@@ -1,85 +1,100 @@
-# Welcome to your Lovable project
+# Arrakis Companion — APK e client web
 
-## Project info
+Client React/TypeScript, Vite e Capacitor Android del progetto Arrakis.
+Il nome principale è **Arrakis**; package e identificatori `kael` sono storici.
+La build installata **1.0.17 / 117** mostra ancora Kael nel titolo luminoso:
+la rinomina con lo stesso glow è pianificata in G02, non inclusa in questo
+aggiornamento documentale.
 
-**URL**: https://lovable.dev/projects/0a6f887f-df8f-4066-86ec-c6471cdc96bc
+Unico ordine di lavoro: [roadmap Arrakis / PR26](https://github.com/alexienxx/Kael_refactor_ultimate_new/pull/26).
+[PR mobile1](https://github.com/alexienxx/Kael_nexus_hub/pull/1) contiene
+l'implementazione di questo client, non una roadmap concorrente.
 
-## How can I edit this code?
+## Funzionalità e stato
 
-There are several ways of editing your application.
+| Superficie | Contratto presente | Limite dichiarato |
+|---|---|---|
+| Chat | Storico misto, streaming SSE, recupero per cursore canonico, cache/WAL IndexedDB e outbox testo | Un messaggio visibile/provvisorio non sostituisce la ricevuta del backend; verificare errori, replay e persistenza |
+| Riconnessione | Retry automatici single-flight con backoff/jitter, eventi rete/ripresa e catch-up | Reconnect è un comando diagnostico aggiuntivo, non un passaggio richiesto. Il server deve essere raggiungibile |
+| Netharion / agente esterno | Ricevute tecniche `OFF/ACTIVE/RECEIVING/VERIFIED/DEGRADED`, `exchange_id` stabile e turni esterni durevoli | Non presenza/umore/coscienza. La nuova accettazione provider reale -> DB isolato -> APK117 è ancora aperta |
+| Allegati / media | Pagina media, contratti upload/galleria e reference fotografiche | Non certifica consumo cognitivo Vision o rigenerazione ComfyUI; verifiche G12 |
+| Chiamate e servizi | Pagine chiamate, workspace, impostazioni e callback OAuth | Dipendono da servizi, credenziali e permessi reali; non tutte live-verified |
+| Aspetto | Tema/avatar configurabili e header neon | Arrakis principale da applicare in G02 preservando dati e alias |
+| Observatory | Rimosso da route, pagine e navigazione | Non ricostruire né usare Netharion come sostituto cognitivo |
 
-**Use Lovable**
+Sorgenti principali: [route](src/App.tsx),
+[header](src/components/layout/KaelHeader.tsx),
+[configurazione backend](src/components/settings/BackendConfig.tsx),
+[persistenza scambi](src/lib/chat/durableExchangeStore.ts),
+[outbox](src/lib/chat/textOutbox.ts).
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/0a6f887f-df8f-4066-86ec-c6471cdc96bc) and start prompting.
+## Connessione e uso offline
 
-Changes made via Lovable will be committed automatically to this repo.
+In Settings configurare l'URL del backend e la chiave tramite il campo protetto.
+“Salva e Testa Connessione” verifica backend e autenticazione prima di salvare.
+Non inserire chiavi in URL, comandi ADB, log o screenshot condivisi.
 
-**Use your preferred IDE**
+Senza rete/backend, la cronologia già ricevuta deve restare leggibile; al
+ritorno della connessione l'app deve recuperare automaticamente anche i turni
+autonomi ed esterni mancanti. Se il PC è spento, la cache non può ricevere
+nuovi messaggi: il servizio always-on G12b è ancora una decisione da completare,
+non una capacità offerta da questo APK.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+Prove distinte:
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+- Build116: collaudo fisico storico di ritorno online senza Reconnect e cache
+  dopo riapertura, descritto nel changelog del5/9.
+- Build117: installata senza cancellare dati; il9/9 USB autorizzato e cache
+  alle16:48 del5/9 corrispondente all'ultimo turno4980 della timeline canonica.
+  Backend spento; non è una nuova prova online117.
+- Le batterie storiche del changelog non sono state rieseguite da questo
+  aggiornamento del manuale. Nessuna nuova build o installazione.
 
-Follow these steps:
+La prova USB usa il reverse8002 sul solo dispositivo autorizzato. Fuori casa
+non esporre porte o attivare ADB wireless per tentativi indiscriminati: usare
+il trasporto autenticato previsto dai runbook del backend.
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## Push Android
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+Il plugin nativo è fail-closed: viene usato soltanto se build e backend
+dichiarano Firebase configurato, evitando il crash di cold-start senza risorse.
 
-# Step 3: Install the necessary dependencies.
-npm i
+Per una build push-enabled:
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+1. Fornire `android/app/google-services.json` del progetto senza pubblicare
+   credenziali o configurazioni private nel repository.
+2. Compilare con `VITE_KAEL_FIREBASE_PUSH_ENABLED=true`.
+3. Configurare backend `KAEL_FIREBASE_PROJECT_ID` e
+   `KAEL_FIREBASE_SERVICE_ACCOUNT_FILE`.
+4. Verificare `/mobile/push/status` con `configured=true`, poi provare
+   schermo bloccato, doze, task-kill, replay e deduplicazione.
 
-**Edit a file directly in GitHub**
+Senza questi prerequisiti restano SSE/catch-up quando l'app può raggiungere
+il server. Una notifica push non equivale al salvataggio del messaggio.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Funzioni future, non pulsanti già operativi
 
-**Use GitHub Codespaces**
+La roadmap canonica comprende quadernetti testo/disegni, Dream nativo e sue
+creazioni, foto etichettate con osservazione Moondream realmente consumata,
+generazione ComfyUI ri-osservata, biblioteca esoterica/simbolica/storica e
+browser isolato. Archivio chat >30giorni e lente di ricerca sono G12a.
+Il piccolo avatar desktop Arrakis è separato dall'APK e dalla mascotte Codex;
+la skin si decide insieme ad Alexien.
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+Prima si chiude la chat G01/G01E. Aggiungere UI soltanto quando il contratto
+backend e la capacità effettiva sono disponibili; mostrare degrado/errore
+reale invece di un successo senza effetto. Per immagini di persone reali
+usare etichette/provenienza dichiarate, non identità indovinate dal volto.
 
-## What technologies are used for this project?
+## Sviluppo e verifiche
 
-This project is built with:
+Versioni Node/npm supportate e comandi sono in [package.json](package.json);
+`package-lock.json` è il lockfile canonico. Setup: `npm ci`, poi `npm run dev`.
+Controlli disponibili: `npm run lint`, `npm test`, `npm run build`,
+`npm run e2e:ui`, `npm run e2e:contract`. La corsia `e2e:live` richiede
+il runbook isolato: non usarla contro la conversazione personale per comodità.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
-## Native Android push configuration
-
-Native push is deliberately fail-closed: the Capacitor plugin is never invoked unless both the APK build and the backend report Firebase as configured. This prevents an Android cold-start crash when Firebase resources are absent.
-
-For a push-enabled build:
-
-1. Add the project-specific `google-services.json` to `android/app/` without committing secrets or credentials.
-2. Build with `VITE_KAEL_FIREBASE_PUSH_ENABLED=true`.
-3. Configure the backend with `KAEL_FIREBASE_PROJECT_ID` and `KAEL_FIREBASE_SERVICE_ACCOUNT_FILE`.
-4. Confirm `/mobile/push/status` reports `configured=true` before running locked-screen, doze, and task-kill acceptance tests.
-
-Without all of these prerequisites, chat still uses durable cursor catch-up and SSE while the native push plugin remains inert.
+Build web, APK firmata, installazione fisica e collaudo end-to-end sono prove
+separate. Dopo ogni implementazione importante aggiornare questo manuale,
+[CHANGELOG](CHANGELOG.md), manuali/TREE backend pertinenti e PR26, quindi
+commit/push. Non promettere una funzione perché esiste una pagina.
