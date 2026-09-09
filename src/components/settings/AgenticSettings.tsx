@@ -85,8 +85,8 @@ const AgenticSettings = () => {
         });
         setLastResult({ mode, summary: result.result?.summary || "Azione completata" });
         toast.success(`${mode} completato`);
-      } catch (err: any) {
-        const msg = err?.message || "Errore durante l'azione";
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Errore durante l'azione";
         setLastResult({ mode, error: msg });
         toast.error(msg);
       } finally {

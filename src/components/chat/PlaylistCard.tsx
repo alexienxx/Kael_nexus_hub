@@ -1,4 +1,5 @@
 import SpotifyIcon from "@/components/common/SpotifyIcon";
+import { Capacitor } from "@capacitor/core";
 
 export interface PlaylistCardData {
   name: string;
@@ -17,7 +18,7 @@ const PlaylistCard = ({ playlist }: PlaylistCardProps) => {
   const handleOpen = () => {
     if (playlist.spotifyUrl) {
       // Try deep link first on mobile
-      const isCapacitor = !!(window as any).Capacitor;
+      const isCapacitor = Capacitor.isNativePlatform();
       if (isCapacitor) {
         // Convert web URL to spotify URI if possible
         const match = playlist.spotifyUrl.match(/playlist\/([a-zA-Z0-9]+)/);

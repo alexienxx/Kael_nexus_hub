@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { Camera } from "lucide-react";
-import { useTheme } from "@/lib/store/theme";
+import { useTheme } from "@/lib/store/theme-context";
 
 const ProfileEditor = () => {
   const { theme, updateTheme, kaelAvatarSrc } = useTheme();

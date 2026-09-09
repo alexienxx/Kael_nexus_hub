@@ -117,7 +117,7 @@ export async function pushPlaybackToBackend(
         track_id: track.id ?? null,
         track_name: track.name ?? null,
         artist_name: track.artists?.map((a) => a.name).join(", ") ?? null,
-        album_name: (track as any).album?.name ?? null,
+        album_name: track.album?.name ?? null,
         duration_ms: track.duration_ms ?? null,
         progress_ms: state.progress_ms ?? null,
         is_playing: state.is_playing,

@@ -17,10 +17,15 @@
  * On navigator "online" event:
  *   - Auto-retry when device regains connectivity
  *
+ * While degraded:
+ *   - Keep probing automatically with bounded exponential backoff + jitter
+ *   - Cancel the degraded retry loop immediately after a successful connection
+ *
  * Guarantees:
  *   - ZERO sentinel calls, ZERO bootstrap calls, ZERO process kills
  *   - Anti-concurrency: probe is a no-op if already running
- *   - Health grace period: 4 consecutive failures before declaring offline
+ *   - A single degraded retry timer (no reconnect storms)
+ *   - Health grace period before declaring an established connection offline
  *   - UI stays responsive (all async, no blocking)
  */
 
@@ -78,6 +83,40 @@ const RESUME_WARMUP_MS = 800;
  * Android may have DNS/TCP/routing not yet stabilized after cellular→WiFi transition. */
 const NETWORK_RECONNECT_WARMUP_MS = 800;
 
+/** First automatic retry after entering a degraded state. */
+const AUTO_RETRY_INITIAL_MS = 3_000;
+
+/** Upper bound for automatic reconnect cadence while the backend stays down. */
+const AUTO_RETRY_MAX_MS = 30_000;
+
+/** Random spread avoids synchronized reconnect bursts across multiple clients. */
+const AUTO_RETRY_JITTER_RATIO = 0.2;
+
+/**
+ * Compute the next bounded reconnect delay.
+ * Exported so the backoff contract can be tested without relying on timers.
+ */
+export function computeAutoRetryDelayMs(
+  attempt: number,
+  jitterUnit = Math.random(),
+): number {
+  const safeAttempt = Math.max(1, Math.min(16, Math.trunc(Number.isFinite(attempt) ? attempt : 1)));
+  const safeJitterUnit = Number.isFinite(jitterUnit)
+    ? Math.max(0, Math.min(1, jitterUnit))
+    : 0.5;
+  const baseDelay = Math.min(
+    AUTO_RETRY_INITIAL_MS * (2 ** (safeAttempt - 1)),
+    AUTO_RETRY_MAX_MS,
+  );
+  const jitterFactor = 1 - AUTO_RETRY_JITTER_RATIO
+    + (2 * AUTO_RETRY_JITTER_RATIO * safeJitterUnit);
+
+  return Math.max(
+    1_000,
+    Math.min(AUTO_RETRY_MAX_MS, Math.round(baseDelay * jitterFactor)),
+  );
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -119,6 +158,10 @@ export interface BackendLifecycleResult {
   retry: (opts?: RetryOptions) => void;
   /** Reason for the last disconnect (null if never disconnected). */
   disconnectReason: DisconnectReason;
+}
+
+interface NavigatorWithConnection extends Navigator {
+  connection?: EventTarget;
 }
 
 // ── Robust probe with retry ─────────────────────────────────────────────
@@ -204,11 +247,67 @@ export function useBackendLifecycle(): BackendLifecycleResult {
   /** Throttle timestamp for fast re-discovery path to avoid probe storms. */
   const lastFastRediscoveryAtRef = useRef(0);
 
+  /** Exactly one automatic retry is armed while the client is degraded. */
+  const degradedRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Debounces event/manual warmups so repeated network events cannot fan out probes. */
+  const reconnectWarmupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Consecutive automatic retry number; reset only on success or explicit retry. */
+  const degradedRetryAttemptRef = useRef(0);
+
+  /** Stable indirection lets the retry timer invoke the latest probe callback. */
+  const runProbeRef = useRef<(manual?: boolean) => Promise<void>>(async () => {});
+
+  /** Stable indirection used when a retry timer finds another probe in flight. */
+  const scheduleDegradedRetryRef = useRef<(reason: string) => void>(() => {});
+
   /** Thin setState wrapper that also keeps stateRef in sync. */
   const setStateSynced = useCallback((s: BackendLifecycleState) => {
     stateRef.current = s;
     setState(s);
   }, []);
+
+  const clearDegradedRetry = useCallback((resetAttempt = true) => {
+    if (degradedRetryTimerRef.current) {
+      clearTimeout(degradedRetryTimerRef.current);
+      degradedRetryTimerRef.current = null;
+    }
+    if (resetAttempt) {
+      degradedRetryAttemptRef.current = 0;
+    }
+  }, []);
+
+  const scheduleDegradedRetry = useCallback((reason: string) => {
+    if (!mountedRef.current || degradedRetryTimerRef.current) return;
+
+    const attempt = degradedRetryAttemptRef.current + 1;
+    degradedRetryAttemptRef.current = attempt;
+    const delayMs = computeAutoRetryDelayMs(attempt);
+
+    console.warn(
+      "[KAEL] AUTO_RECONNECT_SCHEDULED attempt=%d delay_ms=%d reason=%s",
+      attempt,
+      delayMs,
+      reason,
+    );
+
+    degradedRetryTimerRef.current = setTimeout(() => {
+      degradedRetryTimerRef.current = null;
+      if (!mountedRef.current) return;
+
+      if (isRunningRef.current) {
+        console.log("[KAEL] AUTO_RECONNECT_DEFERRED attempt=%d reason=probe_busy", attempt);
+        scheduleDegradedRetryRef.current("probe_busy");
+        return;
+      }
+
+      console.log("[KAEL] AUTO_RECONNECT_FIRED attempt=%d reason=%s", attempt, reason);
+      void runProbeRef.current(false);
+    }, delayMs);
+  }, []);
+
+  scheduleDegradedRetryRef.current = scheduleDegradedRetry;
 
   // ── Start periodic health recheck (when online) ────────────────────
 
@@ -222,6 +321,7 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       if (!mountedRef.current) return;
       const ok = await checkHealth();
       if (ok) {
+        clearDegradedRetry(true);
         healthFailCountRef.current = 0;
         lastOnlineAtRef.current = Date.now();
 
@@ -265,6 +365,7 @@ export function useBackendLifecycle(): BackendLifecycleResult {
             console.warn("[KAEL] Health first-fail while online — trying fast route re-discovery...");
             const rediscovered = await probeAndResolveBackend();
             if (rediscovered && mountedRef.current) {
+              clearDegradedRetry(true);
               console.log("[KAEL] Fast re-discovery found backend ->", rediscovered);
               healthFailCountRef.current = 0;
               setStateSynced("online");
@@ -294,6 +395,7 @@ export function useBackendLifecycle(): BackendLifecycleResult {
           }
           const rediscovered = await probeAndResolveBackend();
           if (rediscovered && mountedRef.current) {
+            clearDegradedRetry(true);
             console.log("[KAEL] Re-discovery found backend →", rediscovered);
             healthFailCountRef.current = 0;
             setStateSynced("online");
@@ -304,18 +406,20 @@ export function useBackendLifecycle(): BackendLifecycleResult {
             console.warn("[KAEL] Disconnect reason: rediscovery_failed (grace=%d, fails=%d)",
               effectiveGrace, healthFailCountRef.current);
             setStateSynced("offline");
-            setMessage("Connessione persa");
+            setMessage("Connessione persa — riconnessione automatica in corso");
+            scheduleDegradedRetry("rediscovery_failed");
           }
         }
       }
     }, ONLINE_RECHECK_MS);
-  }, [setStateSynced]);
+  }, [clearDegradedRetry, scheduleDegradedRetry, setStateSynced]);
 
   // ── Main probe flow (NEVER touches sentinel or bootstrap) ──────────
 
   const runProbe = useCallback(async (manual = false) => {
     if (!mountedRef.current) return;
     if (isRunningRef.current) return;
+    clearDegradedRetry(false);
     isRunningRef.current = true;
 
     const myEpoch = ++probeEpochRef.current;
@@ -328,8 +432,9 @@ export function useBackendLifecycle(): BackendLifecycleResult {
         disconnectReasonRef.current = "network_offline";
         console.warn("[KAEL] Disconnect reason: network_offline");
         setStateSynced("offline_network");
-        setMessage("Dispositivo offline");
+        setMessage("Dispositivo offline — riconnessione automatica in corso");
         setRetryAttempt(0);
+        scheduleDegradedRetry("network_offline");
         return;
       }
 
@@ -358,6 +463,7 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       setRetryAttempt(0);
 
       if (backendUrl) {
+        clearDegradedRetry(true);
         setStateSynced("online");
         setMessage(manual ? "Riconnesso" : "Connesso");
         console.log("[KAEL] RECONNECT_SUCCESS_AFTER_NETWORK_CHANGE epoch=%d url=%s manual=%s", myEpoch, backendUrl, manual);
@@ -397,7 +503,8 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       console.warn("[KAEL] RECONNECT_FAILED_AFTER_NETWORK_CHANGE epoch=%d attempts=%d", myEpoch, PROBE_MAX_ATTEMPTS);
       console.warn("[KAEL] Disconnect reason: resume_probe_failed (attempts=%d)", PROBE_MAX_ATTEMPTS);
       setStateSynced("backend_unreachable");
-      setMessage(`Backend irraggiungibile dopo ${PROBE_MAX_ATTEMPTS} tentativi`);
+      setMessage("Backend irraggiungibile — riconnessione automatica in corso");
+      scheduleDegradedRetry("resume_probe_failed");
     } finally {
       // Only release the concurrency lock if this is still the current epoch.
       // A stale timed-out probe must not reset the lock of a newer probe.
@@ -406,28 +513,35 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       }
       setRetryAttempt(0);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startOnlineRecheck, setStateSynced]);
+  }, [clearDegradedRetry, scheduleDegradedRetry, startOnlineRecheck, setStateSynced]);
+
+  runProbeRef.current = runProbe;
 
   // ── Retry (manual from button or auto from events) ─────────────────
 
   const retry = useCallback((opts: RetryOptions = {}) => {
     const { withWarmup = true, reason = "manual", interactive = true } = opts;
+    clearDegradedRetry(true);
     isRunningRef.current = false;
     healthFailCountRef.current = 0;
+    if (reconnectWarmupTimerRef.current) {
+      clearTimeout(reconnectWarmupTimerRef.current);
+      reconnectWarmupTimerRef.current = null;
+    }
     if (onlineTimerRef.current) {
       clearInterval(onlineTimerRef.current);
       onlineTimerRef.current = null;
     }
     if (withWarmup) {
       console.log("[KAEL] RECONNECT_WARMUP_BEGIN reason=%s warmup_ms=%d", reason, NETWORK_RECONNECT_WARMUP_MS);
-      setTimeout(() => {
+      reconnectWarmupTimerRef.current = setTimeout(() => {
+        reconnectWarmupTimerRef.current = null;
         if (mountedRef.current && !isRunningRef.current) runProbe(interactive);
       }, NETWORK_RECONNECT_WARMUP_MS);
     } else {
       runProbe(interactive);
     }
-  }, [runProbe]);
+  }, [clearDegradedRetry, runProbe]);
 
   // ── Mount / Unmount / Events ───────────────────────────────────────
 
@@ -475,7 +589,7 @@ export function useBackendLifecycle(): BackendLifecycleResult {
     // navigator "online" event does NOT fire. The NetworkInformation API
     // does fire a "change" event, allowing us to detect the switch and
     // immediately verify/re-discover the backend.
-    const conn = (navigator as any).connection as EventTarget | undefined;
+    const conn = (navigator as NavigatorWithConnection).connection;
     const handleConnectionChange = () => {
       console.log("[KAEL] NETWORK_CHANGE_DETECTED state=%s online=%s", stateRef.current, navigator.onLine);
       if (!mountedRef.current) return;
@@ -515,8 +629,13 @@ export function useBackendLifecycle(): BackendLifecycleResult {
         clearInterval(onlineTimerRef.current);
         onlineTimerRef.current = null;
       }
+      if (reconnectWarmupTimerRef.current) {
+        clearTimeout(reconnectWarmupTimerRef.current);
+        reconnectWarmupTimerRef.current = null;
+      }
+      clearDegradedRetry(true);
     };
-  }, [runProbe, retry]);
+  }, [clearDegradedRetry, runProbe, retry]);
 
   return { state, message, retryAttempt, retryTotal: PROBE_MAX_ATTEMPTS, retry, disconnectReason: disconnectReasonRef.current };
 }

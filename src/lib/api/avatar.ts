@@ -1,4 +1,4 @@
-import { apiRequest, getApiConfig } from "./client";
+import { apiRequest, requestScopedResourceUrl } from "./client";
 
 /**
  * AVATAR VIDEO API SERVICE LAYER (LivePortrait ONNX engine)
@@ -53,6 +53,7 @@ export interface StreamControlResponse {
   ok: boolean;
   status: string;
   fps?: number;
+  stream_url?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,10 +108,12 @@ export async function startAvatarStream(
   emotionLabel: string = "neutral",
   fps: number = 15,
 ): Promise<StreamControlResponse> {
-  return apiRequest<StreamControlResponse>("/avatar/live/stream/start", {
+  const response = await apiRequest<StreamControlResponse>("/avatar/live/stream/start", {
     method: "POST",
     body: JSON.stringify({ emotion_label: emotionLabel, fps }),
   });
+  const streamUrl = await requestScopedResourceUrl("/avatar/live/stream");
+  return { ...response, stream_url: streamUrl };
 }
 
 /** Stop live MJPEG avatar stream */
@@ -118,18 +121,4 @@ export async function stopAvatarStream(): Promise<StreamControlResponse> {
   return apiRequest<StreamControlResponse>("/avatar/live/stream/stop", {
     method: "POST",
   });
-}
-
-/**
- * Get the MJPEG stream URL for direct use in <img> tags.
- *
- * Usage in React:
- *   <img src={getAvatarStreamUrl()} alt="Kael avatar" />
- *
- * The stream returns multipart/x-mixed-replace JPEG frames.
- */
-export function getAvatarStreamUrl(): string {
-  const config = getApiConfig();
-  const baseUrl = config.baseUrl.replace(/\/$/, "");
-  return `${baseUrl}/avatar/live/stream`;
 }

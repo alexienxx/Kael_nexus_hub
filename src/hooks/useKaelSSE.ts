@@ -152,18 +152,6 @@ export function useKaelSSE(enabled: boolean): void {
           }
         });
 
-        // ── "observatory" — canonical service/runtime monitoring data ──
-        es.addEventListener("observatory", (evt) => {
-          try {
-            const snapshot = JSON.parse((evt as MessageEvent).data);
-            window.dispatchEvent(
-              new CustomEvent("kael-observatory-snapshot", { detail: snapshot }),
-            );
-          } catch (err) {
-            console.warn("[KaelSSE] Observatory parse error:", err);
-          }
-        });
-
         // ── connection error → reconnect with fresh token ──
         es.onerror = () => {
           console.warn("[KaelSSE] Disconnected, scheduling reconnect");

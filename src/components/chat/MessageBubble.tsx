@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import { Reply } from "lucide-react";
-import { useTheme } from "@/lib/store/theme";
+import { toast } from "sonner";
+import { useTheme } from "@/lib/store/theme-context";
+import { saveToGallery } from "@/lib/api/media";
 import MessageActions from "./MessageActions";
 import AudioMessage from "./AudioMessage";
 import ImageMessage from "./ImageMessage";
@@ -46,7 +48,7 @@ function getBubbleWallpaperCSS(
         ? "rgba(0, 180, 255, 0.1)"
         : "hsl(var(--glass) / 0.4)";
     base.backdropFilter = `blur(${style.bubbleBlurEnabled ? 16 : 0}px)`;
-    (base as any).WebkitBackdropFilter = base.backdropFilter;
+    base.WebkitBackdropFilter = base.backdropFilter;
   } else if (mode === "gradient" && style.extendGradientToBubbles) {
     base.background = isUser
       ? `linear-gradient(135deg, hsl(${theme.bubbleColorHue} 60% 45% / 0.5), hsl(${theme.bubbleColorHue} 80% 35% / 0.3))`
@@ -55,7 +57,7 @@ function getBubbleWallpaperCSS(
         : "linear-gradient(135deg, hsl(var(--glass) / 0.5), hsl(var(--glass) / 0.3))";
     if (style.bubbleBlurEnabled) {
       base.backdropFilter = "blur(12px)";
-      (base as any).WebkitBackdropFilter = "blur(12px)";
+      base.WebkitBackdropFilter = "blur(12px)";
     }
   } else if (mode === "tinted") {
     base.background = isUser
@@ -65,7 +67,7 @@ function getBubbleWallpaperCSS(
         : "hsl(var(--glass) / 0.5)";
     if (style.bubbleBlurEnabled) {
       base.backdropFilter = "blur(10px)";
-      (base as any).WebkitBackdropFilter = "blur(10px)";
+      base.WebkitBackdropFilter = "blur(10px)";
     }
   }
   // "solid" mode = default behavior, no special CSS
@@ -208,12 +210,9 @@ const MessageBubble = ({
               reader.readAsDataURL(blob);
             });
           }
-          const { saveToGallery } = await import("@/lib/api/media");
           await saveToGallery({ type, data_b64: b64, source: "chat_save" });
-          const { toast } = await import("sonner");
           toast.success("Salvato in galleria");
         } catch {
-          const { toast } = await import("sonner");
           toast.error("Errore salvataggio in galleria");
         }
       }}

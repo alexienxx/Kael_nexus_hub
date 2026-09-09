@@ -9,10 +9,9 @@
  *   const { state, message, retry } = useBackendConnection();
  */
 
-import { createContext, useContext, type ReactNode } from "react";
-import { useBackendLifecycle, type BackendLifecycleResult } from "@/hooks/useBackendLifecycle";
-
-const BackendConnectionContext = createContext<BackendLifecycleResult | null>(null);
+import type { ReactNode } from "react";
+import { useBackendLifecycle } from "@/hooks/useBackendLifecycle";
+import { BackendConnectionContext } from "@/context/backend-connection";
 
 export function BackendConnectionProvider({ children }: { children: ReactNode }) {
   const lifecycle = useBackendLifecycle();
@@ -21,15 +20,4 @@ export function BackendConnectionProvider({ children }: { children: ReactNode })
       {children}
     </BackendConnectionContext.Provider>
   );
-}
-
-export function useBackendConnection(): BackendLifecycleResult {
-  const ctx = useContext(BackendConnectionContext);
-  if (!ctx) {
-    throw new Error(
-      "useBackendConnection must be used inside <BackendConnectionProvider>. " +
-      "Check that AppShell wraps the routes."
-    );
-  }
-  return ctx;
 }

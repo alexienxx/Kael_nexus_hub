@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ImageIcon, Film, Music, Trash2, Save, RefreshCw, Loader2 } from "lucide-react";
 import KaelHeader from "@/components/layout/KaelHeader";
 import ImageViewer from "@/components/media/ImageViewer";
@@ -7,9 +7,22 @@ import * as mediaApi from "@/lib/api/media";
 import SpotifyMusicTab from "@/components/spotify/SpotifyMusicTab";
 import type { GalleryApiItem } from "@/lib/api/media";
 import { toast } from "sonner";
-import { getApiConfig } from "@/lib/api/client";
 
 type MediaTab = "photos" | "videos" | "music";
+
+function isNotFoundError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { status?: unknown; message?: unknown };
+  return candidate.status === 404 || (
+    typeof candidate.message === "string" && candidate.message.includes("404")
+  );
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message
+    ? error.message
+    : "Errore caricamento";
+}
 
 const Media = () => {
   const [activeTab, setActiveTab] = useState<MediaTab>("photos");
@@ -66,20 +79,18 @@ function PhotosTab({ onImageClick }: { onImageClick: (url: string) => void }) {
   const [contextItem, setContextItem] = useState<GalleryApiItem | null>(null);
   const [contextPos, setContextPos] = useState({ x: 0, y: 0 });
 
-  const baseUrl = getApiConfig().baseUrl.replace(/\/$/, "");
-
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await mediaApi.getMediaGallery("image");
       setItems(res.items || []);
-    } catch (e: any) {
+    } catch (e: unknown) {
       // 404 = gallery empty or not yet created → treat as empty, not error
-      if (e?.status === 404 || (e?.message && e.message.includes("404"))) {
+      if (isNotFoundError(e)) {
         setItems([]);
       } else {
-        setError(e.message || "Errore caricamento");
+        setError(errorMessage(e));
       }
     } finally {
       setLoading(false);
@@ -115,15 +126,27 @@ function PhotosTab({ onImageClick }: { onImageClick: (url: string) => void }) {
     setContextItem(null);
   };
 
-  const handleSaveToDevice = () => {
+  const handleSaveToDevice = async () => {
     if (!contextItem) return;
-    const url = `${baseUrl}${contextItem.url}`;
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `kael-foto-${contextItem.id}.png`;
-    a.click();
-    toast.success("Download avviato");
-    setContextItem(null);
+    try {
+      const url = await mediaApi.getGalleryFileUrl(contextItem.id);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kael-foto-${contextItem.id}.png`;
+      a.click();
+      toast.success("Download avviato");
+      setContextItem(null);
+    } catch {
+      toast.error("Download non disponibile");
+    }
+  };
+
+  const handleImageClick = async (item: GalleryApiItem) => {
+    try {
+      onImageClick(await mediaApi.getGalleryFileUrl(item.id));
+    } catch {
+      toast.error("Immagine non disponibile");
+    }
   };
 
   if (loading) {
@@ -162,8 +185,7 @@ function PhotosTab({ onImageClick }: { onImageClick: (url: string) => void }) {
           <GalleryThumbnail
             key={item.id}
             item={item}
-            baseUrl={baseUrl}
-            onClick={() => onImageClick(`${baseUrl}${item.url}`)}
+            onClick={() => void handleImageClick(item)}
             onLongPress={(e) => handleLongPress(item, e)}
           />
         ))}
@@ -202,32 +224,30 @@ function PhotosTab({ onImageClick }: { onImageClick: (url: string) => void }) {
 
 function GalleryThumbnail({
   item,
-  baseUrl,
   onClick,
   onLongPress,
 }: {
   item: GalleryApiItem;
-  baseUrl: string;
   onClick: () => void;
   onLongPress: (e: React.TouchEvent | React.MouseEvent) => void;
 }) {
-  const timerRef = useState<ReturnType<typeof setTimeout> | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     const timer = setTimeout(() => onLongPress(e), 500);
-    (timerRef as any)[1](timer);
+    timerRef.current = timer;
   };
 
   const handleTouchEnd = () => {
-    if ((timerRef as any)[0]) {
-      clearTimeout((timerRef as any)[0]);
-      (timerRef as any)[1](null);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
   };
 
   const src = item.thumbnail
-    ? `${baseUrl}${item.thumbnail}`
-    : `${baseUrl}${item.url}`;
+    ? item.thumbnail
+    : item.url;
 
   return (
     <button
@@ -256,8 +276,9 @@ function VideosTab() {
   const [error, setError] = useState<string | null>(null);
   const [contextItem, setContextItem] = useState<GalleryApiItem | null>(null);
   const [contextPos, setContextPos] = useState({ x: 0, y: 0 });
-
-  const baseUrl = getApiConfig().baseUrl.replace(/\/$/, "");
+  const longPressTimersRef = useRef(
+    new Map<string, ReturnType<typeof setTimeout>>(),
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -265,12 +286,12 @@ function VideosTab() {
     try {
       const res = await mediaApi.getMediaGallery("video");
       setItems(res.items || []);
-    } catch (e: any) {
+    } catch (e: unknown) {
       // 404 = gallery empty or not yet created → treat as empty, not error
-      if (e?.status === 404 || (e?.message && e.message.includes("404"))) {
+      if (isNotFoundError(e)) {
         setItems([]);
       } else {
-        setError(e.message || "Errore caricamento");
+        setError(errorMessage(e));
       }
     } finally {
       setLoading(false);
@@ -306,15 +327,19 @@ function VideosTab() {
     setContextItem(null);
   };
 
-  const handleSaveToDevice = () => {
+  const handleSaveToDevice = async () => {
     if (!contextItem) return;
-    const url = `${baseUrl}${contextItem.url}`;
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `kael-video-${contextItem.id}.mp4`;
-    a.click();
-    toast.success("Download avviato");
-    setContextItem(null);
+    try {
+      const url = await mediaApi.getGalleryFileUrl(contextItem.id);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kael-video-${contextItem.id}.mp4`;
+      a.click();
+      toast.success("Download avviato");
+      setContextItem(null);
+    } catch {
+      toast.error("Download non disponibile");
+    }
   };
 
   if (loading) {
@@ -356,17 +381,21 @@ function VideosTab() {
             onContextMenu={(e) => { e.preventDefault(); handleLongPress(item, e); }}
             onTouchStart={(e) => {
               const timer = setTimeout(() => handleLongPress(item, e), 500);
-              (e.currentTarget as any).__lpTimer = timer;
+              longPressTimersRef.current.set(item.id, timer);
             }}
-            onTouchEnd={(e) => {
-              clearTimeout((e.currentTarget as any).__lpTimer);
+            onTouchEnd={() => {
+              const timer = longPressTimersRef.current.get(item.id);
+              if (timer) clearTimeout(timer);
+              longPressTimersRef.current.delete(item.id);
             }}
-            onTouchCancel={(e) => {
-              clearTimeout((e.currentTarget as any).__lpTimer);
+            onTouchCancel={() => {
+              const timer = longPressTimersRef.current.get(item.id);
+              if (timer) clearTimeout(timer);
+              longPressTimersRef.current.delete(item.id);
             }}
           >
             <video
-              src={`${baseUrl}${item.url}`}
+              src={item.url}
               controls
               className="w-full aspect-video"
               preload="metadata"

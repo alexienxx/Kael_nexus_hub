@@ -36,10 +36,36 @@ export interface GalleryApiItem {
   session_id: string;
 }
 
+function absoluteBackendResourceUrl(pathOrUrl: string): string {
+  if (!pathOrUrl) return "";
+  const config = getApiConfig();
+  if (!config.baseUrl) return "";
+  const backend = new URL(`${config.baseUrl.replace(/\/$/, "")}/`);
+  const resource = new URL(pathOrUrl, backend);
+  if (resource.origin !== backend.origin) {
+    throw new Error("Gallery resource URL is not owned by the configured backend");
+  }
+  return resource.toString();
+}
+
+function materializeGalleryItem(item: GalleryApiItem): GalleryApiItem {
+  return {
+    ...item,
+    url: absoluteBackendResourceUrl(item.url),
+    thumbnail: item.thumbnail
+      ? absoluteBackendResourceUrl(item.thumbnail)
+      : null,
+  };
+}
+
 /** List gallery items from backend */
 export async function getMediaGallery(type?: "image" | "video") {
   const query = type ? `?type=${type}` : "";
-  return apiRequest<GalleryListResponse>(`/media/gallery${query}`);
+  const response = await apiRequest<GalleryListResponse>(`/media/gallery${query}`);
+  return {
+    ...response,
+    items: response.items.map(materializeGalleryItem),
+  };
 }
 
 /** Save media to gallery (base64 input) */
@@ -74,10 +100,16 @@ export async function deleteGalleryItem(id: string) {
  * The backend serves the file at /media/gallery/{id}/file.
  * Returns the full URL string (not a data URL — lets the browser stream it).
  */
-export function getGalleryFileUrl(assetId: string): string {
-  const config = getApiConfig();
-  if (!config.baseUrl) return "";
-  return `${config.baseUrl.replace(/\/$/, "")}/media/gallery/${assetId}/file`;
+export async function getGalleryFileUrl(assetId: string): Promise<string> {
+  const safeId = String(assetId ?? "").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(safeId)) {
+    throw new Error("Invalid gallery asset ID");
+  }
+  const response = await apiRequest<{ ok: boolean; item: GalleryApiItem }>(
+    `/media/gallery/${encodeURIComponent(safeId)}`,
+  );
+  if (!response?.item?.url) throw new Error("Gallery asset has no file URL");
+  return absoluteBackendResourceUrl(response.item.url);
 }
 
 /** Request an avatar video from Kael */

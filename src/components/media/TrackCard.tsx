@@ -1,4 +1,5 @@
 import SpotifyIcon from "@/components/common/SpotifyIcon";
+import { Capacitor } from "@capacitor/core";
 
 interface TrackCardProps {
   title: string;
@@ -11,7 +12,7 @@ interface TrackCardProps {
 const TrackCard = ({ title, artist, albumArt, spotifyUrl, personalMessage }: TrackCardProps) => {
   const handleOpen = () => {
     if (!spotifyUrl) return;
-    const isCapacitor = !!(window as any).Capacitor;
+    const isCapacitor = Capacitor.isNativePlatform();
     if (isCapacitor) {
       const match = spotifyUrl.match(/track\/([a-zA-Z0-9]+)/);
       if (match) {

@@ -13,8 +13,9 @@
  *
  * Fail-soft contract
  * ------------------
- *   - Any HTTP failure (network, 5xx, timeout) is swallowed and logged
- *     to console.warn. NEVER throws into UI.
+ *   - Any HTTP failure (network, 5xx, timeout) is swallowed and normally logged
+ *     to console.warn. Expected document-unload/background cancellation stays
+ *     silent. The transport NEVER throws into UI.
  *   - Backend not configured (empty baseUrl) → silent no-op.
  *   - Empty `sessionId` → silent no-op.
  *
@@ -66,9 +67,18 @@ export async function sendPresence(
       },
       body,
       signal,
+      // Presence is deliberately fire-and-forget. Let the small metadata-only
+      // request survive a WebView navigation/background transition instead of
+      // cancelling it with the document that emitted the final state change.
+      keepalive: true,
     });
   } catch (err) {
-    console.warn("[K-1.b] sendPresence failed (fail-soft):", err);
+    const documentIsLeaving =
+      payload.app_foreground === false ||
+      (typeof document !== "undefined" && document.visibilityState === "hidden");
+    if (!documentIsLeaving) {
+      console.warn("[K-1.b] sendPresence failed (fail-soft):", err);
+    }
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }

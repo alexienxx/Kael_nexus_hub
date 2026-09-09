@@ -6,21 +6,20 @@ import {
   FolderKanban,
   Settings,
   RefreshCw,
-  BrainCircuit,
   Bot,
 } from "lucide-react";
 import NetharionButton from "@/components/common/NetharionButton";
 import NetharionRealEventsSheet from "@/components/common/NetharionRealEventsSheet";
 import SpotifyIcon from "@/components/common/SpotifyIcon";
-import { useBackendConnection } from "@/context/BackendConnectionContext";
+import { useBackendConnection } from "@/context/backend-connection";
 import { useNetharion } from "@/hooks/useNetharion";
 import type { BackendLifecycleState } from "@/types";
+import { Capacitor } from "@capacitor/core";
 
 const navItems = [
   { to: "/", icon: MessageCircle, label: "Chat" },
   { to: "/media", icon: Paperclip, label: "Allegati" },
   { to: "/workspace", icon: FolderKanban, label: "Workspace" },
-  { to: "/observatory", icon: BrainCircuit, label: "Observatory" },
   { to: "/settings", icon: Settings, label: "Settings" },
 ];
 
@@ -49,7 +48,7 @@ const ReconnectButton = () => {
   return (
     <button
       type="button"
-      onClick={retry}
+      onClick={() => retry()}
       disabled={isRetrying}
       className="absolute right-2 top-2 z-30 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/20 text-muted-foreground shadow-sm transition-all hover:text-foreground active:scale-95 disabled:opacity-50"
       aria-label={state === "online" ? "Backend online" : "Riconnetti al backend"}
@@ -66,7 +65,12 @@ const ReconnectButton = () => {
 
 const BottomNav = () => {
   const { state: backendState } = useBackendConnection();
-  const { state: netharionState } = useNetharion(5000, backendState === "online");
+  const {
+    state: netharionState,
+    channel: netharionChannel,
+    error: netharionError,
+    refresh: refreshNetharion,
+  } = useNetharion(5000, backendState === "online");
   const [showRealEvents, setShowRealEvents] = useState(false);
   const [agentActive, setAgentActive] = useState(false);
   const navigate = useNavigate();
@@ -83,7 +87,7 @@ const BottomNav = () => {
   const handleSpotifyPress = () => {
     const spotifyDeepLink = "spotify://";
     const spotifyWeb = "https://open.spotify.com";
-    const isCapacitor = !!(window as any).Capacitor;
+    const isCapacitor = Capacitor.isNativePlatform();
     if (isCapacitor) {
       window.location.href = spotifyDeepLink;
       setTimeout(() => {
@@ -116,9 +120,16 @@ const BottomNav = () => {
         <Bot size={18} />
       </button>
 
-      <NetharionRealEventsSheet open={showRealEvents} onClose={() => setShowRealEvents(false)} />
+      <NetharionRealEventsSheet
+        open={showRealEvents}
+        onClose={() => setShowRealEvents(false)}
+        channel={netharionChannel}
+        state={netharionState}
+        error={netharionError}
+        onRefresh={refreshNetharion}
+      />
 
-      <div className="grid grid-cols-6 gap-1 px-12 pt-4">
+      <div className="grid grid-cols-5 gap-1 px-12 pt-4">
         {navItems.map(({ to, icon: Icon, label }) => (
           <RouterNavLink
             key={to}

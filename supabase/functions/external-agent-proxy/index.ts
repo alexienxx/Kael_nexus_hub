@@ -13,6 +13,18 @@ interface RequestBody {
   api_key: string;
 }
 
+interface OpenAIResponse {
+  choices?: Array<{ message?: { content?: string | null } }>;
+}
+
+interface AnthropicResponse {
+  content?: Array<{ type?: string; text?: string }>;
+}
+
+interface GoogleResponse {
+  candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -51,7 +63,7 @@ serve(async (req) => {
           { status: res.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      const data = await res.json();
+      const data = (await res.json()) as OpenAIResponse;
       reply = data.choices?.[0]?.message?.content || "";
     } else if (provider === "anthropic") {
       // Convert messages format for Anthropic
@@ -84,11 +96,11 @@ serve(async (req) => {
           { status: res.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      const data = await res.json();
+      const data = (await res.json()) as AnthropicResponse;
       reply =
         data.content
-          ?.filter((b: any) => b.type === "text")
-          .map((b: any) => b.text)
+          ?.filter((block) => block.type === "text" && typeof block.text === "string")
+          .map((block) => block.text ?? "")
           .join("") || "";
     } else if (provider === "google") {
       // Gemini API
@@ -112,10 +124,10 @@ serve(async (req) => {
           { status: res.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      const data = await res.json();
+      const data = (await res.json()) as GoogleResponse;
       reply =
         data.candidates?.[0]?.content?.parts
-          ?.map((p: any) => p.text)
+          ?.map((part) => part.text ?? "")
           .join("") || "";
     } else {
       return new Response(

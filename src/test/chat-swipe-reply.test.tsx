@@ -15,7 +15,7 @@ vi.mock("@/components/media/TrackCard", () => ({ default: () => null }));
 
 const message: ChatMessage = {
   id: "turn-4180",
-  backend_turn_id: 4180,
+  backend_turn_id: "4180",
   sender: "kael",
   text: "Non voglio dare per scontato nulla.",
   time: "21:10",

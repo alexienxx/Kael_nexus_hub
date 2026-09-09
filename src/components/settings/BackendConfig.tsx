@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Globe, Key, CheckCircle, XCircle, Loader2, Power, AlertTriangle } from "lucide-react";
-import { getApiConfig, setApiConfig, checkHealth } from "@/lib/api/client";
+import { getApiConfig, setApiConfig, verifyBackendConfig } from "@/lib/api/client";
 import { useServerRestart } from "@/hooks/useServerRestart";
 
 const BackendConfig = () => {
@@ -19,18 +19,19 @@ const BackendConfig = () => {
 
   const handleSave = async () => {
     setStatus("checking");
-    // Test FIRST — only persist if backend is reachable at this URL.
-    const prevConfig = getApiConfig();
-    // Temporarily set for checkHealth to use this URL
-    setApiConfig({ baseUrl, apiKey });
-    const ok = await checkHealth();
-    if (ok) {
-      console.log("[API CONFIG] user saved & validated:", baseUrl);
+    const candidate = {
+      baseUrl: baseUrl.trim().replace(/\/+$/, ""),
+      apiKey: apiKey.trim(),
+    };
+    try {
+      // Public health proves service identity; /auth/verify proves the
+      // credential. The candidate is persisted only after both succeed.
+      await verifyBackendConfig(candidate);
+      setApiConfig(candidate);
+      setBaseUrl(candidate.baseUrl);
+      setApiKey(candidate.apiKey);
       setStatus("ok");
-    } else {
-      // Restore previous config — don't persist a broken URL
-      setApiConfig(prevConfig);
-      console.warn("[API CONFIG] validation failed, restored previous:", prevConfig.baseUrl);
+    } catch {
       setStatus("error");
     }
   };
@@ -57,16 +58,17 @@ const BackendConfig = () => {
 
       <section>
         <h3 className="mb-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          API Key (opzionale)
+          Credenziale Kael (obbligatoria)
         </h3>
         <div className="glass rounded-xl p-4">
           <div className="flex items-center gap-2">
             <Key size={16} className="text-neon-purple shrink-0" />
             <input
               type="password"
-              placeholder="sk-..."
+              placeholder="Inserisci la credenziale del backend"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
+              autoComplete="off"
               className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
             />
           </div>
@@ -75,7 +77,7 @@ const BackendConfig = () => {
 
       <button
         onClick={handleSave}
-        disabled={!baseUrl}
+        disabled={!baseUrl.trim() || !apiKey.trim() || status === "checking"}
         className="w-full rounded-xl bg-gradient-to-r from-neon-purple to-accent py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-neon-purple/20 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-40"
       >
         Salva e Testa Connessione
@@ -97,8 +99,8 @@ const BackendConfig = () => {
           {status === "error" && <XCircle size={16} />}
           <span className="text-xs font-medium">
             {status === "checking" && "Connessione in corso..."}
-            {status === "ok" && "Backend connesso! ✨"}
-            {status === "error" && "Impossibile raggiungere il backend"}
+            {status === "ok" && "Backend autenticato e connesso! ✨"}
+            {status === "error" && "Connessione o credenziale non valida"}
           </span>
         </div>
       )}
@@ -106,7 +108,7 @@ const BackendConfig = () => {
       <p className="text-[10px] text-center text-muted-foreground/50">
         Il cervello di Kael vive nel tuo backend esterno.
         <br />
-        Configura qui l'URL per connettere l'app.
+        URL e credenziale valida sono entrambi necessari per connettere l'app.
       </p>
 
       {/* ── Avanzate ──────────────────────────────────────────────── */}

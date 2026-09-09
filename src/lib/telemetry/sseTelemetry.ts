@@ -7,11 +7,12 @@
  * `[KaelTelemetry]` so logcat / chrome://inspect filtering is trivial.
  *
  * Events:
- *   - sse.forceReconnect       { reason }
+ *   - sse.forceReconnect.requested { reason }
  *   - sse.visibilitychange     { state }
  *   - softResync.started       { afterTs }
  *   - softResync.merged        { received, appended }
  *   - softResync.failed        { error }
+ *   - chatContinuity.failed     { error }
  *
  * Contract: metadata-only. NEVER log raw user text or message bodies.
  * Keep payloads small (numbers, booleans, short enums, error names).
@@ -19,10 +20,12 @@
 
 type TelemetryEvent =
   | "sse.forceReconnect"
+  | "sse.forceReconnect.requested"
   | "sse.visibilitychange"
   | "softResync.started"
   | "softResync.merged"
-  | "softResync.failed";
+  | "softResync.failed"
+  | "chatContinuity.failed";
 
 export function emitTelemetry(event: TelemetryEvent, payload: Record<string, unknown> = {}): void {
   try {

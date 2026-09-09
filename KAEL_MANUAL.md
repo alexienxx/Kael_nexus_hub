@@ -1,7 +1,7 @@
 # 📖 KAEL COMPANION — Manuale Tecnico Completo
 
 > Documento di riferimento per agenti AI e sviluppatori che lavorano al progetto Kael Companion.
-> Versione corrente dell'app: **1.0.13** (build 113)
+> Versione corrente dell'app: **1.0.15** (build 115)
 
 ---
 
@@ -15,6 +15,21 @@
 - **Backend**: API REST esterna (Python FastAPI) — nessun backend integrato in Lovable Cloud per la logica Kael
 - **Mobile**: Capacitor (Android APK sideloaded, live-reload via `server.url`)
 - **App ID**: `app.lovable.kael.companion`
+
+### Installazione e test Android via Wi-Fi
+
+Il trasporto di sviluppo canonico e
+`..\tools\mobile\Connect-KaelAndroidWireless.ps1`. Una prima esecuzione con
+`-BootstrapFromUsb` abilita ADB sulla LAN e salva soltanto endpoint e seriale
+hardware in `state/android_wireless_device.json`; le esecuzioni successive
+possono installare con `-InstallApk`, associare in modo secret-free la
+configurazione backend con `-PairAppConfig` e avviare l'app con `-LaunchApp`
+senza selezionare il cavo USB. Ogni operazione verifica il seriale fisico e
+ripristina i reverse tunnel 8002/8010/8025.
+
+Il bootstrap TCP può dover essere ripetuto dopo un riavvio del telefono o un
+cambio rete. La batteria dispositivo accetta il seriale Wi-Fi esplicito tramite
+`..\tools\test_mode\run_android_usb_smoke.ps1 -Serial '<ip>:5555'`.
 
 ### Landscape Mode
 - **Supporto completo**: L'app funziona in landscape senza interruzioni
@@ -48,11 +63,14 @@ src/
 │   └── useNativePush.ts # Registrazione FCM fail-closed + sync cursore
 ├── lib/
 │   ├── api/         # Layer API verso backend (chat.ts, push.ts, voice.ts)
+│   ├── chat/        # Outbox testuale + inbox WAL/cursore e merge idempotente
+│   │   ├── durableExchangeStore.ts # IndexedDB transazionale/versionato
+│   │   └── textOutbox.ts # Drain FIFO single-flight + classificatore esiti
 │   ├── store/       # Theme store (Context + localStorage)
 │   └── constants.ts # Versione app
 ├── test/            # Vitest unit/contract tests
 └── types/           # TypeScript types
-tests/e2e/            # Playwright: UI, contratti e live read-only
+tests/e2e/            # Playwright: UI/IDB diagnostici, contratti e live read-only
 docs/E2E_TEST_MATRIX.md # Matrice e comandi delle batterie APK
 ```
 
@@ -72,15 +90,18 @@ docs/E2E_TEST_MATRIX.md # Matrice e comandi delle batterie APK
 
 ### Netharion Button (sopra la nav bar)
 Pulsante fluttuante posizionato centralmente sopra la bottom nav.
-- **Tipo**: Indicatore di stato a 3 livelli
+- **Tipo**: stato tecnico del canale autenticato per agenti esterni
 - **Component**: `src/components/common/NetharionButton.tsx`
 - **Stati**:
-  - 🟢 `idle` — Sistema OK (hue: 145, verde)
-  - 🟠 `warning` — Attenzione (hue: 30, arancione)
-  - 🔴 `alert` — Allarme (hue: 0, rosso)
-- **Animazione**: `netharion-heartbeat` — pulsazione lenta e organica
-- **Backend hook**: Lo stato viene determinato dal backend. Il componente accetta `state` come prop.
-- **Punto di integrazione backend**: Il backend deve inviare lo stato via `/netharion/status` o simile → hook che aggiorna `NetharionState`
+  - `OFF` — backend/canale spento
+  - `ACTIVE` — scambio aperto
+  - `RECEIVING` — risposta in ricezione
+  - `VERIFIED` — ricezione autenticata e salvata
+  - `DEGRADED` — ricezione fallita o canale degradato
+- **Animazione**: pulsazione solo durante `RECEIVING`
+- **Backend hook**: polling con backoff di `GET /cognition/netharion/channel`
+- **Long press**: apre ricevute metadata-only; non mostra il testo ricevuto
+- **Confine**: non rappresenta presenza, emozione o stato cognitivo di Kael
 
 ---
 
@@ -155,8 +176,13 @@ Pulsante fluttuante posizionato centralmente sopra la bottom nav.
 ### ChatResponse (dal backend)
 ```typescript
 {
-  reply: string;
-  session_id: string;
+  reply?: string;              // assente per SILENCE/errori tipizzati
+  session_id?: string;
+  exchange_id?: string;
+  exchange_status?: string;
+  outcome_kind?: string;
+  idempotent_replay?: boolean;
+  user_turn_id?: number;
   message_id?: string;
   assistant_turn_id?: number;
   voice_audio?: string;       // base64 audio TTS
@@ -176,8 +202,15 @@ Pulsante fluttuante posizionato centralmente sopra la bottom nav.
 ### Consegna durevole, SSE e push nativo
 
 - PostgreSQL e `conversation_turns.id` sono la fonte autorevole e il cursore monotono.
-- L'APK conserva l'ultimo cursore confermato e recupera pagine bounded, ordinate e idempotenti da `/chat/history/pending`; un resume ordinario non ricarica tutta la conversazione.
+- Per la chat **testuale**, l'APK genera un UUID `client_message_id`, costruisce una sola volta l'envelope completo (testo, sessione, tempo client e citazione) e lo committa nello store IndexedDB `text_outbox` prima di mostrare il messaggio o chiamare `/chat`.
+- Il drain è FIFO e single-flight. Invio, boot, foreground e reconnect non possono avviare POST paralleli; un retry usa lo stesso body persistito e lo stesso `Idempotency-Key`.
+- La risposta non viene inferita dal testo: il client distingue receipt completa, replay, elaborazione in corso, `SILENCE`, recovery manuale, retryable e fallimento terminale. `SILENCE` chiude il turno utente senza creare una bolla assistente vuota.
+- Contratto canonico Gate A: `processing` + `exchange_in_progress` su HTTP 202; `recovery_required` + `cognition_outcome_requires_recovery` su HTTP 409; `complete/reply` per la risposta; `silence/silence` per non parlare; il replay è indicato da `idempotent_replay=true`. Gli alias storici restano compatibilità esplicita e non autorità.
+- Non esiste ancora un endpoint receipt/status separato: la ripresa canonica ripete lo stesso `POST /chat` dopo backoff. Una collisione HTTP 409 con stessa chiave ma payload diverso è terminale e non viene mascherata da replay.
+- L'APK recupera pagine bounded e ordinate da `/chat/history/pending`. Ogni pagina viene prima staged nel WAL `timeline_inbox_wal`, poi messaggi e cursore vengono committati atomicamente; soltanto dopo avviene il merge UI e il mirror compatibile in `localStorage`.
+- Un batch WAL interrotto viene ripreso al boot. L'outbox (100 record) e la cache timeline (1.500 record) sono bounded; store non disponibile, corrotto o pieno blocca l'accettazione di nuovi messaggi invece di inviarli senza prova durevole.
 - SSE segnala che esistono nuovi dati, ma non è una memoria di replay.
+- SSE non è token streaming di `POST /chat`: oggi la fetch riceve il JSON finale. Streaming progressivo e resumable richiede un futuro contratto backend con offset/event ID e receipt canonico; non va simulato spezzando testo lato UI.
 - Una notifica FCM ricevuta o aperta non inserisce testo direttamente nella UI: genera `kael-new-message` e forza il recupero del turno autorevole.
 - Il plugin nativo è fail-closed. Viene invocato soltanto se la build contiene `VITE_KAEL_FIREBASE_PUSH_ENABLED=true` e il backend dichiara `configured=true`.
 - Per una build push servono `android/app/google-services.json`, `KAEL_FIREBASE_PROJECT_ID` e `KAEL_FIREBASE_SERVICE_ACCOUNT_FILE`. Senza tutti i prerequisiti il cursore/SSE continuano a funzionare e il plugin resta inerte.
@@ -297,9 +330,11 @@ POST /visual-context
 | Campo | Tipo | Descrizione |
 |-------|------|-------------|
 | Backend URL | Input URL | URL base del backend Kael |
-| API Key | Input password | Chiave opzionale per autenticazione |
-| Salva e Testa | Button | Salva config + health check |
+| Credenziale Kael | Input password | Credenziale backend obbligatoria; non viene scritta nei log |
+| Salva e Testa | Button | Verifica `/health` pubblico e poi `GET /auth/verify` protetto; salva solo se entrambi passano |
 | Status | Badge | idle / checking / ok / error |
+
+Un health check positivo prova soltanto che il processo giusto è raggiungibile: non autorizza l'APK. Una credenziale assente, errata o un backend privo di configurazione auth non può quindi mostrare lo stato “connesso”. La migrazione di boot può azzerare un URL scoperto diventato obsoleto, ma conserva sempre la credenziale già configurata.
 
 ### Aggiornamenti (`UpdateSettings`)
 | Elemento | Descrizione |
@@ -348,6 +383,8 @@ Il client prova questi URL in ordine:
 2. `http://192.168.178.78:8002` — Home LAN
 3. `http://100.89.31.50:8002` — Tailscale VPN
 
+La discovery usa esclusivamente `/health`, che è pubblico. Tutte le API applicative JSON inviano `X-KAEL-KEY` tramite il client centrale. Nei test live la credenziale proviene solo dalla variabile d'ambiente `KAEL_LIVE_API_KEY`: non va hardcodata, stampata o inserita in URL/query string.
+
 ### Sentinel (porta 8099)
 Server leggero sempre attivo che può svegliare il backend principale.
 - `GET /health` → verifica sentinel attivo
@@ -381,7 +418,7 @@ L'agente esterno è integrato direttamente nella chat principale di Kael. Il pul
 - **Stessa conversazione**: I messaggi dell'agente e di Kael coesistono nello stesso thread
 
 ### Configurazione (Settings → Agente Esterno)
-- **API Key**: Input password per la chiave del provider selezionato
+- **Credenziali provider**: rimangono esclusivamente nel backend; l'APK invia al proxy solo modello, messaggi e la credenziale Kael centrale
 - **Selezione modello**: Lista scrollabile raggruppata per provider
 - **System Prompt** (⚙️ rotellina in alto a destra): Editor testuale per istruzioni persistenti inviate come messaggio `system` all'agente. Es: "Rispondi sempre in italiano". Indicatore viola quando attivo.
 - **Persistenza config**: `localStorage` key `kael_external_agent_config` → `{ apiKey, modelId }`
@@ -548,7 +585,22 @@ Hook `useCapability<T>` per determinare lo stato delle feature backend:
 
 ---
 
-## 📦 PERSISTENZA (localStorage)
+## 📦 PERSISTENZA CLIENT
+
+### IndexedDB autorevole per la continuità chat
+
+Database versionato `kael-chat-continuity` (schema v1):
+
+| Store | Contenuto | Regola |
+|-------|-----------|--------|
+| `text_outbox` | Envelope testuale esatto, hash, tentativi e receipt | Persistito prima del fetch; retry stesso ID/body |
+| `timeline_inbox_wal` | Pagina ricevuta non ancora applicata | Recuperata al boot dopo kill/crash |
+| `timeline_messages` | Cache bounded dei turni canonici | Vista locale ricostruibile; PostgreSQL resta autorevole |
+| `timeline_meta` | Cursore confermato per timeline | Aggiornato nella stessa transazione dei messaggi |
+
+La copertura crash-safe è per ora deliberatamente limitata al testo. Immagini e note vocali contengono blob/asset e non devono riutilizzare superficialmente questo envelope: serviranno staging durevole, hash e lifecycle upload dedicati. Le chiamate rimangono fuori dal Gate A.
+
+### localStorage (configurazione e mirror compatibile)
 
 | Key | Contenuto |
 |-----|-----------|
@@ -557,8 +609,16 @@ Hook `useCapability<T>` per determinare lo stato delle feature backend:
 | `kael_session_id` | Session ID (`mobile_kael`) |
 | `kael-backend-config` | `{ baseUrl, apiKey }` |
 | `kael-update-manifest-url` | URL override per manifest update |
-| `kael-chat-turn-cursor-v1` | Ultimo `conversation_turns.id` confermato dalla timeline |
+| `kael-chat-turn-cursor-v1` | Mirror compatibile del cursore; l'autorità transazionale è IndexedDB |
 | `kael-mobile-installation-id` | Identificatore stabile e non segreto dell'installazione Android |
+
+### Bloccanti di deployment del default-deny
+
+Il primo batch Gate-A autentica le chiamate JSON, inclusi TTS e proxy agente esterno. Non rende ancora distribuibile il default-deny su tutti i percorsi APK: gli URL assegnati direttamente a elementi HTML (`audio`, `img`, `video`), lo stream MJPEG, il download APK aperto dal browser e un futuro handshake WebSocket non possono aggiungere in modo affidabile `X-KAEL-KEY`.
+
+Prima del rollout su dispositivo, questi percorsi devono ricevere un contratto dedicato: token scoped e a vita breve oppure fetch autenticato seguito da Blob locale, secondo il tipo di risorsa. La chiave condivisa non deve mai finire nella query string, nei log o su HTTP LAN in chiaro; usare loopback USB/`adb reverse` oppure TLS. Finché questa batteria non è chiusa, media/download/WebSocket restano blocker dichiarati, non funzionalità implicitamente verdi.
+
+Quando `POST /chat` riceve `401`, `403` o `503 api-auth-not-configured`, l'outbox conserva l'envelope esatto nello stato `authentication_required`, lo mostra all'utente e ferma il FIFO. Dopo aver corretto Settings, “Riprova stesso invio” riutilizza ID, body e hash originari; il messaggio non viene cancellato né reinviato in loop.
 
 ---
 
@@ -572,4 +632,6 @@ La build di produzione incorpora gli asset Vite sincronizzati in Android tramite
 - `google-services.json` o modifica di `VITE_KAEL_FIREBASE_PUSH_ENABLED`;
 - cambi di contratto che devono essere verificati sul WebView reale.
 
-Sequenza di rilascio: test Vitest → batterie Playwright pertinenti → build Vite → sync Capacitor → `assembleDebug`/release → installazione USB → `tools/test_mode/run_android_usb_smoke.ps1` dal repository principale.
+Sequenza di rilascio: test Vitest → batterie Playwright diagnostiche/contratto pertinenti → build Vite → sync Capacitor → `assembleDebug`/release → installazione USB → `tools/test_mode/run_android_usb_smoke.ps1` dal repository principale → matrice live mutating sul runtime/PostgreSQL reali.
+
+`npm run e2e:chat-continuity` verifica nel browser reale IndexedDB, reload, retry identico, recovery e WAL, ma **non** è live acceptance. Il Gate A si chiude soltanto con APK installata, runtime ufficiale, PostgreSQL reale e fault injection kill/restart ai confini F0–F7; mock e simulazioni restano prove diagnostiche.

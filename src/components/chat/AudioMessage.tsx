@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Play, Pause, MoreVertical, Download, Share2 } from "lucide-react";
-import { useTheme } from "@/lib/store/theme";
+import { useTheme } from "@/lib/store/theme-context";
 
 interface AudioMessageProps {
   src: string;

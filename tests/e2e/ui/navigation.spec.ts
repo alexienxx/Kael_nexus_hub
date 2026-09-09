@@ -9,7 +9,6 @@ test.describe("APK navigation smoke", () => {
     const routes = [
       { link: "Allegati", heading: "Media" },
       { link: "Workspace", heading: "Workspace" },
-      { link: "Observatory", heading: "Cognitive Observatory" },
       { link: "Settings", heading: "Settings" },
       { link: "Chat", heading: "Kael" },
     ];

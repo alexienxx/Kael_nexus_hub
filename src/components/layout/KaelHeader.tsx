@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
-import { useTheme } from "@/lib/store/theme";
+import { useTheme } from "@/lib/store/theme-context";
 import { useLongPress } from "@/hooks/useLongPress";
 import ConnectionBadge from "@/components/common/ConnectionBadge";
 import type { BackendLifecycleState } from "@/types";

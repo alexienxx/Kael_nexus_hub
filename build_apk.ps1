@@ -190,11 +190,12 @@ try {
     #-- Done
     Write-Host ""
     Write-Host "=== DONE ===" -ForegroundColor Green
+    $deliveryState = if ($SkipInstall) { "generato" } else { "installato" }
     if ($Mode -eq "prod") {
-        Write-Host "  APK installato in modalita' PRODUZIONE." -ForegroundColor Green
+        Write-Host "  APK $deliveryState in modalita' PRODUZIONE." -ForegroundColor Green
         Write-Host "  UI caricata da file locali (dist/)." -ForegroundColor Green
     } else {
-        Write-Host "  APK installato in modalita' LOVABLE." -ForegroundColor Magenta
+        Write-Host "  APK $deliveryState in modalita' LOVABLE." -ForegroundColor Magenta
         Write-Host "  server.url remoto attivo da capacitor.config.ts." -ForegroundColor Magenta
     }
     Write-Host "  Backend via client.ts (USB/LAN/Tailscale)." -ForegroundColor White
