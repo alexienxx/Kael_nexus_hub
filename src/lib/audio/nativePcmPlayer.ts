@@ -6,6 +6,7 @@ export interface NativeVoiceBinding {
   deliveryId: string;
   utteranceId: string;
   epoch: number;
+  speechPlanSha256: string;
 }
 
 export interface NativePlayoutReport {
@@ -98,7 +99,9 @@ export class NativePcmPlayer {
         typeof binding.deliveryId !== "string" || !binding.deliveryId ||
         typeof binding.utteranceId !== "string" ||
         !/^[A-Za-z0-9_.:-]{1,96}$/.test(binding.utteranceId) ||
-        !Number.isSafeInteger(binding.epoch) || binding.epoch < 0
+        !Number.isSafeInteger(binding.epoch) || binding.epoch < 0 ||
+        typeof binding.speechPlanSha256 !== "string" ||
+        !/^[a-f0-9]{64}$/.test(binding.speechPlanSha256)
       ) {
         throw new Error("AUDIO_PLAYER_BINDING_INVALID");
       }
@@ -111,7 +114,10 @@ export class NativePcmPlayer {
         numberOfInputs: 0,
         numberOfOutputs: 1,
         outputChannelCount: [1],
-        processorOptions: binding,
+        processorOptions: {
+          utteranceId: binding.utteranceId,
+          epoch: binding.epoch,
+        },
       });
       player.gain = player.context.createGain();
       player.node.connect(player.gain).connect(player.context.destination);

@@ -87,7 +87,11 @@ export async function validateAssistantSpeechResponse(
       deliveryId: requiredHeader(response, "X-Arrakis-Delivery-Id"),
       utteranceId: requiredHeader(response, "X-Arrakis-Utterance-Id"),
       epoch: parseSafeInteger(requiredHeader(response, "X-Arrakis-Epoch")),
+      speechPlanSha256: requiredHeader(response, "X-Arrakis-Speech-Plan-SHA256"),
     };
+    if (!/^[a-f0-9]{64}$/.test(binding.speechPlanSha256)) {
+      throw new Error("AUDIO_STREAM_BINDING_INVALID");
+    }
     if (!response.body) throw new Error("AUDIO_STREAM_BODY_UNAVAILABLE");
     return { response, binding };
   } catch (error) {
@@ -161,7 +165,7 @@ export class NativeCallVoiceService {
         transport.then((result) => result.binding),
         async (report) => {
           const reportBinding = (await transport).binding;
-          await this.persistReport(reportBinding.deliveryId, sessionId, report);
+          await this.persistReport(reportBinding, sessionId, report);
         },
       );
       const result = await transport;
@@ -286,15 +290,18 @@ export class NativeCallVoiceService {
   }
 
   private async persistReport(
-    deliveryId: string,
+    binding: NativeVoiceBinding,
     sessionId: string,
     report: NativePlayoutReport,
   ): Promise<void> {
     await authenticatedFetch(
-      `/audio/speech/${encodeURIComponent(deliveryId)}/playout?session_id=${encodeURIComponent(sessionId)}`,
+      `/audio/speech/${encodeURIComponent(binding.deliveryId)}/playout?session_id=${encodeURIComponent(sessionId)}`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Arrakis-Speech-Plan-SHA256": binding.speechPlanSha256,
+        },
         body: JSON.stringify(report),
         timeout: 10_000,
       },

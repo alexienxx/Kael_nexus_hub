@@ -16,6 +16,14 @@ attraversa questi confini reali:
 6. stop locale immediato, interrupt remoto e ricevute playout su
    `POST /audio/speech/{delivery_id}/playout`.
 
+La risposta PCM porta anche `X-Arrakis-Speech-Plan-SHA256`. Il client ne
+verifica il formato prima di aprire il player, lo conserva nel binding
+immutabile della delivery e lo restituisce come header di ogni ricevuta
+playout. Il worklet audio riceve soltanto `utterance_id` ed `epoch`: il digest
+identifica il piano di presentazione e non e un parametro DSP. Il backend
+accetta la ricevuta soltanto se il digest coincide con quello persistito nella
+delivery canonica.
+
 Il testo riconosciuto resta un passaggio interno necessario al modello LLM
 testuale corrente. Il client chiamata non lo visualizza e non crea una seconda
 cronologia. Il player attesta campioni consumati dal motore Web Audio, non che

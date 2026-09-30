@@ -10,7 +10,12 @@ test.describe("native PCM browser boundary", () => {
       const reports: Array<{ status: string; played_sample_boundary: number; discontinuity: boolean }> = [];
 
       const first = await NativePcmPlayer.open(
-        { deliveryId: "delivery-browser-1", utteranceId: "utterance-browser-1", epoch: 1 },
+        {
+          deliveryId: "delivery-browser-1",
+          utteranceId: "utterance-browser-1",
+          epoch: 1,
+          speechPlanSha256: "a".repeat(64),
+        },
         (report) => { reports.push(report); },
       );
       const samples = new Int16Array(2400);
@@ -29,7 +34,12 @@ test.describe("native PCM browser boundary", () => {
       await first.closed;
 
       const second = await NativePcmPlayer.open(
-        { deliveryId: "delivery-browser-2", utteranceId: "utterance-browser-2", epoch: 2 },
+        {
+          deliveryId: "delivery-browser-2",
+          utteranceId: "utterance-browser-2",
+          epoch: 2,
+          speechPlanSha256: "b".repeat(64),
+        },
         (report) => { reports.push(report); },
       );
       const interrupted = await second.stop();
