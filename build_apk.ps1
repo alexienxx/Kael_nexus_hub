@@ -88,7 +88,7 @@ if ($AdbWifi) {
 
 #-- Banner
 Write-Host ""
-Write-Host "=== KAEL APK BUILD ===" -ForegroundColor Cyan
+Write-Host "=== ARRAKIS APK BUILD ===" -ForegroundColor Cyan
 Write-Host "  Mode: $Mode" -ForegroundColor White
 
 #-- Check ADB device (skip if SkipInstall)
