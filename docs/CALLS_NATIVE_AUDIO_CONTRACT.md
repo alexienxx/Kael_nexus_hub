@@ -16,6 +16,23 @@ attraversa questi confini reali:
 6. stop locale immediato, interrupt remoto e ricevute playout su
    `POST /audio/speech/{delivery_id}/playout`.
 
+Il microfono e un prerequisito della chiamata; la camera e opzionale. Il client
+prova prima audio+video e, se la camera non e disponibile, ripete la richiesta
+solo audio. Non presenta piu una chiamata attiva senza una traccia microfono
+reale. Le impostazioni AEC/NS/AGC lette dal `MediaStreamTrack` sono osservazioni
+del browser/dispositivo, non conseguenze presunte dai constraint richiesti.
+Il barge in acustico automatico e abilitato soltanto quando il track conferma
+`echoCancellation=true`; altrimenti l'interfaccia dichiara il degrado e mantiene
+l'interruzione locale esplicita tramite il pulsante microfono.
+
+Il barge in non aspetta la rete per riaprire il microfono: il client silenzia il
+gain, attende soltanto l'ack del Worklet e riparte con la cattura. Interrupt
+remoto e consegna della ricevuta proseguono sullo stesso handle tracciato. La
+ricevuta v3 conserva una causa bounded (`acoustic_barge_in`, `manual`,
+`call_end`, `transport_failure`) e il valore AEC riportato; non conserva RMS,
+device label, audio o identificativi hardware. Il backend accetta v2 e v3 nella
+finestra di rollout.
+
 La risposta PCM porta anche `X-Arrakis-Speech-Plan-SHA256`. Il client ne
 verifica il formato prima di aprire il player, lo conserva nel binding
 immutabile della delivery e lo restituisce come header di ogni ricevuta

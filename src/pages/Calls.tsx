@@ -45,6 +45,21 @@ import { observeSustainedRms } from "@/lib/audio/sustainedRms";
 import { startAvatarStream, stopAvatarStream } from "@/lib/api/avatar";
 import { toast } from "sonner";
 
+type AcousticCaptureEvidence = Readonly<{
+  echoCancellation: boolean | null;
+  noiseSuppression: boolean | null;
+  autoGainControl: boolean | null;
+  sampleRate: number | null;
+  channelCount: number | null;
+  videoAvailable: boolean;
+}>;
+
+const reportedBoolean = (value: unknown): boolean | null =>
+  typeof value === "boolean" ? value : null;
+
+const reportedNumber = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+
 const Calls = () => {
   type CallPhase = "listening" | "thinking" | "speaking";
   const [callState, setCallState] = useState<CallState>("idle");
@@ -58,6 +73,7 @@ const Calls = () => {
   const [webcamError, setWebcamError] = useState<string | null>(null);
   /** Non-null when audio loop encounters backend errors during an active call. */
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [acousticNotice, setAcousticNotice] = useState<string | null>(null);
 
   const webcamVideoRef = useRef<HTMLVideoElement>(null);
   const webcamStreamRef = useRef<MediaStream | null>(null);
@@ -77,6 +93,7 @@ const Calls = () => {
   const startListeningRef = useRef<(stream: MediaStream, activeCallId: string) => void>(() => {});
   const isMutedRef = useRef(false);          // shadow of isMuted for use inside async callbacks
   const callActiveRef = useRef(false);       // tracks whether the audio loop should continue
+  const acousticCaptureRef = useRef<AcousticCaptureEvidence | null>(null);
   /** Consecutive audio-turn failures. Reset to 0 on any successful turn. */
   const audioErrorCountRef = useRef(0);
 
@@ -139,7 +156,10 @@ const Calls = () => {
       endpointSourceRef.current?.disconnect();
       endpointAnalyserRef.current?.disconnect();
       void endpointContextRef.current?.close();
-      void nativeCallVoiceService.stop();
+      void nativeCallVoiceService.stop({
+        interruptionOrigin: "call_end",
+        echoCancellationReported: acousticCaptureRef.current?.echoCancellation ?? null,
+      });
       if (webcamStreamRef.current) {
         webcamStreamRef.current.getTracks().forEach((t) => t.stop());
       }
@@ -147,36 +167,78 @@ const Calls = () => {
     };
   }, []);
 
-  const startWebcam = useCallback(async (attempt: number): Promise<boolean> => {
+  const startCallMedia = useCallback(async (attempt: number): Promise<boolean> => {
+    const audioConstraints: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+    };
+    let stream: MediaStream;
+    let videoFailure: unknown = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "user", width: { ideal: 320 }, height: { ideal: 240 } },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-        },
+        audio: audioConstraints,
       });
-      if (callAttemptRef.current !== attempt) {
-        stream.getTracks().forEach((track) => track.stop());
+    } catch (error) {
+      videoFailure = error;
+      if (callAttemptRef.current !== attempt) return false;
+      try {
+        // Camera is optional. A real microphone track is not: retry audio-only
+        // rather than presenting an active call that cannot hear the user.
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: false,
+          audio: audioConstraints,
+        });
+      } catch {
+        if (callAttemptRef.current !== attempt) return false;
+        setAudioError("Microfono non disponibile");
+        setWebcamError(
+          videoFailure instanceof Error ? videoFailure.message : "Webcam non disponibile",
+        );
         return false;
       }
-      webcamStreamRef.current = stream;
-      if (webcamVideoRef.current) {
-        webcamVideoRef.current.srcObject = stream;
-      }
-      setWebcamError(null);
-      return true;
-    } catch (err) {
-      if (callAttemptRef.current !== attempt) return false;
-      setWebcamError(err instanceof Error ? err.message : "Webcam non disponibile");
-      // Don't block the call if webcam unavailable
-      return true;
     }
+    if (callAttemptRef.current !== attempt) {
+      stream.getTracks().forEach((track) => track.stop());
+      return false;
+    }
+    const audioTrack = stream.getAudioTracks().find((track) => track.readyState === "live");
+    if (!audioTrack) {
+      stream.getTracks().forEach((track) => track.stop());
+      setAudioError("Microfono non disponibile");
+      return false;
+    }
+    const settings = audioTrack.getSettings();
+    const evidence: AcousticCaptureEvidence = Object.freeze({
+      echoCancellation: reportedBoolean(settings.echoCancellation),
+      noiseSuppression: reportedBoolean(settings.noiseSuppression),
+      autoGainControl: reportedBoolean(settings.autoGainControl),
+      sampleRate: reportedNumber(settings.sampleRate),
+      channelCount: reportedNumber(settings.channelCount),
+      videoAvailable: stream.getVideoTracks().some((track) => track.readyState === "live"),
+    });
+    acousticCaptureRef.current = evidence;
+    setAudioError(null);
+    setAcousticNotice(
+      evidence.echoCancellation === true
+        ? null
+        : "AEC non confermata: usa il pulsante microfono per interrompere Arrakis",
+    );
+    setWebcamError(
+      evidence.videoAvailable
+        ? null
+        : "Webcam non disponibile; chiamata audio attiva",
+    );
+    webcamStreamRef.current = stream;
+    if (webcamVideoRef.current) {
+      webcamVideoRef.current.srcObject = evidence.videoAvailable ? stream : null;
+    }
+    return true;
   }, []);
 
-  const stopWebcam = useCallback(() => {
+  const stopCallMedia = useCallback(() => {
     if (webcamStreamRef.current) {
       webcamStreamRef.current.getTracks().forEach((t) => t.stop());
       webcamStreamRef.current = null;
@@ -184,6 +246,8 @@ const Calls = () => {
     if (webcamVideoRef.current) {
       webcamVideoRef.current.srcObject = null;
     }
+    acousticCaptureRef.current = null;
+    setAcousticNotice(null);
   }, []);
 
   const closeEndpointing = useCallback(() => {
@@ -220,7 +284,10 @@ const Calls = () => {
     if (callPhaseRef.current === "speaking" && callId && webcamStreamRef.current) {
       const stream = webcamStreamRef.current;
       const attempt = activeCallAttemptRef.current;
-      await nativeCallVoiceService.stop();
+      await nativeCallVoiceService.stopLocal({
+        interruptionOrigin: "manual",
+        echoCancellationReported: acousticCaptureRef.current?.echoCancellation ?? null,
+      });
       if (
         !callActiveRef.current || attempt == null ||
         activeCallAttemptRef.current !== attempt || webcamStreamRef.current !== stream
@@ -258,12 +325,15 @@ const Calls = () => {
     activationTimerRef.current = null;
     setCallState("ended");
     stopAudioLoop();
-    const stopPlayback = nativeCallVoiceService.stop();
-    stopWebcam();
+    const stopPlayback = nativeCallVoiceService.stop({
+      interruptionOrigin: "call_end",
+      echoCancellationReported: acousticCaptureRef.current?.echoCancellation ?? null,
+    });
+    stopCallMedia();
     void stopAvatarStream().catch(() => {});
     setAvatarStreamUrl(null);
     return stopPlayback;
-  }, [stopAudioLoop, stopWebcam]);
+  }, [stopAudioLoop, stopCallMedia]);
 
   const scheduleIdleReset = useCallback(() => {
     if (endedResetTimerRef.current) clearTimeout(endedResetTimerRef.current);
@@ -290,6 +360,7 @@ const Calls = () => {
     onBargeIn: () => void,
   ): boolean => {
     if (!stream.getAudioTracks().some((track) => track.enabled)) return false;
+    if (acousticCaptureRef.current?.echoCancellation !== true) return false;
     closeEndpointing();
     let context: AudioContext | null = null;
     let source: MediaStreamAudioSourceNode;
@@ -332,6 +403,9 @@ const Calls = () => {
     void context.resume().catch(() => {
       if (endpointContextRef.current !== context) return;
       console.warn("[Calls] AUDIO_BARGE_IN_ANALYSER_UNAVAILABLE");
+      setAcousticNotice(
+        "Rilevamento interruzione non disponibile: usa il pulsante microfono",
+      );
       closeEndpointing();
     });
     endpointFrameRef.current = requestAnimationFrame(monitor);
@@ -367,7 +441,10 @@ const Calls = () => {
             activeCallAttemptRef.current !== attempt
           ) return;
           bargeInTriggered = true;
-          void nativeCallVoiceService.stop().finally(() => {
+          void nativeCallVoiceService.stopLocal({
+            interruptionOrigin: "acoustic_barge_in",
+            echoCancellationReported: true,
+          }).finally(() => {
             if (
               callActiveRef.current && activeCallAttemptRef.current === attempt &&
               webcamStreamRef.current
@@ -548,7 +625,7 @@ const Calls = () => {
       if (callAttemptRef.current !== attempt) return false;
       setAvatarStreamUrl(null);
     }
-    if (!await startWebcam(attempt) || callAttemptRef.current !== attempt) return false;
+    if (!await startCallMedia(attempt) || callAttemptRef.current !== attempt) return false;
     activationTimerRef.current = setTimeout(() => {
       activationTimerRef.current = null;
       if (callAttemptRef.current !== attempt) return;
@@ -556,37 +633,71 @@ const Calls = () => {
       if (webcamStreamRef.current) startAudioLoop(webcamStreamRef.current, activeCallId);
     }, 800);
     return true;
-  }, [startAudioLoop, startWebcam]);
+  }, [startAudioLoop, startCallMedia]);
+
+  const abandonUnactivatedCall = useCallback(async (
+    failedCallId: string,
+    attempt: number,
+  ) => {
+    await endCall(failedCallId, sessionId).catch(() => {});
+    // A superseding attempt owns the current UI/media. Only the attempt that
+    // failed activation may return its own ringing screen to idle.
+    if (callAttemptRef.current !== attempt) return;
+    activeCallAttemptRef.current = null;
+    callActiveRef.current = false;
+    stopCallMedia();
+    await stopAvatarStream().catch(() => {});
+    setAvatarStreamUrl(null);
+    setCallId(null);
+    setCallState("idle");
+  }, [sessionId, stopCallMedia]);
 
   const handleStartCall = useCallback(async () => {
     const attempt = ++callAttemptRef.current;
+    let lifecycleCallId: string | null = null;
     setCallState("ringing");   // show "Connessione in corso..." immediately
     try {
       const response = await initiateCall(sessionId);
-      if (callAttemptRef.current !== attempt || !await activateMedia(response.call_id, attempt)) {
-        await endCall(response.call_id, sessionId).catch(() => {});
+      lifecycleCallId = response.call_id;
+      const activated = callAttemptRef.current === attempt
+        && await activateMedia(response.call_id, attempt);
+      if (!activated) {
+        await abandonUnactivatedCall(response.call_id, attempt);
       }
     } catch (error) {
-      setCallState("idle");
-      stopWebcam();
+      if (lifecycleCallId) {
+        await abandonUnactivatedCall(lifecycleCallId, attempt);
+      } else if (callAttemptRef.current === attempt) {
+        setCallState("idle");
+        stopCallMedia();
+      }
       toast.error(error instanceof Error ? error.message : "Impossibile avviare la videochiamata");
     }
-  }, [activateMedia, sessionId, stopWebcam]);
+  }, [abandonUnactivatedCall, activateMedia, sessionId, stopCallMedia]);
 
   const answerIncoming = useCallback(async (incomingCallId: string) => {
     const attempt = ++callAttemptRef.current;
+    let lifecycleCallId: string | null = null;
     setCallState("ringing");
     try {
       const response = await answerCall(incomingCallId, sessionId);
+      lifecycleCallId = response.call_id;
       setIncomingCall(null);
-      if (callAttemptRef.current !== attempt || !await activateMedia(response.call_id, attempt)) {
-        await endCall(response.call_id, sessionId).catch(() => {});
+      const activated = callAttemptRef.current === attempt
+        && await activateMedia(response.call_id, attempt);
+      if (!activated) {
+        await abandonUnactivatedCall(response.call_id, attempt);
       }
     } catch (error) {
-      setCallState("idle");
+      if (lifecycleCallId) {
+        await abandonUnactivatedCall(lifecycleCallId, attempt);
+      } else if (callAttemptRef.current === attempt) {
+        setCallState("idle");
+        stopCallMedia();
+      }
       toast.error(error instanceof Error ? error.message : "Impossibile rispondere alla chiamata");
     }
-  }, [activateMedia, sessionId]);
+  }, [abandonUnactivatedCall, activateMedia, sessionId, stopCallMedia]);
 
   const handleAnswerIncoming = useCallback(async () => {
     if (!incomingCall) return;
@@ -759,10 +870,13 @@ const Calls = () => {
           )}
         </div>
 
-        {/* Audio error banner — shown when backend fails during an active call */}
-        {callState === "active" && audioError && (
-          <div className="absolute inset-x-4 bottom-4 rounded-xl bg-destructive/80 px-3 py-2 text-center text-xs text-white backdrop-blur-sm">
-            ⚠ {audioError}
+        {/* Acoustic boundary stays explicit: a requested constraint is not proof
+            that the capture device actually applied AEC. */}
+        {callState === "active" && (audioError || acousticNotice) && (
+          <div className={`absolute inset-x-4 bottom-4 rounded-xl px-3 py-2 text-center text-xs text-white backdrop-blur-sm ${
+            audioError ? "bg-destructive/80" : "bg-amber-600/80"
+          }`}>
+            ⚠ {audioError ?? acousticNotice}
           </div>
         )}
       </div>

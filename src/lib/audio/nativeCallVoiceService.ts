@@ -3,6 +3,7 @@ import {
   NativePcmPlayer,
   type NativePcmFrame,
   type NativePlayoutReport,
+  type NativeStopContext,
   type NativeVoiceBinding,
 } from "./nativePcmPlayer";
 
@@ -17,6 +18,14 @@ interface ActiveVoice {
   binding: NativeVoiceBinding;
   sessionId: string;
   stoppedByUser: boolean;
+  stopHandle?: VoiceStopHandle;
+}
+
+interface VoiceStopHandle {
+  /** Local gain mute plus AudioWorklet acknowledgement. */
+  local: Promise<void>;
+  /** Remote interrupt and durable terminal receipt delivery. */
+  settled: Promise<void>;
 }
 
 export interface AssistantSpeechRequest {
@@ -138,6 +147,8 @@ export class NativeCallVoiceService {
   private active: ActiveVoice | null = null;
   private pendingAbort: AbortController | null = null;
   private pendingStoppedByUser = false;
+  private pendingStopContext: NativeStopContext | null = null;
+  private pendingStop: Promise<void> | null = null;
 
   async playAssistantTurn(
     assistantTurnId: number,
@@ -152,6 +163,7 @@ export class NativeCallVoiceService {
 
     const abort = new AbortController();
     this.pendingStoppedByUser = false;
+    this.pendingStopContext = null;
     this.pendingAbort = abort;
     const transport = authenticatedFetch(request.path, {
       ...request.options,
@@ -185,35 +197,94 @@ export class NativeCallVoiceService {
       if (!binding) {
         try { binding = (await transport).binding; } catch { /* no durable binding */ }
       }
-      if (player) {
-        try { await player.stop(); } catch { /* terminal may already be failed */ }
-      }
-      if (binding) await this.interruptRemote(binding.deliveryId);
+      const activeMatches = binding != null
+        && this.active?.binding.deliveryId === binding.deliveryId;
       const stoppedByUser = this.pendingStoppedByUser || (
-        binding != null && this.active?.binding.deliveryId === binding.deliveryId &&
-        this.active.stoppedByUser
+        activeMatches && this.active?.stoppedByUser === true
       );
+      if (player && !(activeMatches && this.active?.stopHandle)) {
+        try {
+          await player.stop(stoppedByUser && this.pendingStopContext
+            ? this.pendingStopContext
+            : {
+                interruptionOrigin: "transport_failure",
+                echoCancellationReported: null,
+              });
+        } catch { /* terminal may already be failed */ }
+      }
+      // An active stop already owns remote interruption and receipt delivery.
+      // Do not make barge-in wait for a second network round-trip.
+      if (binding && !(activeMatches && this.active?.stopHandle)) {
+        await this.interruptRemote(binding.deliveryId);
+      }
       if (!stoppedByUser) throw error;
     } finally {
       if (this.pendingAbort === abort) this.pendingAbort = null;
       this.pendingStoppedByUser = false;
+      this.pendingStopContext = null;
       if (binding && this.active?.binding.deliveryId === binding.deliveryId) this.active = null;
     }
   }
 
-  async stop(): Promise<void> {
+  private beginStop(context: NativeStopContext): VoiceStopHandle {
     const current = this.active;
     if (!current) {
       this.pendingStoppedByUser = true;
+      this.pendingStopContext = Object.freeze({ ...context });
       this.pendingAbort?.abort();
-      return;
+      return {
+        local: Promise.resolve(),
+        settled: this.pendingStop ?? Promise.resolve(),
+      };
+    }
+    if (current.stopHandle) {
+      // The player freezes the first stop context and rejects any later caller
+      // that tries to rewrite the interruption cause.
+      current.player.stop(context);
+      return current.stopHandle;
     }
     current.stoppedByUser = true;
-    const terminal = current.player.stop();
+    const terminal = current.player.stop(context);
     current.abort.abort();
-    await this.interruptRemote(current.binding.deliveryId);
-    try { await terminal; } catch { /* the caller observes the play attempt */ }
-    try { await current.player.receiptDelivery; } catch { /* backend owns diagnostics */ }
+    const local = terminal.then(
+      () => undefined,
+      () => undefined, // the owning play attempt observes terminal failure
+    );
+    const remote = this.interruptRemote(current.binding.deliveryId);
+    const receipt = local.then(async () => {
+      try { await current.player.receiptDelivery; } catch { /* backend owns diagnostics */ }
+    });
+    const settled = Promise.allSettled([remote, receipt]).then(() => undefined);
+    let tracked!: Promise<void>;
+    tracked = settled.finally(() => {
+      if (this.pendingStop === tracked) this.pendingStop = null;
+    });
+    const handle = { local, settled: tracked };
+    current.stopHandle = handle;
+    this.pendingStop = tracked;
+    return handle;
+  }
+
+  /**
+   * Silence the local player and wait only for its Worklet acknowledgement.
+   * Remote interrupt and receipt persistence continue on the tracked stop
+   * handle, so barge-in can reopen capture without network latency.
+   */
+  async stopLocal(context: NativeStopContext = {
+    interruptionOrigin: "manual",
+    echoCancellationReported: null,
+  }): Promise<void> {
+    await this.beginStop(context).local;
+  }
+
+  /** Full stop used for teardown paths that need remote/receipt settlement. */
+  async stop(context: NativeStopContext = {
+    interruptionOrigin: "manual",
+    echoCancellationReported: null,
+  }): Promise<void> {
+    const handle = this.beginStop(context);
+    await handle.local;
+    await handle.settled;
   }
 
   private async consume(

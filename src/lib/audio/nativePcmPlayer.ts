@@ -16,12 +16,25 @@ export interface NativePlayoutReport {
   measured_at: string;
   measurement_method: "audio_worklet_render_quantum";
   discontinuity: boolean;
-  schema_version: "arrakis.playout-report.v2";
+  schema_version: "arrakis.playout-report.v3";
   timing_method: "client_performance_now";
   player_open_to_first_frame_ms: number | null;
   player_open_to_first_quantum_ms: number | null;
   stop_to_local_mute_command_ms: number | null;
   stop_to_worklet_ack_ms: number | null;
+  interruption_origin: NativeInterruptionOrigin | null;
+  echo_cancellation_reported: boolean | null;
+}
+
+export type NativeInterruptionOrigin =
+  | "acoustic_barge_in"
+  | "manual"
+  | "call_end"
+  | "transport_failure";
+
+export interface NativeStopContext {
+  interruptionOrigin: NativeInterruptionOrigin;
+  echoCancellationReported: boolean | null;
 }
 
 export interface NativePcmFrame {
@@ -59,6 +72,7 @@ export class NativePcmPlayer {
   private firstQuantumElapsedMs: number | null = null;
   private stopRequestedAt: number | null = null;
   private stopMuteCommandMs: number | null = null;
+  private stopContext: NativeStopContext | null = null;
   private resolveTerminal!: (report: NativePlayoutReport) => void;
   private rejectTerminal!: (error: Error) => void;
   private resolveClosed!: () => void;
@@ -219,12 +233,26 @@ export class NativePcmPlayer {
     return this.terminal;
   }
 
-  stop(): Promise<NativePlayoutReport> {
+  stop(context: NativeStopContext = {
+    interruptionOrigin: "manual",
+    echoCancellationReported: null,
+  }): Promise<NativePlayoutReport> {
+    if (
+      !["acoustic_barge_in", "manual", "call_end", "transport_failure"]
+        .includes(context.interruptionOrigin) ||
+      (context.echoCancellationReported !== null &&
+        typeof context.echoCancellationReported !== "boolean") ||
+      (context.interruptionOrigin === "acoustic_barge_in" &&
+        context.echoCancellationReported !== true)
+    ) {
+      throw new Error("AUDIO_PLAYER_STOP_CONTEXT_INVALID");
+    }
     if (this.final && this.drainTimer) {
       this.gain.gain.setValueAtTime(0, this.context.currentTime);
       this.teardown();
     }
     if (!this.final && !this.stopping) {
+      this.stopContext = Object.freeze({ ...context });
       this.stopping = true;
       this.discontinuity = true;
       this.stopRequestedAt = performance.now();
@@ -239,6 +267,12 @@ export class NativePcmPlayer {
       });
       if (this.deadline) clearTimeout(this.deadline);
       this.deadline = setTimeout(() => this.fail("AUDIO_PLAYER_STOP_UNCONFIRMED"), 1000);
+    } else if (
+      this.stopping && this.stopContext &&
+      (this.stopContext.interruptionOrigin !== context.interruptionOrigin ||
+        this.stopContext.echoCancellationReported !== context.echoCancellationReported)
+    ) {
+      throw new Error("AUDIO_PLAYER_STOP_CONTEXT_CONFLICT");
     }
     return this.terminal;
   }
@@ -292,6 +326,18 @@ export class NativePcmPlayer {
     const stopAckMs = this.stopRequestedAt === null
       ? null
       : this.elapsedSince(this.stopRequestedAt);
+    const interruptionOrigin = data.status === "failed"
+      ? "transport_failure"
+      : data.status === "interrupted"
+        ? this.stopContext?.interruptionOrigin ?? null
+        : null;
+    const echoCancellationReported = data.status === "interrupted"
+      ? this.stopContext?.echoCancellationReported ?? null
+      : null;
+    if (data.status === "interrupted" && interruptionOrigin === null) {
+      this.fail("AUDIO_PLAYER_STOP_CONTEXT_MISSING");
+      return;
+    }
     const report: NativePlayoutReport = {
       sequence: this.nextReport++,
       played_sample_boundary: data.playedSampleBoundary,
@@ -299,12 +345,14 @@ export class NativePcmPlayer {
       measured_at: new Date().toISOString(),
       measurement_method: "audio_worklet_render_quantum",
       discontinuity: data.discontinuity,
-      schema_version: "arrakis.playout-report.v2",
+      schema_version: "arrakis.playout-report.v3",
       timing_method: "client_performance_now",
       player_open_to_first_frame_ms: this.firstFrameElapsedMs,
       player_open_to_first_quantum_ms: this.firstQuantumElapsedMs,
       stop_to_local_mute_command_ms: stopAckMs === null ? null : this.stopMuteCommandMs,
       stop_to_worklet_ack_ms: stopAckMs,
+      interruption_origin: interruptionOrigin,
+      echo_cancellation_reported: echoCancellationReported,
     };
     if (this.pendingReceipts >= 4) {
       this.fail("AUDIO_PLAYER_RECEIPT_BACKPRESSURE");
