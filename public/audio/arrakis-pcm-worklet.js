@@ -94,7 +94,8 @@ class ArrakisPcmProcessor extends AudioWorkletProcessor {
       return false
     }
     if (written < output.length && this.started) this.discontinuity = true
-    if (this.played - this.lastReport >= 2400) this.report('playing')
+    if ((this.lastReport === 0 && this.played > 0)
+        || this.played - this.lastReport >= 2400) this.report('playing')
     return true
   }
 }

@@ -29,6 +29,13 @@ testuale corrente. Il client chiamata non lo visualizza e non crea una seconda
 cronologia. Il player attesta campioni consumati dal motore Web Audio, non che
 la persona li abbia uditi o compresi.
 
+Ogni ricevuta usa `arrakis.playout-report.v2` e aggiunge misure monotone del
+solo client: apertura player → primo frame decodificato, apertura → primo
+quantum del Worklet, richiesta stop → comando locale di mute e richiesta stop
+→ acknowledgement del Worklet. I clock client e server non vengono confrontati.
+Il comando di mute prova l'azione locale richiesta, non il silenzio fisico della
+soundcard; il primo quantum prova consumo Web Audio, non ascolto umano.
+
 ```mermaid
 flowchart LR
   LIFE[/audio/calls lifecycle] --> BIND[call_id + session + principal]

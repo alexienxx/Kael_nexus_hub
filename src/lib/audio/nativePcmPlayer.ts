@@ -16,6 +16,12 @@ export interface NativePlayoutReport {
   measured_at: string;
   measurement_method: "audio_worklet_render_quantum";
   discontinuity: boolean;
+  schema_version: "arrakis.playout-report.v2";
+  timing_method: "client_performance_now";
+  player_open_to_first_frame_ms: number | null;
+  player_open_to_first_quantum_ms: number | null;
+  stop_to_local_mute_command_ms: number | null;
+  stop_to_worklet_ack_ms: number | null;
 }
 
 export interface NativePcmFrame {
@@ -48,6 +54,11 @@ export class NativePcmPlayer {
   private deadline: ReturnType<typeof setTimeout> | null = null;
   private drainTimer: ReturnType<typeof setTimeout> | null = null;
   private released = false;
+  private readonly openedAt = performance.now();
+  private firstFrameElapsedMs: number | null = null;
+  private firstQuantumElapsedMs: number | null = null;
+  private stopRequestedAt: number | null = null;
+  private stopMuteCommandMs: number | null = null;
   private resolveTerminal!: (report: NativePlayoutReport) => void;
   private rejectTerminal!: (error: Error) => void;
   private resolveClosed!: () => void;
@@ -165,6 +176,9 @@ export class NativePcmPlayer {
       const view = new DataView(bytes);
       const pcm = new Int16Array(count);
       for (let index = 0; index < count; index++) pcm[index] = view.getInt16(index * 2, true);
+      if (this.firstFrameElapsedMs === null) {
+        this.firstFrameElapsedMs = this.elapsedSince(this.openedAt);
+      }
       const sequence = frame.sequence;
       const sampleStart = frame.sampleStart;
       while ((this.capacity < count || !this.frameSlots) && !this.final && !this.stopping) {
@@ -213,7 +227,9 @@ export class NativePcmPlayer {
     if (!this.final && !this.stopping) {
       this.stopping = true;
       this.discontinuity = true;
+      this.stopRequestedAt = performance.now();
       this.gain.gain.setValueAtTime(0, this.context.currentTime);
+      this.stopMuteCommandMs = this.elapsedSince(this.stopRequestedAt);
       this.wake?.();
       this.wake = null;
       this.node.port.postMessage({
@@ -246,6 +262,12 @@ export class NativePcmPlayer {
       this.wake = null;
       return;
     }
+    if (
+      data.kind === "report" && data.playedSampleBoundary > 0 &&
+      this.firstQuantumElapsedMs === null
+    ) {
+      this.firstQuantumElapsedMs = this.elapsedSince(this.openedAt);
+    }
     if (this.stopping && data.kind === "report") {
       if (data.status === "playing") return;
       data = {
@@ -267,6 +289,9 @@ export class NativePcmPlayer {
     }
     this.lastBoundary = data.playedSampleBoundary;
     this.discontinuity = data.discontinuity;
+    const stopAckMs = this.stopRequestedAt === null
+      ? null
+      : this.elapsedSince(this.stopRequestedAt);
     const report: NativePlayoutReport = {
       sequence: this.nextReport++,
       played_sample_boundary: data.playedSampleBoundary,
@@ -274,6 +299,12 @@ export class NativePcmPlayer {
       measured_at: new Date().toISOString(),
       measurement_method: "audio_worklet_render_quantum",
       discontinuity: data.discontinuity,
+      schema_version: "arrakis.playout-report.v2",
+      timing_method: "client_performance_now",
+      player_open_to_first_frame_ms: this.firstFrameElapsedMs,
+      player_open_to_first_quantum_ms: this.firstQuantumElapsedMs,
+      stop_to_local_mute_command_ms: stopAckMs === null ? null : this.stopMuteCommandMs,
+      stop_to_worklet_ack_ms: stopAckMs,
     };
     if (this.pendingReceipts >= 4) {
       this.fail("AUDIO_PLAYER_RECEIPT_BACKPRESSURE");
@@ -297,6 +328,11 @@ export class NativePcmPlayer {
 
   get receiptDelivery(): Promise<void> {
     return this.receiptChain;
+  }
+
+  private elapsedSince(startedAt: number): number {
+    const elapsed = performance.now() - startedAt;
+    return Math.round(Math.min(60_000, Math.max(0, elapsed)) * 1000) / 1000;
   }
 
   private fail(code: string): void {
