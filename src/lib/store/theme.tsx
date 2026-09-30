@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import type { ThemeSettings } from "@/types";
-import kaelAvatarDefault from "@/assets/kael-avatar.jpg";
+import arrakisLogoDefault from "@/assets/arrakis-logo.png";
 import { ThemeContext, defaultTheme } from "@/lib/store/theme-context";
 
 const STORAGE_KEY = "kael-theme-settings";
@@ -38,7 +38,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   );
   const resetTheme = useCallback(() => setThemeState(defaultTheme), []);
 
-  const kaelAvatarSrc = theme.kaelAvatar || kaelAvatarDefault;
+  // The stored key remains a compatibility alias for existing installations.
+  const kaelAvatarSrc = theme.kaelAvatar || arrakisLogoDefault;
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme, updateTheme, resetTheme, kaelAvatarSrc }}>

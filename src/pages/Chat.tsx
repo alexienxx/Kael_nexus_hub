@@ -12,6 +12,7 @@ import chatBg from "@/assets/chat-bg.jpg";
 import KaelHeader from "@/components/layout/KaelHeader";
 import ChatInput from "@/components/chat/ChatInput";
 import MessageBubble from "@/components/chat/MessageBubble";
+import type { NativeVoicePlaybackState } from "@/components/chat/NativeVoiceNoteControl";
 import OutboxAttentionPanel from "@/components/chat/OutboxAttentionPanel";
 import TypingIndicator from "@/components/TypingIndicator";
 import ImageViewer from "@/components/media/ImageViewer";
@@ -29,18 +30,13 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import * as chatApi from "@/lib/api/chat";
 import type { BackendChatMessage, QuotedMessagePayload } from "@/lib/api/chat";
-import {
-  getAuthenticatedVoiceAudioUrl,
-  getVoiceAudioResourcePath,
-  requestTTS,
-} from "@/lib/api/voice";
 import { fetchAvatarVideo, getVideoJobStatus } from "@/lib/api/avatar";
 import { emitTelemetry } from "@/lib/telemetry/sseTelemetry";
 import {
   mergeMessagesIdempotent,
   normalizeAfterTs,
-  resolveAudioUrlFromPayload,
   resolveAssistantIdentity,
+  resolveBackendDeliveryMode,
   resolveBackendMessageIdentity,
   resolveHistoryMessageId,
 } from "@/lib/chat/reliability";
@@ -89,7 +85,17 @@ const pollAndFetchAvatarVideo = async (jobId: string): Promise<string | null> =>
 };
 import { getApiConfig, probeAndResolveBackend } from "@/lib/api/client";
 import { getGalleryFileUrl } from "@/lib/api/media";
+import {
+  createImageDeliveryAcknowledger,
+  imageGenerationJobIdFromMeta,
+  pollImageGenerationJob,
+} from "@/lib/api/imageJobs";
+import {
+  applyImageJobReceipt,
+  withImageGenerationClientState,
+} from "@/lib/chat/imageJobDelivery";
 import { sendExternalAgentMessage, getSelectedModel, type ExternalChatMessage } from "@/lib/externalAgent";
+import { nativeCallVoiceService } from "@/lib/audio/nativeCallVoiceService";
 
 // Default conversation ID for the main Kael chat
 const DEFAULT_CONVERSATION_ID = "kael-main";
@@ -111,6 +117,11 @@ interface QuotedPreview {
 
 const Chat = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [nativeVoicePlayback, setNativeVoicePlayback] = useState<{
+    turnId: number | null;
+    state: NativeVoicePlaybackState;
+  }>({ turnId: null, state: "idle" });
+  const nativeVoiceAttemptRef = useRef(0);
   const [quotedPreview, setQuotedPreview] = useState<QuotedPreview | null>(null);
   const [quotedMessagePayload, setQuotedMessagePayload] = useState<QuotedMessagePayload | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true);
@@ -258,7 +269,7 @@ const Chat = () => {
     // Show appropriate toast
     const modeMessages: Record<WallpaperKaelMode, string> = {
       wallpaper_only: "Sfondo aggiornato ✨",
-      share_once: "Sfondo condiviso con Kael 📸",
+      share_once: "Sfondo condiviso con Arrakis 📸",
       persistent_context: "Contesto visivo attivo aggiornato 👁️",
     };
 
@@ -274,7 +285,7 @@ const Chat = () => {
         .catch((err) => {
           console.error("[Wallpaper] backend sync failed:", err);
           updateSyncStatus("failed");
-          toast.error("Sfondo impostato localmente, ma sync con Kael fallita");
+          toast.error("Sfondo impostato localmente, ma sync con Arrakis fallita");
         });
     } else {
       toast.success(modeMessages[mode]);
@@ -334,14 +345,11 @@ const Chat = () => {
         ?.map((part: unknown) => String(part ?? "").trim())
         .filter((part: string) => part.length > 0);
 
-    const baseUrl = getApiConfig().baseUrl;
     const audioDuration = typeof m.duration_ms === "number"
       ? Math.max(0, m.duration_ms / 1000)
       : typeof m.duration === "number"
         ? Math.max(0, m.duration)
         : undefined;
-    const audioAssetPath = getVoiceAudioResourcePath(m);
-
     return {
       id: resolveHistoryMessageId(m, sessionId),
       text: normalizedMessage.text,
@@ -360,18 +368,11 @@ const Chat = () => {
       // client_message_id is hoisted from meta_json by the backend history endpoint.
       // Present on user turns where the frontend sent a client_message_id at send time.
       client_message_id: m.client_message_id ?? m.metadata?.client_message_id ?? undefined,
-      // Voice fallback chain (priority order):
-      //   1. tts_url        — persistent URL (history/pending-safe)
-      //   2. voice_audio    — ephemeral base64
-      //   3. audioUrl       — legacy fallback
-      // voice_asset_id is NOT a direct audio src.
-      audioUrl: audioAssetPath ? undefined : resolveAudioUrlFromPayload(m, baseUrl),
-      audioAssetPath,
       audioDuration,
       image: imageUrl,
       imageAssetId,
       meta: normalizedMessage.meta,
-      delivery_mode: m.delivery_mode ?? m.deliveryMode ?? (m.message_type === "voice_note" ? "voice_note" : undefined),
+      delivery_mode: resolveBackendDeliveryMode(m),
       agent_id: backendIdentity.agentId,
       agent_name: backendIdentity.agentName,
       agent_avatar: backendIdentity.agentAvatar,
@@ -379,7 +380,64 @@ const Chat = () => {
   }, [normalizeAssistantPayload, sessionId]);
 
   const resolvingImageAssetsRef = useRef<Set<string>>(new Set());
-  const resolvingAudioAssetsRef = useRef<Set<string>>(new Set());
+  const pollingImageJobsRef = useRef<Map<string, AbortController>>(new Map());
+  const imageDeliveryAcknowledgerRef = useRef(createImageDeliveryAcknowledger());
+
+  useEffect(() => {
+    const activePolls = pollingImageJobsRef.current;
+    return () => {
+      activePolls.forEach((controller) => controller.abort());
+      activePolls.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    for (const message of messages) {
+      const jobId = imageGenerationJobIdFromMeta(message.meta);
+      const clientState = String(message.meta?.image_generation_client_state ?? "");
+      if (
+        !jobId ||
+        message.imageAssetId ||
+        clientState === "FAILED" ||
+        clientState === "CANCELLED" ||
+        clientState === "POLL_EXHAUSTED" ||
+        clientState === "POLL_ERROR"
+      ) {
+        continue;
+      }
+
+      const pollKey = `${sessionId}\u0000${jobId}`;
+      if (pollingImageJobsRef.current.has(pollKey)) continue;
+      const controller = new AbortController();
+      pollingImageJobsRef.current.set(pollKey, controller);
+
+      void pollImageGenerationJob(jobId, sessionId, { signal: controller.signal })
+        .then((receipt) => {
+          if (controller.signal.aborted) return;
+          setMessages((current) => current.map((candidate) => {
+            if (imageGenerationJobIdFromMeta(candidate.meta) !== jobId) return candidate;
+            return receipt
+              ? applyImageJobReceipt(candidate, jobId, receipt)
+              : withImageGenerationClientState(candidate, "POLL_EXHAUSTED");
+          }));
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          console.warn("[Chat] image generation job polling stopped", {
+            jobId,
+            error: error instanceof Error ? error.name : "unknown",
+          });
+          setMessages((current) => current.map((candidate) =>
+            imageGenerationJobIdFromMeta(candidate.meta) === jobId
+              ? withImageGenerationClientState(candidate, "POLL_ERROR")
+              : candidate
+          ));
+        })
+        .finally(() => {
+          pollingImageJobsRef.current.delete(pollKey);
+        });
+    }
+  }, [messages, sessionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -413,37 +471,28 @@ const Chat = () => {
     return () => { cancelled = true; };
   }, [messages]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const pendingPaths = Array.from(new Set(
-      messages
-        .filter((message) => message.audioAssetPath && !message.audioUrl)
-        .map((message) => message.audioAssetPath as string)
-        .filter((path) => !resolvingAudioAssetsRef.current.has(path)),
-    ));
-    if (pendingPaths.length === 0) return () => { cancelled = true; };
-    pendingPaths.forEach((path) => resolvingAudioAssetsRef.current.add(path));
+  const handleGeneratedImageLoad = useCallback((message: ChatMessage) => {
+    const jobId = imageGenerationJobIdFromMeta(message.meta);
+    const assetId = message.imageAssetId;
+    if (!jobId || !assetId) return;
+    if (message.meta?.image_generation_client_state === "DELIVERED") return;
 
-    void Promise.all(pendingPaths.map(async (path) => {
-      try {
-        return [path, await getAuthenticatedVoiceAudioUrl(path)] as const;
-      } catch {
-        return [path, ""] as const;
-      } finally {
-        resolvingAudioAssetsRef.current.delete(path);
-      }
-    })).then((resolved) => {
-      if (cancelled) return;
-      const urls = new Map(resolved.filter((entry) => Boolean(entry[1])));
-      if (urls.size === 0) return;
-      setMessages((current) => current.map((message) => {
-        const url = message.audioAssetPath ? urls.get(message.audioAssetPath) : undefined;
-        return url ? { ...message, audioUrl: url } : message;
-      }));
-    });
-
-    return () => { cancelled = true; };
-  }, [messages]);
+    void imageDeliveryAcknowledgerRef.current(jobId, sessionId, assetId)
+      .then((sent) => {
+        if (!sent) return;
+        setMessages((current) => current.map((candidate) =>
+          candidate.id === message.id && candidate.imageAssetId === assetId
+            ? withImageGenerationClientState(candidate, "DELIVERED")
+            : candidate
+        ));
+      })
+      .catch((error) => {
+        console.warn("[Chat] image delivery acknowledgement failed", {
+          jobId,
+          error: error instanceof Error ? error.name : "unknown",
+        });
+      });
+  }, [sessionId]);
 
   // Merge backend history into local state without losing local-only messages.
   //
@@ -1180,7 +1229,7 @@ const Chat = () => {
         ? "te"
         : message.sender === "external_agent"
           ? (message.agent_name || "External Agent")
-          : "Kael";
+          : "Arrakis";
     const sourceText =
       message.text?.trim() ||
       message.bubbles?.[0]?.trim() ||
@@ -1260,7 +1309,7 @@ const Chat = () => {
             const visionErrorMsgs: Record<string, string> = {
               not_configured: "La visione non è configurata — assicurati che Moondream sia installato in Ollama",
               ollama_unreachable: "Ollama non è raggiungibile",
-              moondream_error: "Kael non è riuscito ad analizzare l'immagine",
+              moondream_error: "Arrakis non è riuscito ad analizzare l'immagine",
               empty_response: "Moondream ha restituito una risposta vuota",
             };
             const msg = Object.entries(visionErrorMsgs).find(([key]) =>
@@ -1294,9 +1343,6 @@ const Chat = () => {
             });
           }
           const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
-          const responsePayload = response as unknown as Record<string, unknown>;
-          const audioAssetPath = getVoiceAudioResourcePath(responsePayload);
-
           const responseMsg: ChatMessage = {
             id: assistantIdentity.messageId,
             text: normalizedReply.text,
@@ -1307,10 +1353,6 @@ const Chat = () => {
             backend_turn_id: assistantIdentity.backendTurnId,
             latency,
             meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
-            audioUrl: audioAssetPath
-              ? undefined
-              : resolveAudioUrlFromPayload(responsePayload, getApiConfig().baseUrl),
-            audioAssetPath,
             // Image generation: if backend generated an image, embed it.
             image: response.image_base64
               ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
@@ -1338,7 +1380,7 @@ const Chat = () => {
             error instanceof Error &&
             (error.name === "AbortError" || error.message.includes("timeout"));
           if (isTimeout) {
-            toast.error("Risposta in ritardo — Kael sta elaborando l'immagine...", { duration: 6000 });
+            toast.error("Risposta in ritardo — Arrakis sta elaborando l'immagine...", { duration: 6000 });
             setTimeout(() => fetchAndAppendPending(), 5_000);
             setTimeout(() => fetchAndAppendPending(), 20_000);
           } else {
@@ -1402,9 +1444,6 @@ const Chat = () => {
           });
         }
         const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
-        const responsePayload = response as unknown as Record<string, unknown>;
-        const audioAssetPath = getVoiceAudioResourcePath(responsePayload);
-
         const responseMsg: ChatMessage = {
           id: assistantIdentity.messageId,
           text: normalizedReply.text,
@@ -1415,11 +1454,10 @@ const Chat = () => {
           backend_turn_id: assistantIdentity.backendTurnId,
           latency,
           meta: { ...(normalizedReply.meta ?? {}), id_source: assistantIdentity.idSource },
-          delivery_mode: (response.tts_url || response.voice_audio) ? "voice_note" : undefined,
-          audioUrl: audioAssetPath
-            ? undefined
-            : resolveAudioUrlFromPayload(responsePayload, getApiConfig().baseUrl),
-          audioAssetPath,
+          delivery_mode:
+            response.input_mode === "voice_note"
+              ? "voice_note"
+              : undefined,
           // Image generation: if backend generated an image, embed it.
           image: response.image_base64
             ? `data:${response.image_mime ?? "image/png"};base64,${response.image_base64}`
@@ -1478,15 +1516,43 @@ const Chat = () => {
     [messages]
   );
 
-  const handlePlayTTS = useCallback(async (text: string) => {
-    try {
-      const audioBlob = await requestTTS(text);
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
-      audio.play();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to play TTS");
+  const handlePlayNativeVoice = useCallback(async (message: ChatMessage) => {
+    const turnId = Number(message.backend_turn_id);
+    if (!Number.isSafeInteger(turnId) || turnId < 1) {
+      toast.error("Vocale canonico non disponibile");
+      return;
     }
+    const attempt = ++nativeVoiceAttemptRef.current;
+    try {
+      await nativeCallVoiceService.stop();
+      if (attempt !== nativeVoiceAttemptRef.current) return;
+      setNativeVoicePlayback({ turnId, state: "starting" });
+      const playback = nativeCallVoiceService.playAssistantTurn(turnId, sessionId);
+      setNativeVoicePlayback({ turnId, state: "playing" });
+      await playback;
+      if (attempt === nativeVoiceAttemptRef.current) {
+        setNativeVoicePlayback({ turnId: null, state: "idle" });
+      }
+    } catch (error) {
+      if (attempt !== nativeVoiceAttemptRef.current) return;
+      setNativeVoicePlayback({ turnId, state: "failed" });
+      toast.error(
+        error instanceof Error && error.message === "AUDIO_PLAYER_BUSY"
+          ? "Un altro vocale è già in riproduzione"
+          : "Riproduzione vocale non riuscita",
+      );
+    }
+  }, [sessionId]);
+
+  const handleStopNativeVoice = useCallback(async () => {
+    nativeVoiceAttemptRef.current += 1;
+    setNativeVoicePlayback({ turnId: null, state: "idle" });
+    await nativeCallVoiceService.stop();
+  }, []);
+
+  useEffect(() => () => {
+    nativeVoiceAttemptRef.current += 1;
+    void nativeCallVoiceService.stop();
   }, []);
 
   const handleEditMessage = useCallback(
@@ -1580,7 +1646,7 @@ const Chat = () => {
 
       {/* Header */}
       <KaelHeader
-        title="Kael"
+        title="Arrakis"
         lifecycleState={lifecycleState}
         lifecycleMessage={lifecycleMessage}
         rightContent={
@@ -1618,7 +1684,7 @@ const Chat = () => {
 
         {!historyLoading && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full opacity-60 text-center px-8">
-            <img src={kaelAvatarSrc} alt="Kael" className="h-16 w-16 rounded-full object-cover mb-4 opacity-70" />
+            <img src={kaelAvatarSrc} alt="Arrakis" className="h-16 w-16 rounded-full object-contain mb-4 opacity-90" />
             <p className="text-sm text-muted-foreground">Scrivi un messaggio per iniziare.</p>
             <p className="text-[10px] text-muted-foreground/50 mt-2">Tieni premuto sullo sfondo per personalizzarlo</p>
           </div>
@@ -1630,8 +1696,16 @@ const Chat = () => {
             message={msg}
             onLike={(id) => handleFeedback(id, "like")}
             onDislike={(id) => handleFeedback(id, "dislike")}
-            onPlayTTS={handlePlayTTS}
+            onPlayTTS={handlePlayNativeVoice}
+            nativeVoiceState={
+              nativeVoicePlayback.turnId === Number(msg.backend_turn_id)
+                ? nativeVoicePlayback.state
+                : "idle"
+            }
+            onPlayNativeVoice={handlePlayNativeVoice}
+            onStopNativeVoice={() => void handleStopNativeVoice()}
             onImageClick={setViewerImage}
+            onImageLoad={handleGeneratedImageLoad}
             onEditMessage={handleEditMessage}
             onSwipeReply={handleSwipeReply}
             wallpaperStyle={bubbleWallpaperStyle}
@@ -1640,7 +1714,7 @@ const Chat = () => {
 
         {isTyping && (
           <div className="flex items-end gap-2">
-            <img src={kaelAvatarSrc} alt="Kael" className="h-8 w-8 rounded-full object-cover" />
+            <img src={kaelAvatarSrc} alt="Arrakis" className="h-8 w-8 rounded-full object-contain" />
             <TypingIndicator />
           </div>
         )}

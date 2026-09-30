@@ -339,8 +339,6 @@ function timelineMessagesForOutcome(
     message_type: response.message_type ?? "text",
     delivery_mode: response.delivery_mode ?? "text",
     bubbles: response.bubbles,
-    tts_url: response.tts_url,
-    voice_audio: response.voice_audio,
     image_base64: response.image_base64,
     image_mime: response.image_mime,
     metadata: {

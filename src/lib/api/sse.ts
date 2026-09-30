@@ -23,6 +23,21 @@ import { getApiConfig } from "./client";
  * @throws Error if backend URL not configured or auth fails
  */
 export async function obtainSSEToken(): Promise<string> {
+  const connection = await obtainSSEConnection();
+  return connection.token;
+}
+
+export interface SSEConnection {
+  token: string;
+  url: string;
+}
+
+/**
+ * Atomically obtain a token and bind its EventSource URL to the same backend
+ * origin. This prevents a LAN/Tailscale route switch between token issuance
+ * and URL construction from producing an invalid cross-route connection.
+ */
+export async function obtainSSEConnection(): Promise<SSEConnection> {
   const config = getApiConfig();
   if (!config.baseUrl) {
     throw new Error("Backend URL not configured");
@@ -42,7 +57,13 @@ export async function obtainSSEToken(): Promise<string> {
   }
 
   const data = await res.json();
-  return data.token;
+  if (typeof data?.token !== "string" || !data.token) {
+    throw new Error("SSE token response invalid");
+  }
+  return {
+    token: data.token,
+    url: buildSSEUrl(data.token, config.baseUrl),
+  };
 }
 
 /**
@@ -51,7 +72,7 @@ export async function obtainSSEToken(): Promise<string> {
  * @example buildSSEUrl("abc123")
  * // → "<baseUrl>/chat/events?token=abc123"
  */
-export function buildSSEUrl(token: string): string {
-  const config = getApiConfig();
-  return `${config.baseUrl.replace(/\/$/, "")}/chat/events?token=${encodeURIComponent(token)}`;
+export function buildSSEUrl(token: string, baseUrl?: string): string {
+  const resolvedBaseUrl = baseUrl ?? getApiConfig().baseUrl;
+  return `${resolvedBaseUrl.replace(/\/$/, "")}/chat/events?token=${encodeURIComponent(token)}`;
 }

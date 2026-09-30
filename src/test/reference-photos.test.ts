@@ -7,7 +7,7 @@ describe("reference photos identity labels", () => {
     expect(identityDisplayName("alexien")).toBe("Alexièn");
   });
 
-  it("maps canonical kael slug to visible Kael label", () => {
-    expect(identityDisplayName("kael")).toBe("Kael");
+  it("keeps the canonical kael slug while displaying Arrakis", () => {
+    expect(identityDisplayName("kael")).toBe("Arrakis");
   });
 });

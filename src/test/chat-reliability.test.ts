@@ -3,8 +3,8 @@ import type { ChatMessage } from "@/types";
 import {
   mergeMessagesIdempotent,
   normalizeAfterTs,
-  resolveAudioUrlFromPayload,
   resolveAssistantIdentity,
+  resolveBackendDeliveryMode,
   resolveBackendMessageIdentity,
   resolveHistoryMessageId,
 } from "@/lib/chat/reliability";
@@ -54,6 +54,17 @@ describe("chat reliability", () => {
     expect(identity.idSource).toBe("assistant_turn_id");
     expect(identity.backendTurnId).toBe("1234");
     expect(identity.messageId).toBe("assistant-turn:1234");
+  });
+
+  it("preserves native voice delivery from canonical audio history on reload", () => {
+    expect(resolveBackendDeliveryMode({
+      input_mode: "voice_note",
+      assistant_turn_id: 602,
+      text: "transcript and reply remain private to the voice surface",
+    })).toBe("voice_note");
+    expect(resolveBackendDeliveryMode({ message_type: "voice_note" })).toBe("voice_note");
+    expect(resolveBackendDeliveryMode({ delivery_mode: "voice_note" })).toBe("voice_note");
+    expect(resolveBackendDeliveryMode({ delivery_mode: "untrusted-mode" })).toBeUndefined();
   });
 
   it("B: pending drain readiness can run with afterTs=0", () => {
@@ -166,44 +177,6 @@ describe("chat reliability", () => {
 
     const merged = mergeMessagesIdempotent([], messages);
     expect(merged.map((message) => message.text)).toEqual(["domanda", "risposta"]);
-  });
-
-  it("E: audio fields survive history/pending merge", () => {
-    const existing: ChatMessage[] = [];
-    const incoming: ChatMessage[] = [
-      {
-        id: resolveHistoryMessageId(
-          { id: 77, sender: "assistant", text: "audio turn", timestamp: 1778107001 },
-          "sess-audio",
-        ),
-        text: "audio turn",
-        time: "10:03",
-        timestamp: 1778107001,
-        sender: "kael",
-        feedback: null,
-        audioUrl: "https://example.local/voice/audio/trace-1.wav",
-      },
-    ];
-
-    const merged = mergeMessagesIdempotent(existing, incoming);
-    expect(merged).toHaveLength(1);
-    expect(merged[0].audioUrl).toContain("voice/audio/trace-1.wav");
-  });
-
-  it("E2: relative tts_url is normalized to backend absolute URL", () => {
-    const resolved = resolveAudioUrlFromPayload(
-      { tts_url: "/voice/audio/trace-2.wav" },
-      "http://127.0.0.1:8002",
-    );
-    expect(resolved).toBe("http://127.0.0.1:8002/voice/audio/trace-2.wav");
-  });
-
-  it("E3: voice_asset_id is not treated as playable audio URL", () => {
-    const resolved = resolveAudioUrlFromPayload(
-      { voice_asset_id: "asset-123", has_voice_audio: true },
-      "http://127.0.0.1:8002",
-    );
-    expect(resolved).toBeUndefined();
   });
 
   it("F: two autonomous messages with close timestamps preserve chronological order", () => {

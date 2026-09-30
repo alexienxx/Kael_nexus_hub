@@ -20,6 +20,27 @@ export interface BackendMessageIdentity {
   agentAvatar?: string;
 }
 
+const DELIVERY_MODES = new Set<ChatMessage["delivery_mode"]>([
+  "text",
+  "voice_note",
+  "image",
+  "video_message",
+  "voice_call",
+]);
+
+/** Preserve the canonical native-voice presentation across history reloads. */
+export function resolveBackendDeliveryMode(
+  rawMessage: Record<string, unknown>,
+): ChatMessage["delivery_mode"] | undefined {
+  const explicit = rawMessage.delivery_mode ?? rawMessage.deliveryMode;
+  if (typeof explicit === "string" && DELIVERY_MODES.has(explicit as ChatMessage["delivery_mode"])) {
+    return explicit as ChatMessage["delivery_mode"];
+  }
+  return rawMessage.message_type === "voice_note" || rawMessage.input_mode === "voice_note"
+    ? "voice_note"
+    : undefined;
+}
+
 export function stableHash(input: string): string {
   let hash = 5381;
   for (let i = 0; i < input.length; i++) {
@@ -192,47 +213,6 @@ export function resolveHistoryMessageId(rawMessage: Record<string, unknown>, ses
 export function normalizeAfterTs(lastFetchTs: number): number {
   if (!Number.isFinite(lastFetchTs) || lastFetchTs < 0) return 0;
   return lastFetchTs;
-}
-
-function normalizeBaseUrl(baseUrl?: string): string | undefined {
-  const raw = (baseUrl || "").trim();
-  if (!raw) return undefined;
-  return raw.replace(/\/$/, "");
-}
-
-function normalizeAudioCandidate(raw: unknown, baseUrl?: string): string | undefined {
-  const value = asString(raw);
-  if (!value) return undefined;
-  if (value.startsWith("data:") || value.startsWith("http://") || value.startsWith("https://") || value.startsWith("blob:")) {
-    return value;
-  }
-  if (value.startsWith("/")) {
-    const normalizedBase = normalizeBaseUrl(baseUrl);
-    return normalizedBase ? `${normalizedBase}${value}` : undefined;
-  }
-  // voice_audio can arrive as raw base64 (no data URI prefix).
-  return `data:audio/wav;base64,${value}`;
-}
-
-/**
- * Canonical voice URL resolver for chat payloads.
- * Priority:
- *   1) tts_url / ttsUrl (persistent backend URL, survives resume/reload)
- *   2) voice_audio / voiceAudio (ephemeral base64)
- *   3) audioUrl (legacy field)
- *
- * NOTE: voice_asset_id is intentionally excluded as direct audio src.
- */
-export function resolveAudioUrlFromPayload(
-  payload: Record<string, unknown>,
-  baseUrl?: string,
-): string | undefined {
-  const p = asObject(payload);
-  return (
-    normalizeAudioCandidate(p.tts_url ?? p.ttsUrl, baseUrl) ||
-    normalizeAudioCandidate(p.voice_audio ?? p.voiceAudio, baseUrl) ||
-    normalizeAudioCandidate(p.audioUrl, baseUrl)
-  );
 }
 
 export function mergeMessagesIdempotent(existing: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {

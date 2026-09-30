@@ -125,7 +125,7 @@ const Settings = () => {
     return (
       <div className="flex h-full flex-col">
         <KaelHeader
-          title="Foto Kael & Alexièn"
+          title="Foto Arrakis & Alexièn"
           showStatus={false}
           rightContent={
             <button onClick={() => setSection("main")} className="text-sm text-neon-purple">
@@ -160,11 +160,11 @@ const Settings = () => {
   }
 
   const menuItems = [
-    { id: "profile" as const, icon: User, label: "Profilo Kael", desc: "Avatar e identità" },
+    { id: "profile" as const, icon: User, label: "Profilo Arrakis", desc: "Avatar e identità" },
     { id: "theme" as const, icon: Palette, label: "Personalizzazione", desc: "Colori, bolle, sfondo, blur" },
     { id: "backend" as const, icon: Globe, label: "Connessione Backend", desc: "URL, API key, stato" },
     { id: "external_agent" as const, icon: Bot, label: "Agente Esterno", desc: "API key, modello AI" },
-    { id: "photo_gallery" as const, icon: ImagePlus, label: "Foto Kael & Alexièn", desc: "Galleria reference per generazione" },
+    { id: "photo_gallery" as const, icon: ImagePlus, label: "Foto Arrakis & Alexièn", desc: "Galleria reference per generazione" },
     { id: "agentic" as const, icon: GitBranch, label: "Funzioni Agentiche", desc: "GitHub, repo analysis, self-audit" },
     { id: "updates" as const, icon: Download, label: "Aggiornamenti", desc: "Versione, update remoti" },
   ];
@@ -193,7 +193,7 @@ const Settings = () => {
 
         <div className="pt-6">
           <p className="mb-2 text-center text-[10px] text-muted-foreground">
-            Kael Companion v1.0
+            Arrakis Companion v1.0
           </p>
           <p className="text-center text-[10px] text-muted-foreground/50">
             Built with 💜

@@ -24,25 +24,25 @@ const PROVIDER_CONFIG: Record<string, {
     icon: HardDrive,
     iconClass: "text-green-400",
     gradient: "from-green-500/20 to-green-400/5",
-    description: "Autorizza Kael ad accedere a Google Drive",
+    description: "Autorizza Arrakis ad accedere a Google Drive",
   },
   github: {
     icon: Github,
     iconClass: "text-white",
     gradient: "from-gray-500/20 to-gray-400/5",
-    description: "Autorizza Kael ad accedere ai tuoi repository",
+    description: "Autorizza Arrakis ad accedere ai tuoi repository",
   },
   calendar: {
     icon: Calendar,
     iconClass: "text-blue-400",
     gradient: "from-blue-500/20 to-blue-400/5",
-    description: "Autorizza Kael a gestire il tuo calendario",
+    description: "Autorizza Arrakis a gestire il tuo calendario",
   },
   slack: {
     icon: MessageSquare,
     iconClass: "text-yellow-400",
     gradient: "from-yellow-500/20 to-yellow-400/5",
-    description: "Autorizza Kael ad inviare messaggi su Slack",
+    description: "Autorizza Arrakis ad inviare messaggi su Slack",
   },
 };
 
@@ -76,7 +76,7 @@ const Workspace = () => {
 
   const handleConnect = async (provider: string) => {
     if (!isBackendAvailable) {
-      toast.info("Backend non raggiungibile. Riavvia il server Kael.");
+      toast.info("Backend non raggiungibile. Riavvia il server Arrakis.");
       return;
     }
     try {
@@ -180,7 +180,7 @@ function ProjectsTab({ sessionId }: { sessionId: string }) {
       error={capability.error}
       onRetry={capability.retry}
       emptyLabel="Nessun progetto"
-      emptyDescription="I tuoi progetti con Kael appariranno qui"
+      emptyDescription="I tuoi progetti con Arrakis appariranno qui"
       emptyIcon={<FolderKanban size={24} className="text-muted-foreground/60" />}
     >
       <div className="space-y-3">
@@ -264,7 +264,7 @@ function GoalsTab({ sessionId }: { sessionId: string }) {
       error={capability.error}
       onRetry={capability.retry}
       emptyLabel="Nessun obiettivo"
-      emptyDescription="I tuoi obiettivi con Kael appariranno qui"
+      emptyDescription="I tuoi obiettivi con Arrakis appariranno qui"
       emptyIcon={<Target size={24} className="text-muted-foreground/60" />}
     >
       <div className="space-y-3">
@@ -402,7 +402,7 @@ function AuthorizationsPanel({
       {/* Header */}
       <div className="px-1">
         <p className="text-xs text-muted-foreground">
-          Autorizza Kael ad accedere ai servizi esterni. Le azioni saranno eseguite da Kael in chat.
+          Autorizza Arrakis ad accedere ai servizi esterni. Le azioni saranno eseguite da Arrakis in chat.
         </p>
       </div>
 

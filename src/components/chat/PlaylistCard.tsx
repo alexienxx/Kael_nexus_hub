@@ -57,7 +57,7 @@ const PlaylistCard = ({ playlist }: PlaylistCardProps) => {
             )}
             {playlist.createdByKael && (
               <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[9px] font-medium text-primary">
-                Creata da Kael 💜
+                Creata da Arrakis 💜
               </span>
             )}
           </div>

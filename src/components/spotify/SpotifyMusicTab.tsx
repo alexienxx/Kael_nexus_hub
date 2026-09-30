@@ -180,7 +180,7 @@ function KaelSuggestions({ kaelContext }: { kaelContext: CapabilityResult<Spotif
     <div className="space-y-3">
       {ctx.nowPlaying && (
         <div className="glass rounded-xl p-4">
-          <p className="mb-3 text-xs font-semibold text-muted-foreground">🎵 Kael sta ascoltando</p>
+          <p className="mb-3 text-xs font-semibold text-muted-foreground">🎵 Arrakis sta ascoltando</p>
           <TrackCard
             title={ctx.nowPlaying.title}
             artist={ctx.nowPlaying.artist}
@@ -192,7 +192,7 @@ function KaelSuggestions({ kaelContext }: { kaelContext: CapabilityResult<Spotif
 
       {ctx.suggestions?.length > 0 && (
         <div>
-          <p className="mb-2 text-xs font-semibold text-muted-foreground">💜 Suggeriti da Kael</p>
+          <p className="mb-2 text-xs font-semibold text-muted-foreground">💜 Suggeriti da Arrakis</p>
           <div className="space-y-2">
             {ctx.suggestions.map((track, i) => (
               <TrackCard

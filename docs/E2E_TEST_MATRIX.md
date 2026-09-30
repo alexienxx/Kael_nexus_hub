@@ -1,6 +1,6 @@
 # APK End-to-End Test Matrix
 
-Status: canonical test entrypoint for Kael Companion cross-boundary behavior.
+Status: canonical test entrypoint for Arrakis Companion cross-boundary behavior.
 
 The E2E suite is intentionally split. A failure in Spotify must not prevent call, chat, or workspace evidence from being produced.
 

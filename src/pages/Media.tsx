@@ -36,7 +36,7 @@ const Media = () => {
 
   return (
     <div className="flex h-full flex-col">
-      <KaelHeader title="Media" subtitle="Foto, video e musica di Kael" showStatus={false} showBack />
+      <KaelHeader title="Media" subtitle="Foto, video e musica di Arrakis" showStatus={false} showBack />
 
       {/* Tabs */}
       <div className="relative z-10 flex gap-1 px-4 py-2">
@@ -260,7 +260,7 @@ function GalleryThumbnail({
     >
       <img
         src={src}
-        alt={item.caption || item.prompt || "Kael image"}
+        alt={item.caption || item.prompt || "Immagine di Arrakis"}
         className="h-full w-full object-cover transition-transform hover:scale-105"
         loading="lazy"
       />

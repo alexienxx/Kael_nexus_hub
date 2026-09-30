@@ -6,6 +6,9 @@ import { saveToGallery } from "@/lib/api/media";
 import MessageActions from "./MessageActions";
 import AudioMessage from "./AudioMessage";
 import ImageMessage from "./ImageMessage";
+import NativeVoiceNoteControl, {
+  type NativeVoicePlaybackState,
+} from "./NativeVoiceNoteControl";
 import BubbleContextMenu from "./BubbleContextMenu";
 import AssistantMarkdown from "./AssistantMarkdown";
 import PlaylistCard from "./PlaylistCard";
@@ -18,8 +21,12 @@ interface MessageBubbleProps {
   message: ChatMessage;
   onLike?: (id: string) => void;
   onDislike?: (id: string) => void;
-  onPlayTTS?: (text: string) => void;
+  onPlayTTS?: (message: ChatMessage) => void;
+  nativeVoiceState?: NativeVoicePlaybackState;
+  onPlayNativeVoice?: (message: ChatMessage) => void;
+  onStopNativeVoice?: () => void;
   onImageClick?: (url: string) => void;
+  onImageLoad?: (message: ChatMessage) => void;
   onEditMessage?: (id: string, currentText: string) => void;
   onSwipeReply?: (message: ChatMessage) => void;
   wallpaperStyle?: WallpaperDisplaySettings | null;
@@ -89,7 +96,11 @@ const MessageBubble = ({
   onLike,
   onDislike,
   onPlayTTS,
+  nativeVoiceState = "idle",
+  onPlayNativeVoice,
+  onStopNativeVoice,
   onImageClick,
+  onImageLoad,
   onEditMessage,
   onSwipeReply,
   wallpaperStyle = null,
@@ -106,7 +117,7 @@ const MessageBubble = ({
         avatar: message.agent_avatar || null,
       };
     }
-    return { name: "Kael", avatar: kaelAvatarSrc };
+    return { name: "Arrakis", avatar: kaelAvatarSrc };
   };
 
   const senderInfo = getSenderInfo();
@@ -127,11 +138,17 @@ const MessageBubble = ({
   const hasPlayableAudio =
     typeof message.audioUrl === "string" &&
     /^(data:audio|https?:\/\/|blob:)/i.test(message.audioUrl);
+  const isNativeVoiceNote = message.delivery_mode === "voice_note";
+  const nativeVoiceTurnId = Number(message.backend_turn_id);
+  const canPresentNativeVoice =
+    !isUser &&
+    isNativeVoiceNote &&
+    Number.isSafeInteger(nativeVoiceTurnId) &&
+    nativeVoiceTurnId > 0 &&
+    typeof onPlayNativeVoice === "function" &&
+    typeof onStopNativeVoice === "function";
   const voiceUnavailableFallback =
-    message.delivery_mode === "voice_note" &&
-    !hasPlayableAudio &&
-    !message.text &&
-    (!message.bubbles || message.bubbles.length === 0);
+    isNativeVoiceNote && !hasPlayableAudio && !canPresentNativeVoice;
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const replyHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const replyDragRef = useRef(0);
@@ -275,7 +292,7 @@ const MessageBubble = ({
 
           {message.isProcessingImage && (
             <p className="text-xs italic text-muted-foreground mb-1">
-              Kael sta guardando la tua foto...
+              Arrakis sta guardando la tua foto...
             </p>
           )}
 
@@ -290,6 +307,7 @@ const MessageBubble = ({
               src={message.image}
               alt="Shared image"
               onClick={() => onImageClick?.(message.image!)}
+              onLoad={() => onImageLoad?.(message)}
             />
           )}
 
@@ -298,6 +316,14 @@ const MessageBubble = ({
               src={message.audioUrl!}
               duration={message.audioDuration}
               sender={message.sender}
+            />
+          )}
+
+          {!hasPlayableAudio && canPresentNativeVoice && (
+            <NativeVoiceNoteControl
+              state={nativeVoiceState}
+              onPlay={() => onPlayNativeVoice(message)}
+              onStop={onStopNativeVoice}
             />
           )}
 
@@ -328,7 +354,7 @@ const MessageBubble = ({
             </div>
           )}
 
-          {message.bubbles && message.bubbles.length > 0 && !(message.delivery_mode === "voice_note" && hasPlayableAudio) ? (
+          {message.bubbles && message.bubbles.length > 0 && !isNativeVoiceNote ? (
             <div className="space-y-2">
               {message.bubbles.map((bubble, index) => (
                 <div
@@ -339,7 +365,7 @@ const MessageBubble = ({
                 </div>
               ))}
             </div>
-          ) : message.text && !(message.delivery_mode === "voice_note" && hasPlayableAudio) && (
+          ) : message.text && !isNativeVoiceNote && (
             isUser ? (
               <p className="text-sm leading-relaxed text-foreground">{message.text}</p>
             ) : (

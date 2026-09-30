@@ -89,7 +89,7 @@ const WallpaperPreviewSheet = ({
             {/* Fake bubble preview */}
             <div className="absolute bottom-12 left-3 right-3 space-y-2">
               <div className="glass rounded-2xl rounded-bl-sm px-3 py-2 max-w-[70%]">
-                <p className="text-[10px] font-semibold text-neon-purple">Kael</p>
+                <p className="text-[10px] font-semibold text-neon-purple">Arrakis</p>
                 <p className="text-[10px] text-foreground">Ciao! Come stai? 💜</p>
               </div>
               <div className="ml-auto max-w-[60%]">

@@ -17,7 +17,12 @@
 // ── Storage & constants ──────────────────────────────────────────────────
 
 const STORAGE_KEY = "kael-backend-config";
+const ROUTE_STATE_KEY = "kael-backend-route-state-v1";
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
+
+/** Emitted after the active backend origin changes. Long-lived transports
+ * (SSE/WebSocket) must reconnect and obtain fresh scoped credentials. */
+export const BACKEND_ROUTE_CHANGED_EVENT = "kael-backend-route-changed";
 
 /** Strong fingerprint the backend embeds in /health JSON. */
 const EXPECTED_FINGERPRINT = "kael_refactor_v2";
@@ -34,20 +39,53 @@ const PORT_RANGE_END   = 8015;
  * Known host addresses to probe — order matters (fastest first).
  * These are network-layer addresses; ports are generated from PORT_RANGE.
  */
-const KNOWN_HOSTS = [
+const KNOWN_PRIMARY_HOSTS = [
   "127.0.0.1",           // USB via adb reverse / localhost
   "192.168.178.78",      // Home LAN
-  "100.89.31.50",        // Tailscale VPN
+];
+
+const KNOWN_TAILSCALE_HOSTS = [
+  "100.89.31.50",        // Existing Tailscale endpoint
 ];
 
 /** Timeout for a single health probe (ms). */
 const PROBE_TIMEOUT_MS = 3000;
+
+/** Discovery has a 6s lifecycle budget. Three ordered route phases must fit
+ * inside it so Tailscale is actually reached after cached/LAN failures. */
+const DISCOVERY_PHASE_TIMEOUT_MS = 1500;
+
+/** Keep a healthy fallback route stable before even considering failback. */
+const PREFERRED_ROUTE_MIN_DWELL_MS = 60_000;
+
+/** Require independent health proofs before returning from Tailscale to LAN. */
+const PREFERRED_ROUTE_REQUIRED_PROOFS = 2;
+const PREFERRED_ROUTE_PROOF_SPACING_MS = 15_000;
 
 // ── Types ────────────────────────────────────────────────────────────────
 
 export interface ApiConfig {
   baseUrl: string;
   apiKey: string;
+}
+
+export type BackendRouteKind = "loopback" | "lan" | "tailscale" | "custom";
+
+export interface BackendRouteSnapshot {
+  preferredBaseUrl: string;
+  activeBaseUrl: string;
+  activeKind: BackendRouteKind;
+  switchedAt: number;
+  preferredHealthProofs: number;
+  lastPreferredProofAt: number;
+}
+
+interface BackendRouteChangeDetail {
+  from: string;
+  to: string;
+  fromKind: BackendRouteKind;
+  toKind: BackendRouteKind;
+  reason: "discovery" | "failover" | "preferred_restored";
 }
 
 /** Validated health payload from the backend. */
@@ -108,7 +146,21 @@ export function getApiConfig(): ApiConfig {
 }
 
 export function setApiConfig(config: ApiConfig) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+  const normalized = {
+    baseUrl: normalizeBaseUrl(config.baseUrl),
+    apiKey: config.apiKey,
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+  // A Settings save is an explicit user choice. It becomes the preferred
+  // route; automatic failover changes use activateBackendRoute() instead.
+  writeRouteSnapshot({
+    preferredBaseUrl: normalized.baseUrl,
+    activeBaseUrl: normalized.baseUrl,
+    activeKind: classifyBackendRoute(normalized.baseUrl),
+    switchedAt: Date.now(),
+    preferredHealthProofs: 0,
+    lastPreferredProofAt: 0,
+  });
 }
 
 /**
@@ -118,7 +170,128 @@ export function setApiConfig(config: ApiConfig) {
  */
 export function resetBackendUrlForDiscovery(): void {
   const current = getApiConfig();
-  setApiConfig({ baseUrl: INITIAL_FALLBACK_URL, apiKey: current.apiKey });
+  // Preserve the credential but deliberately clear both active and preferred
+  // route. A subsequent validated discovery will establish a new preference.
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({ baseUrl: INITIAL_FALLBACK_URL, apiKey: current.apiKey }),
+  );
+  localStorage.removeItem(ROUTE_STATE_KEY);
+}
+
+function normalizeBaseUrl(value: string): string {
+  return String(value ?? "").trim().replace(/\/+$/, "");
+}
+
+function classifyBackendRoute(baseUrl: string): BackendRouteKind {
+  try {
+    const hostname = new URL(baseUrl).hostname;
+    if (hostname === "127.0.0.1" || hostname === "localhost") return "loopback";
+    if (KNOWN_TAILSCALE_HOSTS.includes(hostname)) return "tailscale";
+    if (
+      KNOWN_PRIMARY_HOSTS.includes(hostname) ||
+      hostname.startsWith("192.168.") ||
+      hostname.startsWith("10.") ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname)
+    ) {
+      return "lan";
+    }
+  } catch {
+    // Invalid values are rejected by verification/probing; keep state benign.
+  }
+  return "custom";
+}
+
+function readRouteSnapshot(configuredBaseUrl: string): BackendRouteSnapshot {
+  const normalizedConfigured = normalizeBaseUrl(configuredBaseUrl);
+  try {
+    const raw = localStorage.getItem(ROUTE_STATE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<BackendRouteSnapshot>;
+      const activeBaseUrl = normalizeBaseUrl(String(parsed.activeBaseUrl ?? ""));
+      const preferredBaseUrl = normalizeBaseUrl(String(parsed.preferredBaseUrl ?? ""));
+      // A route snapshot is valid only while it agrees with the public active
+      // config. This also makes old/manual config changes self-healing.
+      if (activeBaseUrl === normalizedConfigured) {
+        return {
+          preferredBaseUrl,
+          activeBaseUrl,
+          activeKind: classifyBackendRoute(activeBaseUrl),
+          switchedAt: Number.isFinite(parsed.switchedAt) ? Number(parsed.switchedAt) : 0,
+          preferredHealthProofs: Number.isSafeInteger(parsed.preferredHealthProofs)
+            ? Math.max(0, Number(parsed.preferredHealthProofs))
+            : 0,
+          lastPreferredProofAt: Number.isFinite(parsed.lastPreferredProofAt)
+            ? Math.max(0, Number(parsed.lastPreferredProofAt))
+            : 0,
+        };
+      }
+    }
+  } catch {
+    // Rebuild corrupted route metadata from the user-visible config.
+  }
+  return {
+    preferredBaseUrl: normalizedConfigured,
+    activeBaseUrl: normalizedConfigured,
+    activeKind: classifyBackendRoute(normalizedConfigured),
+    switchedAt: 0,
+    preferredHealthProofs: 0,
+    lastPreferredProofAt: 0,
+  };
+}
+
+function writeRouteSnapshot(snapshot: BackendRouteSnapshot): void {
+  localStorage.setItem(ROUTE_STATE_KEY, JSON.stringify(snapshot));
+}
+
+export function getBackendRouteSnapshot(): BackendRouteSnapshot {
+  return readRouteSnapshot(getApiConfig().baseUrl);
+}
+
+function activateBackendRoute(
+  nextBaseUrl: string,
+  reason: BackendRouteChangeDetail["reason"],
+): string {
+  const normalized = normalizeBaseUrl(nextBaseUrl);
+  const config = getApiConfig();
+  const current = readRouteSnapshot(config.baseUrl);
+  const nextKind = classifyBackendRoute(normalized);
+  const preferredBaseUrl = current.preferredBaseUrl ||
+    (nextKind === "tailscale" ? "" : normalized);
+  const changed = normalized !== current.activeBaseUrl;
+
+  // This internal write changes only the active route. It intentionally keeps
+  // the user's API key and preferred LAN endpoint intact.
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({ baseUrl: normalized, apiKey: config.apiKey }),
+  );
+  writeRouteSnapshot({
+    preferredBaseUrl,
+    activeBaseUrl: normalized,
+    activeKind: nextKind,
+    switchedAt: changed ? Date.now() : current.switchedAt,
+    preferredHealthProofs: 0,
+    lastPreferredProofAt: 0,
+  });
+
+  if (changed && typeof window !== "undefined") {
+    const detail: BackendRouteChangeDetail = {
+      from: current.activeBaseUrl,
+      to: normalized,
+      fromKind: current.activeKind,
+      toKind: nextKind,
+      reason,
+    };
+    window.dispatchEvent(new CustomEvent(BACKEND_ROUTE_CHANGED_EVENT, { detail }));
+    console.info(
+      "[KAEL] BACKEND_ROUTE_CHANGED from_kind=%s to_kind=%s reason=%s",
+      detail.fromKind,
+      detail.toKind,
+      detail.reason,
+    );
+  }
+  return normalized;
 }
 
 // ── Errors ───────────────────────────────────────────────────────────────
@@ -200,6 +373,28 @@ async function probeHealthValidated(
   }
 }
 
+function candidatesForHosts(hosts: readonly string[]): string[] {
+  const candidates: string[] = [];
+  for (const host of hosts) {
+    for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
+      candidates.push(`http://${host}:${port}`);
+    }
+  }
+  return candidates;
+}
+
+async function probeCandidateGroup(candidates: readonly string[]): Promise<string | null> {
+  const unique = [...new Set(candidates.map(normalizeBaseUrl).filter(Boolean))];
+  if (!unique.length) return null;
+  return promiseAny(
+    unique.map(async (url) => {
+      const health = await probeHealthValidated(url, DISCOVERY_PHASE_TIMEOUT_MS);
+      if (health) return url;
+      throw new Error("miss");
+    }),
+  ).catch(() => null);
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /**
@@ -239,46 +434,104 @@ function promiseAny<T>(promises: Promise<T>[]): Promise<T> {
  */
 export async function probeAndResolveBackend(): Promise<string | null> {
   const config = getApiConfig();
+  const route = readRouteSnapshot(config.baseUrl);
 
   // ── Layer 1: cached URL (last known good) ──────────────────────────
   if (config.baseUrl) {
-    const cached = await probeHealthValidated(config.baseUrl);
+    const cached = await probeHealthValidated(config.baseUrl, DISCOVERY_PHASE_TIMEOUT_MS);
     if (cached) {
       console.log("[KAEL] Layer 1 hit: cached URL OK →", config.baseUrl);
-      return config.baseUrl;
+      return normalizeBaseUrl(config.baseUrl);
     }
     console.warn("[KAEL] Layer 1 miss: cached URL unreachable →", config.baseUrl);
   }
 
   // ── Layer 2: known hosts × port range (parallel) ──────────────────
-  console.log("[KAEL] Layer 2: scanning known hosts × port range...");
-  const candidates: string[] = [];
-  for (const host of KNOWN_HOSTS) {
-    for (let port = PORT_RANGE_START; port <= PORT_RANGE_END; port++) {
-      candidates.push(`http://${host}:${port}`);
-    }
-  }
+  // Preserve ordering across route classes: an arbitrary faster Tailscale
+  // response must not steal authority while a healthy preferred/LAN path is
+  // available. Probes within one class remain parallel.
+  console.log("[KAEL] Layer 2a: probing preferred and LAN routes...");
+  const primaryCandidates = [
+    route.preferredBaseUrl,
+    ...candidatesForHosts(KNOWN_PRIMARY_HOSTS),
+  ].filter((url) => url && url !== normalizeBaseUrl(config.baseUrl));
+  let result = await probeCandidateGroup(primaryCandidates);
 
-  // Fire ALL probes in parallel — first valid answer wins
-  const result = await promiseAny(
-    candidates.map(async (url) => {
-      const health = await probeHealthValidated(url, PROBE_TIMEOUT_MS);
-      if (health) return url;
-      throw new Error("miss"); // rejected = not found, keeps promiseAny going
-    })
-  ).catch(() => null); // all failed
+  if (!result) {
+    console.log("[KAEL] Layer 2b: LAN unavailable, probing configured Tailscale route...");
+    result = await probeCandidateGroup(
+      candidatesForHosts(KNOWN_TAILSCALE_HOSTS)
+        .filter((url) => url !== normalizeBaseUrl(config.baseUrl)),
+    );
+  }
 
   if (result) {
     console.log("[KAEL] Layer 2 hit: found backend →", result);
-    // Layer 2 means the cached URL was dead or empty.
-    // The ONLY truth is the backend's active port — always persist it.
-    console.log("[API CONFIG] persisting Layer 2 discovery:", result);
-    setApiConfig({ ...config, baseUrl: result });
-    return result;
+    const reason = config.baseUrl ? "failover" : "discovery";
+    return activateBackendRoute(result, reason);
   }
 
   console.error("[KAEL] All discovery layers exhausted — backend unreachable");
   return null;
+}
+
+/**
+ * While a fallback route is healthy, cautiously check whether the user's
+ * preferred route has recovered. Two spaced health proofs plus a minimum
+ * fallback dwell prevent WiFi/VPN flapping from bouncing every transport.
+ */
+let preferredRouteRestoreInFlight: Promise<string | null> | null = null;
+
+async function restorePreferredBackendRouteOnce(
+  nowMs: number = Date.now(),
+): Promise<string | null> {
+  const config = getApiConfig();
+  const route = readRouteSnapshot(config.baseUrl);
+  if (
+    !route.activeBaseUrl ||
+    !route.preferredBaseUrl ||
+    route.activeBaseUrl === route.preferredBaseUrl ||
+    nowMs - route.switchedAt < PREFERRED_ROUTE_MIN_DWELL_MS ||
+    nowMs - route.lastPreferredProofAt < PREFERRED_ROUTE_PROOF_SPACING_MS
+  ) {
+    return null;
+  }
+
+  const healthy = await probeHealthValidated(route.preferredBaseUrl, PROBE_TIMEOUT_MS);
+  const fresh = readRouteSnapshot(getApiConfig().baseUrl);
+  // Ignore a late proof if another discovery changed route meanwhile.
+  if (fresh.activeBaseUrl !== route.activeBaseUrl) return null;
+
+  if (!healthy) {
+    writeRouteSnapshot({
+      ...fresh,
+      preferredHealthProofs: 0,
+      lastPreferredProofAt: nowMs,
+    });
+    return null;
+  }
+
+  const proofCount = fresh.preferredHealthProofs + 1;
+  if (proofCount < PREFERRED_ROUTE_REQUIRED_PROOFS) {
+    writeRouteSnapshot({
+      ...fresh,
+      preferredHealthProofs: proofCount,
+      lastPreferredProofAt: nowMs,
+    });
+    return null;
+  }
+  return activateBackendRoute(fresh.preferredBaseUrl, "preferred_restored");
+}
+
+export async function tryRestorePreferredBackendRoute(
+  nowMs: number = Date.now(),
+): Promise<string | null> {
+  if (preferredRouteRestoreInFlight) return preferredRouteRestoreInFlight;
+  preferredRouteRestoreInFlight = restorePreferredBackendRouteOnce(nowMs)
+    .finally(() => {
+      preferredRouteRestoreInFlight = null;
+    });
+  return preferredRouteRestoreInFlight;
 }
 
 // ── Health check (uses canonical probe) ──────────────────────────────────
@@ -434,9 +687,13 @@ export async function requestScopedResourceUrl(
 ): Promise<string> {
   const config = getApiConfig();
   if (!config.baseUrl) throw new Error("Backend URL not configured.");
-  if (!config.apiKey) throw new Error("Kael API credential is required");
+  if (!config.apiKey) throw new Error("Arrakis API credential is required");
   const canonicalPath = validateScopedResourcePath(path);
-  const response = await apiRequest<ScopedResourceTokenResponse>(
+  // The token and final resource origin must come from the same route. Using
+  // the captured config closes a LAN/Tailscale switch race between exchange
+  // and URL construction.
+  const response = await apiRequestWithConfig<ScopedResourceTokenResponse>(
+    config,
     "/auth/resource-token",
     {
       method: "POST",
@@ -484,7 +741,7 @@ export async function verifyBackendConfig(candidate: ApiConfig): Promise<Backend
     apiKey: candidate.apiKey.trim(),
   };
   if (!config.baseUrl) throw new Error("Backend URL is required");
-  if (!config.apiKey) throw new Error("Kael API credential is required");
+  if (!config.apiKey) throw new Error("Arrakis API credential is required");
 
   const health = await probeHealthValidated(config.baseUrl, 5000);
   if (!health) throw new Error("Backend health validation failed");

@@ -38,7 +38,7 @@ function dotColorClass(state: BackendLifecycleState): string {
 }
 
 const KaelHeader = ({
-  title = "Kael",
+  title = "Arrakis",
   subtitle,
   showStatus = true,
   showBack = false,
@@ -58,7 +58,7 @@ const KaelHeader = ({
       const dataUrl = ev.target?.result as string;
       if (dataUrl) {
         updateTheme({ kaelAvatar: dataUrl });
-        toast.success("Foto di Kael aggiornata ✨");
+        toast.success("Immagine di Arrakis aggiornata ✨");
       }
     };
     reader.onerror = () => toast.error("Impossibile leggere l'immagine");
@@ -86,7 +86,7 @@ const KaelHeader = ({
         <div className="relative" {...avatarLongPress}>
           <img
             src={kaelAvatarSrc}
-            alt="Kael"
+            alt="Arrakis"
             className="h-11 w-11 rounded-full object-cover ring-2 ring-neon-purple/50 neon-pulse cursor-pointer"
           />
           {showStatus && (

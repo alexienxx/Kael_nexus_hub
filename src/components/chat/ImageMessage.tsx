@@ -5,9 +5,10 @@ interface ImageMessageProps {
   src: string;
   alt?: string;
   onClick?: () => void;
+  onLoad?: () => void;
 }
 
-const ImageMessage = ({ src, alt = "Image", onClick }: ImageMessageProps) => {
+const ImageMessage = ({ src, alt = "Image", onClick, onLoad }: ImageMessageProps) => {
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation();
     const a = document.createElement("a");
@@ -18,7 +19,12 @@ const ImageMessage = ({ src, alt = "Image", onClick }: ImageMessageProps) => {
 
   return (
     <div className="group/img relative mb-2 cursor-pointer overflow-hidden rounded-lg" onClick={onClick}>
-      <img src={src} alt={alt} className="max-h-48 w-full rounded-lg object-cover" />
+      <img
+        src={src}
+        alt={alt}
+        className="max-h-48 w-full rounded-lg object-cover"
+        onLoad={onLoad}
+      />
       <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 opacity-0 transition-opacity group-hover/img:opacity-100">
         <button className="rounded-full bg-white/20 p-2 backdrop-blur-sm hover:bg-white/30">
           <Maximize2 size={14} className="text-white" />

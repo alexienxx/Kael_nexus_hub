@@ -11,15 +11,10 @@ import {
   setApiConfig,
   verifyBackendConfig,
 } from "@/lib/api/client";
-import {
-  createAuthenticatedCallWebSocket,
-  getAuthenticatedVoiceAudioUrl,
-  getVoiceAudioResourcePath,
-  requestTTS,
-} from "@/lib/api/voice";
 import { startAvatarStream } from "@/lib/api/avatar";
 import { getGalleryFileUrl, getMediaGallery } from "@/lib/api/media";
 import { sendExternalAgentMessage } from "@/lib/externalAgent";
+import { sendVoiceNote } from "@/lib/api/chat";
 import {
   downloadApk,
   fetchUpdateManifest,
@@ -144,15 +139,12 @@ describe("APK Gate-A authentication and JSON transport", () => {
     });
   });
 
-  it("routes TTS and external-agent JSON calls through authenticated transport", async () => {
+  it("routes external-agent JSON calls through authenticated transport", async () => {
     setApiConfig({ baseUrl: BACKEND, apiKey: TEST_KEY });
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/health")) return healthResponse();
       expect(requestHeaders(init).get("X-KAEL-KEY")).toBe(TEST_KEY);
-      if (url.endsWith("/chat/voice/tts")) {
-        return new Response(JSON.stringify({ audio_base64: btoa("wav") }), { status: 200 });
-      }
       if (url.endsWith("/services/external-agent/chat")) {
         expect(JSON.parse(String(init?.body))).toMatchObject({
           exchange_id: "external:test-message",
@@ -186,7 +178,6 @@ describe("APK Gate-A authentication and JSON transport", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(requestTTS("ciao")).resolves.toBeInstanceOf(Blob);
     await expect(sendExternalAgentMessage(
       [{ role: "user", content: "ciao" }],
       { exchangeId: "external:test-message", sessionId: "mobile_kael" },
@@ -196,9 +187,38 @@ describe("APK Gate-A authentication and JSON transport", () => {
       .map(([input]) => String(input))
       .filter((url) => !url.endsWith("/health"));
     expect(protectedUrls).toEqual([
-      `${BACKEND}/chat/voice/tts`,
       `${BACKEND}/services/external-agent/chat`,
     ]);
+  });
+
+  it("authenticates the canonical raw voice-note upload without a text body", async () => {
+    setApiConfig({ baseUrl: BACKEND, apiKey: TEST_KEY });
+    const audio = new Blob(["raw-audio-bytes"], { type: "audio/webm" });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.pathname === "/health") return healthResponse();
+      expect(url.pathname).toBe("/audio/notes");
+      expect(url.searchParams.get("session_id")).toBe("mobile voice/session");
+      expect(url.searchParams.get("client_message_id")).toBe("voice message/id");
+      expect(url.searchParams.get("language")).toBe("it");
+      expect(requestHeaders(init).get("X-KAEL-KEY")).toBe(TEST_KEY);
+      expect(requestHeaders(init).get("Content-Type")).toBe("audio/webm");
+      expect(init?.body).toBe(audio);
+      return new Response(JSON.stringify({
+        input_mode: "voice_note",
+        user_turn_id: 601,
+        assistant_turn_id: 602,
+        reply: "private voice reply",
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(sendVoiceNote(audio, "mobile voice/session", "voice message/id"))
+      .resolves.toMatchObject({ input_mode: "voice_note", assistant_turn_id: 602 });
+    const voiceRequest = fetchMock.mock.calls.find(([input]) =>
+      new URL(String(input)).pathname === "/audio/notes"
+    );
+    expect(voiceRequest).toBeDefined();
   });
 
   it("authenticates the backend update manifest without leaking the key to an override origin", async () => {
@@ -326,7 +346,7 @@ describe("APK Gate-A authentication and JSON transport", () => {
     await expect(getMediaGallery("image")).rejects.toThrow("not owned");
   });
 
-  it("starts avatar transport and opens call WebSocket with scoped tokens, never the primary key", async () => {
+  it("starts avatar transport with scoped tokens, never the primary key", async () => {
     setApiConfig({ baseUrl: BACKEND, apiKey: TEST_KEY });
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -335,73 +355,22 @@ describe("APK Gate-A authentication and JSON transport", () => {
         return new Response(JSON.stringify({ ok: true, status: "started", fps: 15 }), { status: 200 });
       }
       const body = JSON.parse(String(init?.body));
-      const isSocket = body.method === "WEBSOCKET";
       return new Response(JSON.stringify({
-        token: isSocket
-          ? "scoped-websocket-token-abcdefghijklmnopqrstuvwxyz"
-          : "scoped-avatar-token-abcdefghijklmnopqrstuvwxyz",
+        token: "scoped-avatar-token-abcdefghijklmnopqrstuvwxyz",
         expires_in: 60,
-        max_uses: isSocket ? 1 : 2,
+        max_uses: 2,
         method: body.method,
         path: body.path,
       }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const opened: string[] = [];
-    class FakeWebSocket {
-      constructor(url: string | URL) {
-        opened.push(String(url));
-      }
-    }
-    vi.stubGlobal("WebSocket", FakeWebSocket);
-
     const avatar = await startAvatarStream();
-    await createAuthenticatedCallWebSocket();
 
     expect(avatar.stream_url).toContain(
       `${BACKEND}/avatar/live/stream?kael_access_token=scoped-avatar-token-`,
     );
-    expect(opened).toHaveLength(1);
-    expect(opened[0]).toContain(
-      "ws://127.0.0.1:8002/mobile/ws/call?kael_access_token=scoped-websocket-token-",
-    );
-    expect(`${avatar.stream_url} ${opened[0]}`).not.toContain(TEST_KEY);
-  });
-
-  it("keeps durable voice paths separate from ephemeral authenticated playback URLs", async () => {
-    setApiConfig({ baseUrl: BACKEND, apiKey: TEST_KEY });
-    expect(getVoiceAudioResourcePath({ tts_url: "/voice/audio/trace_123" }))
-      .toBe("/voice/audio/trace_123");
-    expect(getVoiceAudioResourcePath({ tts_url: `${BACKEND}/voice/audio/trace-456` }))
-      .toBe("/voice/audio/trace-456");
-    expect(getVoiceAudioResourcePath({ tts_url: "https://hostile.example/voice/audio/trace" }))
-      .toBeUndefined();
-    expect(getVoiceAudioResourcePath({ voice_audio: "raw-base64" }))
-      .toBeUndefined();
-
-    const token = "scoped-voice-audio-token-abcdefghijklmnopqrstuvwxyz";
-    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
-      expect(requestHeaders(init).get("X-KAEL-KEY")).toBe(TEST_KEY);
-      expect(JSON.parse(String(init?.body))).toEqual({
-        method: "GET",
-        path: "/voice/audio/trace_123",
-      });
-      return new Response(JSON.stringify({
-        token,
-        expires_in: 300,
-        max_uses: 32,
-        method: "GET",
-        path: "/voice/audio/trace_123",
-      }), { status: 200 });
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(getAuthenticatedVoiceAudioUrl("/voice/audio/trace_123"))
-      .resolves.toBe(`${BACKEND}/voice/audio/trace_123?kael_access_token=${token}`);
-    await expect(getAuthenticatedVoiceAudioUrl("/voice/audio/../secret"))
-      .rejects.toThrow("Invalid voice audio resource path");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(avatar.stream_url).not.toContain(TEST_KEY);
   });
 
   it("downloads a same-origin APK through a scoped URL without exposing the primary key", async () => {

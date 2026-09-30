@@ -187,15 +187,43 @@ describe("chat api time contract", () => {
     expect(result.bodyParseError).toBe("invalid_json");
   });
 
-  it("media sends also attach client_time to form payloads", async () => {
+  it("image sends attach client_time to the form payload", async () => {
     apiUploadMock.mockResolvedValue({ ok: true });
 
     await sendImage(new File(["img"], "test.png", { type: "image/png" }), "mobile_kael", "check");
-    await sendVoiceNote(new Blob(["audio"], { type: "audio/webm" }), "mobile_kael", "voice-msg-1");
 
     const [, imageForm] = apiUploadMock.mock.calls[0];
-    const [, voiceForm] = apiUploadMock.mock.calls[1];
     expect(imageForm.get("client_time")).toEqual(expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/));
-    expect(voiceForm.get("client_time")).toEqual(expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/));
+  });
+
+  it("sends the raw voice Blob through authenticated transport with canonical bindings", async () => {
+    const audio = new Blob(["raw-audio-bytes"], { type: "audio/webm" });
+    apiRequestMock.mockResolvedValue({
+      input_mode: "voice_note",
+      user_turn_id: 601,
+      assistant_turn_id: 602,
+      reply: "private transcript and reply surface",
+    });
+
+    const response = await sendVoiceNote(audio, "mobile voice/session", "voice message/id");
+
+    expect(apiUploadMock).not.toHaveBeenCalled();
+    expect(apiRequestMock).toHaveBeenCalledTimes(1);
+    const [path, options] = apiRequestMock.mock.calls[0];
+    const requestUrl = new URL(String(path), "http://localhost");
+    expect(requestUrl.pathname).toBe("/audio/notes");
+    expect(requestUrl.searchParams.get("session_id")).toBe("mobile voice/session");
+    expect(requestUrl.searchParams.get("client_message_id")).toBe("voice message/id");
+    expect(requestUrl.searchParams.get("language")).toBe("it");
+    expect(options).toMatchObject({
+      method: "POST",
+      headers: { "Content-Type": "audio/webm" },
+    });
+    expect(options.body).toBe(audio);
+    expect(options.body).not.toBeInstanceOf(FormData);
+    expect(response).toMatchObject({
+      input_mode: "voice_note",
+      assistant_turn_id: 602,
+    });
   });
 });

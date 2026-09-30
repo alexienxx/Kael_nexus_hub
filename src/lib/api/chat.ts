@@ -15,7 +15,7 @@ import type { ExactTextChatRequestBody } from "@/lib/chat/durableExchangeStore";
  * - POST /chat - Send text message and get reply
  * - POST /feedback - Submit RLHF feedback
  * - POST /chat/image - Upload image for analysis
- * - POST /chat/voice - Send voice note
+ * - POST /audio/notes - Send voice note through canonical audio ingress
  * - GET /chat/history/mixed - Load full history, including external-agent turns
  * - GET /chat/history/pending - Fetch new messages after timestamp (SSE catch-up)
  *
@@ -53,18 +53,6 @@ export interface ChatResponse {
   message_type?: string;
   assistant_turn_id?: number;
   user_turn_id?: number;
-  voice_audio?: string;
-  /** Persistent voice URL — backend serves WAV via /voice/audio/{trace_id}.
-   *  Survives reload (chat path). Preferred over ephemeral voice_audio b64. */
-  tts_url?: string;
-  /** Future-ready field for autonomous voice notes (asset-store backed).
-   *  Currently unused in production (autonomy voice path is gated off);
-   *  declared here so the APK fallback chain is forward-compatible. */
-  voice_asset_id?: string;
-  /** True when backend persisted a WAV file on disk for this turn. */
-  has_voice_audio?: boolean;
-  voice_used?: boolean;
-  voice_reason?: string;
   typing_delay_ms?: number;
   bubbles?: string[];
   image_base64?: string;
@@ -72,6 +60,8 @@ export interface ChatResponse {
   image_asset_id?: string;
   /** Canonical delivery mode: "text" | "voice_note" | "image" | "video_message" | "voice_call" */
   delivery_mode?: string;
+  /** Input modality echoed by canonical audio ingress; transcript stays internal. */
+  input_mode?: "voice_note";
   meta?: Record<string, unknown>;
   // Sender information for multi-agent conversations
   sender?: "user" | "kael" | "external_agent";
@@ -121,6 +111,7 @@ export interface BackendChatMessage extends Record<string, unknown> {
   duration?: number;
   delivery_mode?: ChatMessage["delivery_mode"];
   deliveryMode?: ChatMessage["delivery_mode"];
+  input_mode?: "voice_note";
   message_type?: string;
   agent_id?: string;
   agent_name?: string;
@@ -307,17 +298,25 @@ export async function sendWallpaper(
   );
 }
 
-/** Send a voice note and get Kael's reply */
+/** Send a voice note through the same canonical coordinator as text chat. */
 export async function sendVoiceNote(audioBlob: Blob, sessionId: string, clientMessageId: string) {
   if (!(await ensureBackendAlive())) {
     throw new Error("Backend non raggiungibile — riprova tra poco");
   }
-  const formData = new FormData();
-  formData.append("audio", audioBlob, "voice-note.webm");
-  formData.append("session_id", sessionId);
-  formData.append("client_message_id", clientMessageId);
-  formData.append("client_time", new Date().toISOString());
-  return apiUpload<VoiceResponse>("/chat/voice", formData, { timeout: CHAT_TIMEOUT });
+  if (!audioBlob.size || audioBlob.size > 4 * 1024 * 1024) {
+    throw new Error("AUDIO_INPUT_SIZE_INVALID");
+  }
+  const query = new URLSearchParams({
+    session_id: sessionId,
+    client_message_id: clientMessageId,
+    language: "it",
+  });
+  return apiRequest<VoiceResponse>(`/audio/notes?${query.toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": audioBlob.type || "application/octet-stream" },
+    body: audioBlob,
+    timeout: CHAT_TIMEOUT,
+  });
 }
 
 /** Get chat history */
@@ -400,6 +399,6 @@ export async function fetchPendingMessages(
 }
 
 /**
- * NOTE: For TTS functionality, use requestTTS from @/lib/api/voice
- * That function uses GET /voice/tts and returns audio Blob directly.
+ * Speech presentation is resolved from a committed assistant turn by the
+ * canonical native audio runtime; this layer never accepts arbitrary TTS text.
  */

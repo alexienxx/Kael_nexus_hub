@@ -2,8 +2,10 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api/sse", () => ({
-  obtainSSEToken: vi.fn().mockResolvedValue("test-token"),
-  buildSSEUrl: vi.fn(() => "http://backend/chat/events?token=test-token"),
+  obtainSSEConnection: vi.fn().mockResolvedValue({
+    token: "test-token",
+    url: "http://backend/chat/events?token=test-token",
+  }),
 }));
 
 vi.mock("@capacitor/app", () => ({
@@ -46,6 +48,7 @@ Object.defineProperty(globalThis, "EventSource", {
 });
 
 import { useKaelSSE } from "@/hooks/useKaelSSE";
+import { BACKEND_ROUTE_CHANGED_EVENT } from "@/lib/api/client";
 
 const payload = (source: string) => ({
   turn_id: 42,
@@ -96,5 +99,19 @@ describe("SSE canonical timeline sync", () => {
     unmount();
     window.removeEventListener("kael-new-message", generic);
     window.removeEventListener("kael-autonomous-message", autonomous);
+  });
+
+  it("closes the route-bound stream and reconnects after LAN/Tailscale switch", async () => {
+    const { unmount } = renderHook(() => useKaelSSE(true));
+    await waitFor(() => expect(FakeEventSource.latest).not.toBeNull());
+    const first = FakeEventSource.latest!;
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent(BACKEND_ROUTE_CHANGED_EVENT));
+    });
+
+    await waitFor(() => expect(FakeEventSource.latest).not.toBe(first));
+    expect(first.closed).toBe(true);
+    unmount();
   });
 });

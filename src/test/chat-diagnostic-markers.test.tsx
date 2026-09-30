@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import MessageBubble from "@/components/chat/MessageBubble";
 import { ThemeProvider } from "@/lib/store/theme";
 import { applyDiagnosticMarkers, normalizeDiagnosticMarkers } from "@/lib/chat/diagnosticMarkers";
@@ -170,5 +170,171 @@ describe("chat diagnostic markers", () => {
 
     expect(screen.getByText("Prima parte")).toBeInTheDocument();
     expect(screen.getByText("Seconda parte")).toBeInTheDocument();
+  });
+
+  it("fails closed for a native voice note while audio is unavailable", () => {
+    const message: ChatMessage = {
+      id: "assistant-native-voice-pending",
+      text: "Superficie canonica che non deve apparire.",
+      bubbles: ["Nemmeno questa bolla deve apparire."],
+      delivery_mode: "voice_note",
+      time: "10:06",
+      timestamp: 12,
+      sender: "kael",
+      feedback: null,
+    };
+
+    render(
+      <ThemeProvider>
+        <MessageBubble message={message} />
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByText(message.text)).not.toBeInTheDocument();
+    expect(screen.queryByText(message.bubbles![0])).not.toBeInTheDocument();
+    expect(screen.queryByTestId("audio-message")).not.toBeInTheDocument();
+    expect(screen.getByText("Vocale non disponibile.")).toBeInTheDocument();
+  });
+
+  it("never renders native voice-note text when playable audio is resolved", () => {
+    const message: ChatMessage = {
+      id: "assistant-native-voice-ready",
+      text: "Superficie privata del vocale.",
+      bubbles: ["Bolla privata del vocale."],
+      delivery_mode: "voice_note",
+      audioUrl: "blob:https://arrakis.local/native-voice-note",
+      time: "10:07",
+      timestamp: 13,
+      sender: "kael",
+      feedback: null,
+    };
+
+    render(
+      <ThemeProvider>
+        <MessageBubble message={message} />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByTestId("audio-message")).toBeInTheDocument();
+    expect(screen.queryByText(message.text)).not.toBeInTheDocument();
+    expect(screen.queryByText(message.bubbles![0])).not.toBeInTheDocument();
+    expect(screen.queryByText("Vocale non disponibile.")).not.toBeInTheDocument();
+  });
+
+  it("exposes native play and stop only for a canonical assistant turn", () => {
+    const onPlay = vi.fn();
+    const onStop = vi.fn();
+    const message: ChatMessage = {
+      id: "assistant-native-voice-turn",
+      backend_turn_id: "602",
+      text: "Testo privato da non montare nel DOM.",
+      bubbles: ["Bolla privata da non montare nel DOM."],
+      delivery_mode: "voice_note",
+      time: "10:08",
+      timestamp: 14,
+      sender: "kael",
+      feedback: null,
+    };
+
+    const { rerender } = render(
+      <ThemeProvider>
+        <MessageBubble
+          message={message}
+          nativeVoiceState="idle"
+          onPlayNativeVoice={onPlay}
+          onStopNativeVoice={onStop}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByText(message.text)).not.toBeInTheDocument();
+    expect(screen.queryByText(message.bubbles![0])).not.toBeInTheDocument();
+    expect(screen.queryByText("Vocale non disponibile.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Riproduci vocale" }));
+    expect(onPlay).toHaveBeenCalledTimes(1);
+    expect(onPlay).toHaveBeenCalledWith(message);
+    expect(onStop).not.toHaveBeenCalled();
+
+    rerender(
+      <ThemeProvider>
+        <MessageBubble
+          message={message}
+          nativeVoiceState="starting"
+          onPlayNativeVoice={onPlay}
+          onStopNativeVoice={onStop}
+        />
+      </ThemeProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Preparazione vocale" }));
+    expect(onStop).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <ThemeProvider>
+        <MessageBubble
+          message={message}
+          nativeVoiceState="playing"
+          onPlayNativeVoice={onPlay}
+          onStopNativeVoice={onStop}
+        />
+      </ThemeProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Interrompi vocale" }));
+    expect(onStop).toHaveBeenCalledTimes(2);
+    expect(onPlay).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([undefined, "", "0", "-1", "1.5", "not-a-turn"])(
+    "keeps the unavailable fallback for invalid assistant turn id %s",
+    (backendTurnId) => {
+      const message: ChatMessage = {
+        id: `assistant-native-invalid-${String(backendTurnId)}`,
+        backend_turn_id: backendTurnId,
+        text: "Testo privato.",
+        delivery_mode: "voice_note",
+        time: "10:09",
+        sender: "kael",
+      };
+
+      render(
+        <ThemeProvider>
+          <MessageBubble
+            message={message}
+            onPlayNativeVoice={vi.fn()}
+            onStopNativeVoice={vi.fn()}
+          />
+        </ThemeProvider>,
+      );
+
+      expect(screen.queryByRole("button", { name: "Riproduci vocale" })).not.toBeInTheDocument();
+      expect(screen.queryByText(message.text)).not.toBeInTheDocument();
+      expect(screen.getByText("Vocale non disponibile.")).toBeInTheDocument();
+    },
+  );
+
+  it("shows failed native playback as a retry without exposing reply text", () => {
+    const onPlay = vi.fn();
+    const message: ChatMessage = {
+      id: "assistant-native-retry",
+      backend_turn_id: "603",
+      text: "Risposta interna.",
+      delivery_mode: "voice_note",
+      time: "10:10",
+      sender: "kael",
+    };
+
+    render(
+      <ThemeProvider>
+        <MessageBubble
+          message={message}
+          nativeVoiceState="failed"
+          onPlayNativeVoice={onPlay}
+          onStopNativeVoice={vi.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.queryByText(message.text)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Riprova vocale" }));
+    expect(onPlay).toHaveBeenCalledWith(message);
   });
 });

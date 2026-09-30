@@ -1,4 +1,4 @@
-# Kael Companion — source tree
+# Arrakis Companion — source tree
 
 Aggiornato: 2026-09-05. Questo indice elenca i punti architetturali mantenuti manualmente; artefatti generati (`dist/`, report Playwright e APK) non sono autorità sorgente.
 

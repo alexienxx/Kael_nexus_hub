@@ -304,7 +304,7 @@ const ChatInput = ({
           <input
             ref={inputRef}
             type="text"
-            placeholder={stagedFile ? "Commenta la foto..." : "Scrivi a Kael..."}
+            placeholder={stagedFile ? "Commenta la foto..." : "Scrivi ad Arrakis..."}
             value={input}
             onChange={handleInputChange}
             onBlur={clearTypingState}

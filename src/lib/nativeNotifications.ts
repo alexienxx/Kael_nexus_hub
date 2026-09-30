@@ -58,11 +58,11 @@ export async function hasNotificationPermission(): Promise<boolean> {
  * Schedule a native notification for a Kael autonomous message.
  *
  * @param preview - Short preview text for the notification body.
- * @param title  - Notification title (defaults to "Kael").
+ * @param title  - Notification title (defaults to "Arrakis").
  */
 export async function showAutonomousNotification(
   preview: string,
-  title: string = "Kael",
+  title: string = "Arrakis",
 ): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
 
@@ -74,7 +74,7 @@ export async function showAutonomousNotification(
         {
           id,
           title,
-          body: preview || "Nuovo messaggio da Kael",
+          body: preview || "Nuovo messaggio da Arrakis",
           // Show immediately
           schedule: { at: new Date(Date.now() + 100) },
           // Small icon uses the app icon by default on Android
@@ -108,8 +108,8 @@ export async function createNotificationChannel(): Promise<void> {
   try {
     await LocalNotifications.createChannel({
       id: "kael_autonomous",
-      name: "Messaggi di Kael",
-      description: "Messaggi autonomi inviati da Kael quando non stai usando l'app",
+      name: "Messaggi di Arrakis",
+      description: "Messaggi autonomi inviati da Arrakis quando non stai usando l'app",
       importance: 4, // HIGH — shows heads-up notification
       visibility: 1, // PUBLIC
       sound: "default",

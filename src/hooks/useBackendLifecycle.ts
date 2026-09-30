@@ -30,7 +30,12 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { checkHealth, probeAndResolveBackend, probeHealthPayload } from "@/lib/api/client";
+import {
+  checkHealth,
+  probeAndResolveBackend,
+  probeHealthPayload,
+  tryRestorePreferredBackendRoute,
+} from "@/lib/api/client";
 
 // Re-export the type from the canonical types module
 import type { BackendLifecycleState } from "@/types";
@@ -325,6 +330,20 @@ export function useBackendLifecycle(): BackendLifecycleResult {
         healthFailCountRef.current = 0;
         lastOnlineAtRef.current = Date.now();
 
+        // When Tailscale is carrying the session, fail back to the preferred
+        // LAN route only after the route manager has collected stable health
+        // proofs. The route-change event reconnects SSE and other long-lived
+        // transports; ordinary HTTP reads the newly active config per request.
+        try {
+          const restored = await tryRestorePreferredBackendRoute();
+          if (restored && mountedRef.current) {
+            setMessage("Riconnesso alla rete locale");
+          }
+        } catch {
+          // The active route is healthy; a failed preferred-route proof is not
+          // a disconnect and must not disturb the current Tailscale session.
+        }
+
         // ── Session integrity: detect silent server restart via boot_id ──
         try {
           const payload = await probeHealthPayload();
@@ -598,10 +617,19 @@ export function useBackendLifecycle(): BackendLifecycleResult {
       if (isRunningRef.current || currentState === "checking") return;
       if (currentState === "online") {
         // Verify cached URL is still reachable; retry with warmup only if KO.
-        checkHealth().then((ok) => {
+        checkHealth().then(async (ok) => {
           if (!ok && mountedRef.current && stateRef.current === "online") {
             console.warn("[KAEL] NETWORK_CHANGE_RETRY_SCHEDULED state=online health=KO → warmup+probe");
             retry({ withWarmup: true, reason: "network_change_health_fail", interactive: false });
+          } else if (ok && mountedRef.current && stateRef.current === "online") {
+            // A WiFi return can leave the healthy Tailscale socket active.
+            // Record a preferred-route proof; hysteresis decides if/when to
+            // switch and emits the central route-change event.
+            try {
+              await tryRestorePreferredBackendRoute();
+            } catch {
+              // Keep the known-good active route.
+            }
           }
         });
       } else if (

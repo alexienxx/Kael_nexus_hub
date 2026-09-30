@@ -61,18 +61,16 @@ export interface FeedbackPayload {
 export type CallState = "idle" | "ringing" | "incoming" | "active" | "ended";
 
 export interface CallSession {
-  id: string;
-  state: CallState;
-  startedAt?: string;
-  duration?: number;
-  transcript: TranscriptEntry[];
-}
-
-export interface TranscriptEntry {
-  id: string;
-  speaker: "user" | "kael";
-  text: string;
-  timestamp: string;
+  call_id: string;
+  conversation_id: string;
+  direction: "user_to_arrakis" | "arrakis_to_user";
+  status: "ringing" | "active" | "ended" | "dismissed" | "expired";
+  created_at?: string;
+  answered_at?: string;
+  ended_at?: string;
+  turn_count?: number;
+  trigger_reason_code?: string;
+  end_reason?: string;
 }
 
 // ===== Media =====

@@ -136,7 +136,7 @@ const ServiceCallback = () => {
             onClick={() => navigate("/", { replace: true })}
             className="mt-4 px-6 py-2 bg-neon-purple/20 hover:bg-neon-purple/30 rounded-lg text-neon-purple transition-colors"
           >
-            Back to Kael
+            Torna ad Arrakis
           </button>
         )}
 

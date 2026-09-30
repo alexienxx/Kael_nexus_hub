@@ -29,13 +29,20 @@ vi.mock("@/lib/api/client", () => ({
   checkHealth: vi.fn(),
   probeAndResolveBackend: vi.fn(),
   probeHealthPayload: vi.fn(),
+  tryRestorePreferredBackendRoute: vi.fn(),
 }));
 
-import { checkHealth, probeAndResolveBackend, probeHealthPayload } from "@/lib/api/client";
+import {
+  checkHealth,
+  probeAndResolveBackend,
+  probeHealthPayload,
+  tryRestorePreferredBackendRoute,
+} from "@/lib/api/client";
 
 const mockCheckHealth = vi.mocked(checkHealth);
 const mockProbe = vi.mocked(probeAndResolveBackend);
 const mockHealthPayload = vi.mocked(probeHealthPayload);
+const mockRestorePreferred = vi.mocked(tryRestorePreferredBackendRoute);
 
 // -- Test helpers ------------------------------------------------------------
 
@@ -74,6 +81,7 @@ beforeEach(() => {
   mockCheckHealth.mockResolvedValue(true);
   mockProbe.mockResolvedValue(null);
   mockHealthPayload.mockResolvedValue(null);
+  mockRestorePreferred.mockResolvedValue(null);
   vi.spyOn(Math, "random").mockReturnValue(0.5);
 });
 

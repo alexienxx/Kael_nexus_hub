@@ -25,7 +25,8 @@
  */
 
 import { useEffect, useRef } from "react";
-import { obtainSSEToken, buildSSEUrl } from "@/lib/api/sse";
+import { obtainSSEConnection } from "@/lib/api/sse";
+import { BACKEND_ROUTE_CHANGED_EVENT } from "@/lib/api/client";
 import { App as CapApp } from "@capacitor/app";
 import { emitTelemetry } from "@/lib/telemetry/sseTelemetry";
 
@@ -36,6 +37,7 @@ export interface KaelSSENewMessage {
   source: string;
   preview: string;
   session_id: string;
+  delivery_mode?: "text" | "voice_note" | "voice_call" | "image" | "video_message";
   ts: number;
 }
 
@@ -106,12 +108,11 @@ export function useKaelSSE(enabled: boolean): void {
       if (!mountedRef.current || !enabledRef.current) return;
 
       try {
-        const token = await obtainSSEToken();
+        const connection = await obtainSSEConnection();
         if (seq !== connectSeqRef.current) return;
         if (!mountedRef.current || !enabledRef.current) return;
 
-        const url = buildSSEUrl(token);
-        const es = new EventSource(url);
+        const es = new EventSource(connection.url);
         if (seq !== connectSeqRef.current) {
           es.close();
           return;
@@ -210,6 +211,12 @@ export function useKaelSSE(enabled: boolean): void {
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
 
+    // Scoped SSE tokens and EventSource origins are route-bound. When the
+    // active backend moves between LAN and Tailscale, close the old stream and
+    // obtain a fresh token against the newly validated origin immediately.
+    const onBackendRouteChanged = () => forceReconnect("backend_route_changed");
+    window.addEventListener(BACKEND_ROUTE_CHANGED_EVENT, onBackendRouteChanged);
+
     // Capacitor appStateChange — fires more reliably on Android than visibilitychange
     let capListener: { remove: () => void } | null = null;
     CapApp.addListener("appStateChange", ({ isActive }) => {
@@ -228,6 +235,7 @@ export function useKaelSSE(enabled: boolean): void {
       mountedRef.current = false;
       cleanup();
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener(BACKEND_ROUTE_CHANGED_EVENT, onBackendRouteChanged);
       capListener?.remove();
     };
   }, [enabled]);

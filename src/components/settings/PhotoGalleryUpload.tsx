@@ -37,7 +37,7 @@ type Tab = AuthorizedIdentity; // "alexien" | "kael"
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "alexien", label: "Foto di Alexièn" },
-  { id: "kael",    label: "Foto di Kael" },
+  { id: "kael",    label: "Foto di Arrakis" },
 ];
 
 // ------------------------------------------------------------------ helpers

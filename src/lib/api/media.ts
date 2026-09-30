@@ -116,7 +116,7 @@ export async function getGalleryFileUrl(assetId: string): Promise<string> {
 export async function requestAvatarVideo(text?: string) {
   return apiRequest<{ job_id: string; status: string }>("/avatar/live/video/render", {
     method: "POST",
-    body: JSON.stringify({ text: text || "Ciao, sono Kael!" }),
+    body: JSON.stringify({ text: text || "Ciao, sono Arrakis!" }),
   });
 }
 

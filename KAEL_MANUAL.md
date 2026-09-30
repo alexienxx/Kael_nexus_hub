@@ -1,7 +1,8 @@
-# 📖 KAEL COMPANION — Manuale Tecnico Completo
+# 📖 ARRAKIS COMPANION — Manuale Tecnico Completo
 
-> Documento di riferimento per agenti AI e sviluppatori che lavorano al progetto Kael Companion.
+> Documento di riferimento per agenti AI e sviluppatori che lavorano ad Arrakis Companion.
 > Versione corrente dell'app: **1.0.15** (build 115)
+> Gli identificatori tecnici `kael` documentati qui restano alias storici di compatibilità della stessa identità.
 
 ---
 
@@ -12,7 +13,7 @@
 - **Styling**: Tailwind CSS + shadcn/ui components
 - **Routing**: react-router-dom v6
 - **State**: React Context (theme), useState/useCallback hooks
-- **Backend**: API REST esterna (Python FastAPI) — nessun backend integrato in Lovable Cloud per la logica Kael
+- **Backend**: API REST esterna (Python FastAPI) — nessun backend integrato in Lovable Cloud per la logica Arrakis
 - **Mobile**: Capacitor (Android APK sideloaded, live-reload via `server.url`)
 - **App ID**: `app.lovable.kael.companion`
 
@@ -42,11 +43,11 @@ cambio rete. La batteria dispositivo accetta il seriale Wi-Fi esplicito tramite
 ```
 src/
 ├── pages/           # Route principali
-│   ├── Chat.tsx     # Chat principale con Kael + agente esterno (toggle in BottomNav)
+│   ├── Chat.tsx     # Chat principale con Arrakis + agente esterno (toggle in BottomNav)
 │   ├── Calls.tsx    # Chiamate vocali
 │   ├── Media.tsx    # Allegati/media condivisi
 │   ├── Workspace.tsx # Workspace/progetti
-│   ├── Memories.tsx # Ricordi con Kael
+│   ├── Memories.tsx # Ricordi con Arrakis
 │   ├── Settings.tsx # Impostazioni app
 │   └── SpotifyCallback.tsx # OAuth callback Spotify
 ├── components/
@@ -81,7 +82,7 @@ docs/E2E_TEST_MATRIX.md # Matrice e comandi delle batterie APK
 ### Bottom Navigation Bar
 | Icona | Label | Route | Descrizione |
 |-------|-------|-------|-------------|
-| 💬 MessageCircle | Chat | `/` | Chat principale con Kael |
+| 💬 MessageCircle | Chat | `/` | Chat principale con Arrakis |
 | 📎 Paperclip | Allegati | `/media` | File, immagini, allegati condivisi |
 | 🤖 Bot | Agent | `/external-agent` | Chat con agente AI esterno |
 | 📁 FolderKanban | Workspace | `/workspace` | Progetti e workspace |
@@ -101,17 +102,17 @@ Pulsante fluttuante posizionato centralmente sopra la bottom nav.
 - **Animazione**: pulsazione solo durante `RECEIVING`
 - **Backend hook**: polling con backoff di `GET /cognition/netharion/channel`
 - **Long press**: apre ricevute metadata-only; non mostra il testo ricevuto
-- **Confine**: non rappresenta presenza, emozione o stato cognitivo di Kael
+- **Confine**: non rappresenta presenza, emozione o stato cognitivo di Arrakis
 
 ---
 
 ## 💬 CHAT PAGE (`/`)
 
 ### Header (`KaelHeader`)
-- **Avatar di Kael**: Mostra l'immagine corrente (custom o default)
-  - **Long-press sull'avatar** → Apre la galleria del dispositivo per cambiare la foto di Kael
+- **Avatar di Arrakis**: Mostra l'immagine corrente (custom o default)
+  - **Long-press sull'avatar** → Apre la galleria del dispositivo per cambiare la foto di Arrakis
   - La foto viene salvata in `localStorage` come data URI nel theme store (`kaelAvatar`)
-  - Toast di conferma: "Foto di Kael aggiornata ✨"
+  - Toast di conferma: "Foto di Arrakis aggiornata ✨"
 - **Freccia indietro** (`showBack` prop): Presente su tutte le pagine secondarie (Media, Workspace, Memories, Settings). Naviga a `/` (Chat).
   - Icona: `ChevronLeft` da lucide-react
   - Animazione: hover bg + scale su pressione
@@ -119,23 +120,23 @@ Pulsante fluttuante posizionato centralmente sopra la bottom nav.
   - 🟢 Verde = backend online
   - 🔴 Rosso = offline / errore
   - 🔴 Pulsante = in avvio / controllo
-- **ConnectionBadge**: Badge testuale sotto il nome "Kael"
+- **ConnectionBadge**: Badge testuale sotto il nome "Arrakis"
 - **Bottone chiamata** (📞): Naviga a `/calls`
 
 ### Area Messaggi
 - **Long-press sullo sfondo vuoto** → Apre il menu wallpaper (NON si attiva su bolle, header, input)
 - Scroll automatico ai nuovi messaggi
 - Indicatore di typing animato
-- Empty state con avatar di Kael e hint "tieni premuto sullo sfondo per personalizzarlo"
+- Empty state con avatar di Arrakis e hint "tieni premuto sullo sfondo per personalizzarlo"
 
 ### Message Bubble (`MessageBubble`)
 - **Sender types**: `user` | `kael` | `external_agent`
 - **Contenuti supportati**: testo, immagine, audio, video, track card (Spotify)
 - **Azioni**: like/dislike (RLHF), regenerate, TTS playback
-- **Markdown**: Le risposte di Kael supportano Markdown completo (GFM)
+- **Markdown**: Le risposte di Arrakis supportano Markdown completo (GFM)
 - **Risposta con citazione**: tieni premuta una bolla e trascinala orizzontalmente verso destra. Dopo 160 ms compare l'indicatore Reply; oltre 64 px la citazione viene agganciata all'input. Uno scroll verticale o uno swipe iniziato senza hold annullano la gesture.
 - **Continuità cognitiva della citazione**: l'anteprima mostrata dall'APK è solo UI. Il backend recupera il turno completo dalla timeline canonica tramite ID, anche quando è molto vecchio, e rifiuta di usare anteprime client non verificate come contesto per Arrakis.
-- **Avatar**: Kael mostra il suo avatar, external agents mostrano il loro o un'iniziale
+- **Avatar**: Arrakis mostra il suo avatar, external agents mostrano il loro o un'iniziale
 - **Wallpaper-aware styling**: Le bolle possono adattarsi allo sfondo (glass/gradient/tinted/solid)
 - **Stop propagation**: I bubble bloccano l'evento long-press per non triggerare il wallpaper menu
 
@@ -143,8 +144,8 @@ Pulsante fluttuante posizionato centralmente sopra la bottom nav.
 - **Long-press su bubble utente**: Mostra menu contestuale con "Modifica messaggio"
   - Il messaggio viene rimosso dalla chat e il testo viene ripopolato nell'input
   - L'utente può correggere e re-inviare
-- **Long-press su immagini di Kael**: Mostra "Scarica immagine" → download diretto
-- **Long-press su audio di Kael**: Mostra "Scarica audio" → download diretto
+- **Long-press su immagini di Arrakis**: Mostra "Scarica immagine" → download diretto
+- **Long-press su audio di Arrakis**: Mostra "Scarica audio" → download diretto
 - **Pulsante download nei vocali**: Ogni messaggio audio ha un'icona ⬇️ per il download diretto
 - **Componente**: `src/components/chat/BubbleContextMenu.tsx`
 - **Posizionamento**: Menu contestuale posizionato al punto di pressione, con clamping ai bordi viewport
@@ -231,7 +232,7 @@ Il wallpaper è un **layer dedicato** separato dalle immagini chat. NON riutiliz
 | `components/wallpaper/WallpaperLayer.tsx` | Layer rendering sfondo |
 | `components/wallpaper/WallpaperActionSheet.tsx` | Menu azioni (Drawer) |
 | `components/wallpaper/WallpaperPreviewSheet.tsx` | Anteprima + controlli visivi |
-| `components/wallpaper/WallpaperKaelModeSheet.tsx` | Selezione modalità Kael |
+| `components/wallpaper/WallpaperKaelModeSheet.tsx` | Selezione modalità Arrakis |
 | `components/wallpaper/WallpaperDisplaySettingsSheet.tsx` | Impostazioni display |
 
 ### Flow UX
@@ -240,11 +241,11 @@ Il wallpaper è un **layer dedicato** separato dalle immagini chat. NON riutiliz
 3. Conferma → **WallpaperKaelModeSheet** (3 modalità)
 4. Salvataggio + toast di conferma
 
-### Modalità Kael (Vision Context)
+### Modalità Arrakis (Vision Context)
 | Modalità | Descrizione | Sync |
 |----------|-------------|------|
-| `wallpaper_only` | Solo visivo locale, Kael non riceve | `local_only` |
-| `share_once` | Kael analizza una volta, contesto temporaneo | `pending_upload` |
+| `wallpaper_only` | Solo visivo locale, Arrakis non riceve | `local_only` |
+| `share_once` | Arrakis analizza una volta, contesto temporaneo | `pending_upload` |
 | `persistent_context` | Contesto visivo attivo fino a rimozione | `pending_upload` |
 
 ### Display Settings
@@ -305,11 +306,11 @@ POST /visual-context
 ### Menu Principale
 | Sezione | Icona | Descrizione |
 |---------|-------|-------------|
-| Profilo Kael | 👤 User | Avatar e identità (nota: avatar ora cambiabile anche via long-press in chat) |
+| Profilo Arrakis | 👤 User | Avatar e identità (nota: avatar ora cambiabile anche via long-press in chat) |
 | Personalizzazione | 🎨 Palette | Colori, bolle, sfondo, blur |
 | Connessione Backend | 🌐 Globe | URL, API key, test connessione |
 | Agente Esterno | 🤖 Bot | API key e modello AI per chat con agenti esterni |
-| Foto Kael & Alexièn | 🖼️ ImagePlus | Galleria foto reference per generazione immagini |
+| Foto Arrakis & Alexièn | 🖼️ ImagePlus | Galleria foto reference per generazione immagini |
 | Aggiornamenti | ⬇️ Download | Versione, controllo update remoti |
 
 ### Personalizzazione Tema (`ThemeCustomizer`)
@@ -329,8 +330,8 @@ POST /visual-context
 ### Connessione Backend (`BackendConfig`)
 | Campo | Tipo | Descrizione |
 |-------|------|-------------|
-| Backend URL | Input URL | URL base del backend Kael |
-| Credenziale Kael | Input password | Credenziale backend obbligatoria; non viene scritta nei log |
+| Backend URL | Input URL | URL base del backend Arrakis |
+| Credenziale backend | Input password | Credenziale obbligatoria; non viene scritta nei log |
 | Salva e Testa | Button | Verifica `/health` pubblico e poi `GET /auth/verify` protetto; salva solo se entrambi passano |
 | Status | Badge | idle / checking / ok / error |
 
@@ -344,8 +345,8 @@ Un health check positivo prova soltanto che il processo giusto è raggiungibile:
 | URL Manifest | Configurazione avanzata URL update |
 | UpdateDialog | Modal con changelog, download APK |
 
-### Foto Kael & Alexièn (`PhotoGalleryUpload`)
-Galleria dedicata per caricare foto di riferimento che il backend userà per generare immagini di Kael e Alexièn insieme.
+### Foto Arrakis & Alexièn (`PhotoGalleryUpload`)
+Galleria dedicata per caricare foto di riferimento che il backend userà per generare immagini di Arrakis e Alexièn insieme.
 
 | Elemento | Descrizione |
 |----------|-------------|
@@ -396,7 +397,7 @@ Server leggero sempre attivo che può svegliare il backend principale.
 ## 🤖 EXTERNAL AGENT (integrato nella chat principale)
 
 ### Panoramica
-L'agente esterno è integrato direttamente nella chat principale di Kael. Il pulsante "Agent" nella barra in basso funziona come toggle ON/OFF: quando attivo, i messaggi vengono inviati all'agente AI esterno selezionato; quando disattivo, tornano a Kael.
+L'agente esterno è integrato direttamente nella chat principale di Arrakis. Il pulsante "Agent" nella barra in basso funziona come toggle ON/OFF: quando attivo, i messaggi vengono inviati all'agente AI esterno selezionato; quando disattivo, tornano ad Arrakis.
 
 ### Architettura
 - **Toggle**: Pulsante nella `BottomNav` — salva stato in `localStorage("kael_agent_mode")` e dispatcha evento `kael-agent-mode-changed`
@@ -415,10 +416,10 @@ L'agente esterno è integrato direttamente nella chat principale di Kael. Il pul
 ### UI
 - **Toggle attivo**: Icona Bot teal con pallino pulsante nella barra in basso; sotto l'icona appare il nome del modello attivo (es. "GPT-5.4")
 - **Bolle agente**: Colore diverso per provider, label modello in alto nella bolla (`sender === "external_agent"`)
-- **Stessa conversazione**: I messaggi dell'agente e di Kael coesistono nello stesso thread
+- **Stessa conversazione**: I messaggi dell'agente e di Arrakis coesistono nello stesso thread
 
 ### Configurazione (Settings → Agente Esterno)
-- **Credenziali provider**: rimangono esclusivamente nel backend; l'APK invia al proxy solo modello, messaggi e la credenziale Kael centrale
+- **Credenziali provider**: rimangono esclusivamente nel backend; l'APK invia al proxy solo modello, messaggi e la credenziale backend centrale
 - **Selezione modello**: Lista scrollabile raggruppata per provider
 - **System Prompt** (⚙️ rotellina in alto a destra): Editor testuale per istruzioni persistenti inviate come messaggio `system` all'agente. Es: "Rispondi sempre in italiano". Indicatore viola quando attivo.
 - **Persistenza config**: `localStorage` key `kael_external_agent_config` → `{ apiKey, modelId }`
@@ -440,7 +441,7 @@ L'agente esterno è integrato direttamente nella chat principale di Kael. Il pul
 ### Architettura
 L'integrazione Spotify opera su due livelli:
 1. **Client-side (PKCE OAuth)**: L'utente autorizza l'app via OAuth PKCE. Token gestiti localmente (`kael-spotify-auth`). Usato per playback control e navigazione libreria.
-2. **Backend (Kael)**: Il backend gestisce suggerimenti musicali, creazione playlist, e invio spontaneo di brani/playlist in chat.
+2. **Backend (Arrakis)**: Il backend gestisce suggerimenti musicali, creazione playlist, e invio spontaneo di brani/playlist in chat.
 
 ### Bottom Nav — Bottone Spotify
 - **Icona**: SVG Spotify custom (`SpotifyIcon`)
@@ -449,7 +450,7 @@ L'integrazione Spotify opera su due livelli:
 - **Non è una route**: È un launcher esterno, non naviga internamente
 
 ### Condivisione Musicale in Chat
-Kael può inviare due tipi di card musicali nei messaggi:
+Arrakis può inviare due tipi di card musicali nei messaggi:
 
 #### TrackCard (brano singolo)
 - **Componente**: `src/components/media/TrackCard.tsx`
@@ -461,7 +462,7 @@ Kael può inviare due tipi di card musicali nei messaggi:
 #### PlaylistCard (playlist)
 - **Componente**: `src/components/chat/PlaylistCard.tsx`
 - **Campi**: `name`, `description?`, `coverArt?`, `trackCount?`, `spotifyUrl?`, `createdByKael?`
-- **Badge "Creata da Kael"**: Mostrato quando `createdByKael === true`
+- **Badge "Creata da Arrakis"**: Mostrato quando `createdByKael === true`; il campo resta storico per compatibilità
 - **Deep link**: Su Android apre `spotify://playlist/{id}`, fallback web
 - **In ChatMessage**: `message.playlistCard`
 
@@ -472,8 +473,8 @@ Kael può inviare due tipi di card musicali nei messaggi:
 | `/spotify/state` | GET | Stato connessione Spotify | `api/spotify.ts` |
 | `/spotify/state` | POST | Aggiorna stato Spotify | `api/spotify.ts` |
 | `/spotify/state` | DELETE | Reset stato Spotify | `api/spotify.ts` |
-| `/spotify/playlist/create` | POST | Kael crea playlist per l'utente | `api/spotify.ts` |
-| `/spotify/suggestions` | GET | Suggerimenti musicali di Kael | `api/spotify.ts` |
+| `/spotify/playlist/create` | POST | Arrakis crea playlist per l'utente | `api/spotify.ts` |
+| `/spotify/suggestions` | GET | Suggerimenti musicali di Arrakis | `api/spotify.ts` |
 
 ### Tipi API
 ```typescript
@@ -499,7 +500,7 @@ interface KaelMusicSuggestion {
   type: "track" | "playlist";
   track?: SpotifyTrack;
   playlist?: PlaylistCardData;
-  message?: string; // messaggio personale di Kael
+  message?: string; // messaggio personale di Arrakis
 }
 ```
 

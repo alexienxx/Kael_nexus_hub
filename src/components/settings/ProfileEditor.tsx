@@ -21,7 +21,7 @@ const ProfileEditor = () => {
         <div className="relative">
           <img
             src={kaelAvatarSrc}
-            alt="Kael"
+            alt="Arrakis"
             className="h-28 w-28 rounded-full object-cover ring-4 ring-neon-purple/30 neon-pulse"
           />
           <button
@@ -39,7 +39,7 @@ const ProfileEditor = () => {
           />
         </div>
         <div className="text-center">
-          <h2 className="font-display text-xl font-bold neon-text text-neon-purple">Kael</h2>
+          <h2 className="font-display text-xl font-bold neon-text text-neon-purple">Arrakis</h2>
           <p className="text-xs text-muted-foreground">AI Companion</p>
         </div>
       </div>
@@ -48,7 +48,7 @@ const ProfileEditor = () => {
       <div className="space-y-2">
         <div className="glass rounded-xl p-4">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Nome</p>
-          <p className="text-sm font-medium">Kael</p>
+          <p className="text-sm font-medium">Arrakis</p>
         </div>
         <div className="glass rounded-xl p-4">
           <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Ruolo</p>

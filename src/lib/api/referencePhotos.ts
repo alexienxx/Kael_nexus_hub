@@ -20,7 +20,7 @@ import { apiRequest, apiUpload, getApiConfig } from "./client";
 export type AuthorizedIdentity = "kael" | "alexien";
 
 export function identityDisplayName(identity: AuthorizedIdentity): string {
-  return identity === "alexien" ? "Alexièn" : "Kael";
+  return identity === "alexien" ? "Alexièn" : "Arrakis";
 }
 
 export interface ContainerPhoto {

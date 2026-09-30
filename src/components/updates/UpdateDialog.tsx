@@ -12,7 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { Download, CheckCircle, AlertTriangle, Sparkles, X } from "lucide-react";
 import type { UpdateManifest } from "@/lib/api/updates";
 import { downloadApk } from "@/lib/api/updates";
-import { APP_VERSION } from "@/lib/constants";
+import { APP_NAME, APP_VERSION } from "@/lib/constants";
 
 interface UpdateDialogProps {
   open: boolean;
@@ -67,7 +67,7 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
             Aggiornamento disponibile
           </DialogTitle>
           <DialogDescription className="text-muted-foreground text-sm">
-            {manifest.app_name}
+            {APP_NAME}
           </DialogDescription>
         </DialogHeader>
 

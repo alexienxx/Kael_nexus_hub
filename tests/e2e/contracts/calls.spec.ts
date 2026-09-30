@@ -1,24 +1,33 @@
-import { expect, test } from "../support/appFixture";
+import { readFileSync } from "node:fs";
+import { expect, test } from "@playwright/test";
 
-test.describe("APK ↔ backend call contract", () => {
-  test("active-call backend shape enables the page and visible copy is valid UTF-8", async ({ page }) => {
-    await page.goto("/calls");
-    await expect(page.getByRole("heading", { name: "Videochiamata", exact: true })).toBeVisible();
-    await expect(page.getByText("Videochiamata — Kael ti vedrà attraverso la videocamera")).toBeVisible();
-    await expect(page.locator("body")).not.toContainText(/â|Ã|�/);
-    await expect(page.getByRole("button", { name: "Avvia videochiamata" })).toBeEnabled();
+const voiceSource = readFileSync(
+  new URL("../../../src/lib/api/voice.ts", import.meta.url),
+  "utf8",
+);
+const callsSource = readFileSync(
+  new URL("../../../src/pages/Calls.tsx", import.meta.url),
+  "utf8",
+);
+
+test.describe("Calls production boundary", () => {
+  test("uses only the canonical call lifecycle and finalized audio ingress", () => {
+    expect(voiceSource).toContain("/audio/calls/start?session_id=");
+    expect(voiceSource).toContain("/audio/calls/active?session_id=");
+    expect(voiceSource).toContain("/audio/calls/incoming?session_id=");
+    expect(voiceSource).toContain("/answer?session_id=");
+    expect(voiceSource).toContain("/dismiss?session_id=");
+    expect(voiceSource).toContain("/end?session_id=");
+    expect(voiceSource).toContain("/audio/notes?");
+    expect(voiceSource).toContain("call_id: callId");
+    expect(voiceSource).not.toContain("/mobile/call/");
   });
 
-  test("start call uses the backend query contract and no obsolete JSON body", async ({ page }) => {
-    await page.goto("/calls");
-    const requestPromise = page.waitForRequest((request) => new URL(request.url()).pathname === "/mobile/call/start");
-    await page.getByRole("button", { name: "Avvia videochiamata" }).click();
-    const request = await requestPromise;
-    const url = new URL(request.url());
-
-    expect(request.method()).toBe("POST");
-    expect(url.searchParams.get("user_id")).toBe("mobile_kael");
-    expect(request.postData()).toBeNull();
-    await expect(page.getByText("Connessione in corso...")).toBeVisible();
+  test("keeps transcripts and legacy text/audio replies out of the call screen", () => {
+    expect(callsSource).toContain("sendCanonicalCallTurn");
+    expect(callsSource).toContain("nativeCallVoiceService.playAssistantTurn");
+    expect(callsSource).not.toMatch(/TranscriptEntry|setTranscript|transcript\.map/);
+    expect(callsSource).not.toMatch(/response\.(?:transcription|reply_text|reply_audio_base64)/);
+    expect(callsSource).not.toContain("sendCallVoiceMessage");
   });
 });

@@ -24,14 +24,14 @@ const modes: {
     value: "wallpaper_only",
     icon: EyeOff,
     title: "Solo sfondo",
-    description: "L'immagine è puramente visiva e locale. Kael non la riceve.",
+    description: "L'immagine è puramente visiva e locale. Arrakis non la riceve.",
     accent: "text-muted-foreground bg-muted/30",
   },
   {
     value: "share_once",
     icon: Share2,
-    title: "Condividi una volta con Kael",
-    description: "Kael può analizzare questa immagine una volta come contesto visivo, ma non viene mantenuta come contesto attivo.",
+    title: "Condividi una volta con Arrakis",
+    description: "Arrakis può analizzare questa immagine una volta come contesto visivo, ma non viene mantenuta come contesto attivo.",
     accent: "text-neon-blue bg-neon-blue/15",
   },
   {
@@ -53,10 +53,10 @@ const WallpaperKaelModeSheet = ({
       <DrawerContent className="glass-strong border-t border-border/30">
         <DrawerHeader className="pb-2">
           <DrawerTitle className="text-center text-sm font-semibold text-foreground/80 tracking-wide uppercase">
-            Condivisione con Kael
+            Condivisione con Arrakis
           </DrawerTitle>
           <p className="text-center text-[11px] text-muted-foreground mt-1">
-            Come vuoi che Kael utilizzi questo sfondo?
+            Come vuoi che Arrakis utilizzi questo sfondo?
           </p>
         </DrawerHeader>
 

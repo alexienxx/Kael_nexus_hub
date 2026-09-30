@@ -6,7 +6,7 @@ interface MessageActionsProps {
   message: ChatMessage;
   onLike?: (id: string) => void;
   onDislike?: (id: string) => void;
-  onPlayTTS?: (text: string) => void;
+  onPlayTTS?: (message: ChatMessage) => void;
 }
 
 const MessageActions = ({ message, onLike, onDislike, onPlayTTS }: MessageActionsProps) => {
@@ -43,9 +43,14 @@ const MessageActions = ({ message, onLike, onDislike, onPlayTTS }: MessageAction
           </button>
         </>
       )}
-      {message.text && (
+      {message.sender === "kael" &&
+        message.delivery_mode !== "voice_note" &&
+        message.text &&
+        typeof onPlayTTS === "function" &&
+        Number.isSafeInteger(Number(message.backend_turn_id)) &&
+        Number(message.backend_turn_id) > 0 && (
         <button
-          onClick={() => onPlayTTS?.(message.text)}
+          onClick={() => onPlayTTS?.(message)}
           className="rounded-full p-1 text-muted-foreground transition-all hover:scale-110 hover:text-neon-blue"
           title="Ascolta"
         >

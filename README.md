@@ -2,9 +2,9 @@
 
 Client React/TypeScript, Vite e Capacitor Android del progetto Arrakis.
 Il nome principale è **Arrakis**; package e identificatori `kael` sono storici.
-La build installata **1.0.17 / 117** mostra ancora Kael nel titolo luminoso:
-la rinomina con lo stesso glow è pianificata in G02, non inclusa in questo
-aggiornamento documentale.
+Il sorgente corrente usa Arrakis per titolo, header, notifiche e superfici
+visibili. Le installazioni precedenti possono mostrare ancora Kael finché non
+ricevono una build aggiornata; questo non crea una seconda identità.
 
 Unico ordine di lavoro: [roadmap Arrakis / PR26](https://github.com/alexienxx/Kael_refactor_ultimate_new/pull/26).
 [PR mobile1](https://github.com/alexienxx/Kael_nexus_hub/pull/1) contiene
@@ -19,7 +19,7 @@ l'implementazione di questo client, non una roadmap concorrente.
 | Netharion / agente esterno | Ricevute tecniche `OFF/ACTIVE/RECEIVING/VERIFIED/DEGRADED`, `exchange_id` stabile e turni esterni durevoli | Non presenza/umore/coscienza. La nuova accettazione provider reale -> DB isolato -> APK117 è ancora aperta |
 | Allegati / media | Pagina media, contratti upload/galleria e reference fotografiche | Non certifica consumo cognitivo Vision o rigenerazione ComfyUI; verifiche G12 |
 | Chiamate e servizi | Pagine chiamate, workspace, impostazioni e callback OAuth | Dipendono da servizi, credenziali e permessi reali; non tutte live-verified |
-| Aspetto | Tema/avatar configurabili e header neon | Arrakis principale da applicare in G02 preservando dati e alias |
+| Aspetto | Tema/avatar configurabili, header neon e marchio dorato Arrakis | Package, storage ed eventi `kael` restano alias tecnici di compatibilità |
 | Observatory | Rimosso da route, pagine e navigazione | Non ricostruire né usare Netharion come sostituto cognitivo |
 
 Sorgenti principali: [route](src/App.tsx),
@@ -39,6 +39,21 @@ ritorno della connessione l'app deve recuperare automaticamente anche i turni
 autonomi ed esterni mancanti. Se il PC è spento, la cache non può ricevere
 nuovi messaggi: il servizio always-on G12b è ancora una decisione da completare,
 non una capacità offerta da questo APK.
+
+Il client conserva separatamente la rotta preferita e la rotta attiva. Se la
+LAN non supera il controllo `/health`, prova l'endpoint Tailscale già censito e
+notifica il cambio di origine ai trasporti persistenti: SSE chiude la vecchia
+connessione, richiede un nuovo token sulla nuova origine e si riconnette; le
+richieste HTTP successive leggono la rotta attiva. Il ritorno alla LAN richiede
+almeno un minuto sulla rotta di riserva e due prove di salute distanziate, così
+una rete instabile non produce continui rimbalzi. Token scoped e URL vengono
+sempre costruiti dalla stessa origine per evitare gare durante il cambio rete.
+
+Questo failover può usare Tailscale soltanto quando la VPN Android è connessa.
+Una WebView non può attivare silenziosamente una VPN di terze parti: sul telefono
+Tailscale deve essere configurato come VPN sempre attiva se si vuole continuità
+automatica al distacco dal Wi-Fi. L'installazione fisica e il passaggio reale
+Wi-Fi → rete mobile restano una prova distinta dalla verifica del client.
 
 Prove distinte:
 
@@ -98,3 +113,13 @@ Build web, APK firmata, installazione fisica e collaudo end-to-end sono prove
 separate. Dopo ogni implementazione importante aggiornare questo manuale,
 [CHANGELOG](CHANGELOG.md), manuali/TREE backend pertinenti e PR26, quindi
 commit/push. Non promettere una funzione perché esiste una pagina.
+
+### Chiamate e nuovo AudioRuntime
+
+La pagina chiamate usa il nuovo ingresso `/audio/notes` e presenta esclusivamente
+il turno Arrakis committato tramite `/audio/speech/{assistant_turn_id}`. Non
+mostra trascrizioni e non consuma `voice_audio`, TTS base64 o il vecchio
+`/mobile/call/voice`. Il lifecycle usa esclusivamente `/audio/calls/*`; il
+backend lega `call_id`, sessione e principal prima di accettare ogni turno.
+Contratto, limiti e wiring ancora aperto sono descritti in
+[Calls Native Audio Contract](docs/CALLS_NATIVE_AUDIO_CONTRACT.md).
