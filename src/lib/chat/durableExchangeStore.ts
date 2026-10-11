@@ -378,18 +378,61 @@ export async function getTextOutboxSummary(): Promise<TextOutboxSummary> {
   };
 }
 
-export async function markTextExchangeSending(clientMessageId: string, nowMs = Date.now()): Promise<DurableTextExchange> {
+export function canDeferTextExchange(entry: Pick<DurableTextExchange, "state" | "exchangeStatus">): boolean {
+  return entry.state === "queued" && (!entry.exchangeStatus || entry.exchangeStatus === "received");
+}
+
+export interface TextDispatchClaim {
+  snapshot: DurableTextExchange;
+  deferredRevision?: number;
+}
+
+/** Rechecked inside the serialized write transaction, not just in the reader. */
+export function canClaimTextExchange(entry: DurableTextExchange, claim?: TextDispatchClaim): boolean {
+  if (["authentication_required", "recovery_required", "terminal_failed"].includes(entry.state)) return false;
+  if (claim && (
+    entry.clientMessageId !== claim.snapshot.clientMessageId || entry.sessionId !== claim.snapshot.sessionId ||
+    entry.state !== claim.snapshot.state || entry.updatedAtMs !== claim.snapshot.updatedAtMs ||
+    entry.attempts !== claim.snapshot.attempts || entry.bodyHash !== claim.snapshot.bodyHash
+  )) return false;
+  return entry.state !== "queued_by_user" || (
+    canDeferTextExchange({ state: "queued", exchangeStatus: entry.exchangeStatus }) &&
+    claim?.deferredRevision === entry.updatedAtMs
+  );
+}
+
+export function markTextExchangeSending(clientMessageId: string, nowMs?: number): Promise<DurableTextExchange>;
+export function markTextExchangeSending(clientMessageId: string, nowMs: number, claim: TextDispatchClaim): Promise<DurableTextExchange | null>;
+export async function markTextExchangeSending(clientMessageId: string, nowMs = Date.now(), claim?: TextDispatchClaim): Promise<DurableTextExchange | null> {
   const db = await openDatabase();
   const transaction = db.transaction(OUTBOX_STORE, "readwrite", { durability: "strict" });
   const store = transaction.objectStore(OUTBOX_STORE);
   const entry = await requestResult(store.get(clientMessageId)) as DurableTextExchange | undefined;
   if (!entry) {
+    if (claim) {
+      await transactionDone(transaction);
+      return null;
+    }
     transaction.abort();
     throw new Error("Durable chat exchange no longer exists");
   }
+  if (!canClaimTextExchange(entry, claim)) {
+    // Prior versions could incorrectly defer a processing receipt. Do not
+    // resume that legacy row; expose a durable recovery barrier instead.
+    if (entry.state === "queued_by_user" && !canDeferTextExchange({ state: "queued", exchangeStatus: entry.exchangeStatus })) {
+      entry.state = "recovery_required";
+      entry.errorCode = "deferred_cognition_receipt_requires_reconciliation";
+      entry.nextAttemptAtMs = 0;
+      entry.updatedAtMs = Math.max(nowMs, entry.updatedAtMs + 1);
+      store.put(entry);
+    }
+    await transactionDone(transaction);
+    if (claim) return null;
+    throw new Error("Durable chat exchange is not eligible for dispatch");
+  }
   entry.state = "sending";
   entry.attempts = Number(entry.attempts || 0) + 1;
-  entry.updatedAtMs = nowMs;
+  entry.updatedAtMs = Math.max(nowMs, entry.updatedAtMs + 1);
   entry.nextAttemptAtMs = 0;
   store.put(entry);
   await transactionDone(transaction);
@@ -409,7 +452,7 @@ export async function patchTextExchange(
     transaction.abort();
     throw new Error("Durable chat exchange no longer exists");
   }
-  Object.assign(entry, patch, { updatedAtMs: nowMs });
+  Object.assign(entry, patch, { updatedAtMs: Math.max(nowMs, entry.updatedAtMs + 1) });
   store.put(entry);
   await transactionDone(transaction);
   return cloneExchange(entry);
@@ -479,9 +522,10 @@ export async function retryTextExchangeManually(
 }
 
 /**
- * Preserve a never-accepted transport send for the next connectivity/resume
- * trigger. This is not recovery_required: no canonical cognition receipt is
- * being overridden or retried.
+ * Preserve a locally queued send with no acknowledged cognition for the next
+ * connectivity/resume trigger. A lost transport response cannot establish
+ * whether the server accepted it; its original UUID remains the retry fence.
+ * No canonical cognition or recovery receipt may be overridden here.
  */
 export async function deferTextExchangeManually(
   clientMessageId: string,
@@ -497,17 +541,13 @@ export async function deferTextExchangeManually(
     transaction.abort();
     throw new Error("Durable chat exchange no longer exists");
   }
-  if (entry.state !== "queued" && entry.state !== "in_progress") {
+  if (!canDeferTextExchange(entry)) {
     transaction.abort();
-    throw new Error("Only a pending pre-delivery exchange can be deferred");
-  }
-  if (entry.exchangeStatus && entry.exchangeStatus !== "received" && entry.exchangeStatus !== "processing") {
-    transaction.abort();
-    throw new Error("A canonical recovery or terminal receipt cannot be deferred");
+    throw new Error("Only an unsent exchange without a cognition receipt can be deferred");
   }
   entry.state = "queued_by_user";
   entry.nextAttemptAtMs = 0;
-  entry.updatedAtMs = nowMs;
+  entry.updatedAtMs = Math.max(nowMs, entry.updatedAtMs + 1);
   store.put(entry);
   await transactionDone(transaction);
   return cloneExchange(entry);

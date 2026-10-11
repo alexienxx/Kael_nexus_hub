@@ -63,6 +63,7 @@ import {
   outboxDeliveryStatus,
   nextTextOutboxAttemptAt,
   type TextOutboxDrainResult,
+  type TextOutboxDrainTrigger,
 } from "@/lib/chat/textOutbox";
 
 /** Poll avatar render job until done, then fetch the base64 video. */
@@ -177,6 +178,7 @@ const Chat = () => {
   // we schedule one guaranteed re-drain instead of silently dropping it.
   const pendingRetriggerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const outboxRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const outboxOnlineRef = useRef(false);
   const continuityInitializedRef = useRef(false);
   const lastRestartMergeBootIdRef = useRef<string | null>(null);
 
@@ -985,6 +987,10 @@ const Chat = () => {
                 result.clientMessageId,
                 MANUAL_OUTBOX_CONFIRMATION,
               ).then(() => {
+                if (outboxRetryTimerRef.current) {
+                  clearTimeout(outboxRetryTimerRef.current);
+                  outboxRetryTimerRef.current = null;
+                }
                 setMessages((previous) => previous.map((message) =>
                   message.client_message_id === result.clientMessageId
                     ? {
@@ -1027,10 +1033,10 @@ const Chat = () => {
     return summary;
   }, []);
 
-  const runTextOutboxDrain = useCallback(async (): Promise<TextOutboxDrainResult[]> => {
+  const runTextOutboxDrain = useCallback(async (trigger: TextOutboxDrainTrigger = "automatic"): Promise<TextOutboxDrainResult[]> => {
     if (!continuityReady || lifecycleState !== "online") return [];
     try {
-      const results = await drainTextOutbox();
+      const results = await drainTextOutbox({ trigger });
       applyOutboxResults(results);
       await refreshOutboxSummary();
       await scheduleNextOutboxDrain();
@@ -1051,10 +1057,13 @@ const Chat = () => {
   // Boot/online and explicit retry triggers all converge on the same module-level
   // single-flight FIFO drain. No lifecycle event can start a parallel text send.
   useEffect(() => {
-    if (!continuityReady || lifecycleState !== "online") return;
+    const online = continuityReady && lifecycleState === "online";
+    const reconnected = online && !outboxOnlineRef.current;
+    outboxOnlineRef.current = online;
+    if (!online) return;
     const retry = () => { runTextOutboxDrain().catch(() => {}); };
     window.addEventListener("kael-outbox-retry", retry);
-    runTextOutboxDrain().catch(() => {});
+    runTextOutboxDrain(reconnected ? "reconnect" : "automatic").catch(() => {});
     if (timelineReady) fetchAndAppendPending().catch(() => {});
     return () => window.removeEventListener("kael-outbox-retry", retry);
   }, [continuityReady, timelineReady, lifecycleState, runTextOutboxDrain, fetchAndAppendPending]);
@@ -1070,7 +1079,7 @@ const Chat = () => {
     const handleResume = () => {
       if (document.visibilityState === "visible") {
         fetchAndAppendPending();
-        runTextOutboxDrain().catch(() => {});
+        runTextOutboxDrain("resume").catch(() => {});
       }
     };
     document.addEventListener("visibilitychange", handleResume);
@@ -1083,7 +1092,7 @@ const Chat = () => {
       if (!isActive) return;
       historyLoadedRef.current = false;
       fetchAndAppendPending();
-      runTextOutboxDrain().catch(() => {});
+      runTextOutboxDrain("resume").catch(() => {});
     }).then((l) => { capListener = l; }).catch(() => {});
 
     return () => {
@@ -1102,7 +1111,7 @@ const Chat = () => {
     const handleReconnect = () => {
       // Catch up on any messages missed while disconnected
       fetchAndAppendPending();
-      runTextOutboxDrain().catch(() => {});
+      runTextOutboxDrain("reconnect").catch(() => {});
     };
 
     const handleServerRestarted = (evt: Event) => {
@@ -1665,7 +1674,7 @@ const Chat = () => {
         MANUAL_OUTBOX_CONFIRMATION,
       );
       await refreshOutboxSummary();
-      await runTextOutboxDrain();
+      await runTextOutboxDrain("explicit_retry");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Retry manuale non riuscito");
     } finally {

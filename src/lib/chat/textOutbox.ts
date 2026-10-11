@@ -47,6 +47,7 @@ export function outboxDeliveryStatus(result: TextOutboxDrainResult): string {
 }
 
 export interface TextOutboxDrainOptions {
+  trigger?: TextOutboxDrainTrigger;
   nowMs?: () => number;
   transport?: (requestBody: DurableTextExchange["requestBody"]) => Promise<ChatHttpResult>;
   maxDispatches?: number;
@@ -55,6 +56,22 @@ export interface TextOutboxDrainOptions {
     checkpoint: TextOutboxFaultCheckpoint,
     entry: DurableTextExchange,
   ) => void | Promise<void>;
+}
+
+export type TextOutboxDrainTrigger = "automatic" | "reconnect" | "resume" | "explicit_retry";
+
+/** A timer, mount/render or new send is never consent to release a defer. */
+export function releasesDeferredText(trigger: TextOutboxDrainTrigger = "automatic"): boolean {
+  return trigger === "reconnect" || trigger === "resume" || trigger === "explicit_retry";
+}
+
+export function deferredDispatchRevisions(
+  entries: DurableTextExchange[], trigger: TextOutboxDrainTrigger, triggeredAtMs: number,
+): Map<string, number> {
+  return new Map(releasesDeferredText(trigger)
+    ? entries.filter((entry) => entry.state === "queued_by_user" && entry.updatedAtMs < triggeredAtMs)
+      .map((entry) => [entry.clientMessageId, entry.updatedAtMs])
+    : []);
 }
 
 export type TextOutboxFaultCheckpoint =
@@ -78,7 +95,15 @@ const COMPAT_RECOVERY_ERROR_CODES = new Set(["exchange_recovery_required"]);
 const COMPAT_REPLAY_ERROR_CODES = new Set(["duplicate_exchange"]);
 
 let activeDrain: Promise<TextOutboxDrainResult[]> | null = null;
-let drainRequestedWhileActive = false;
+interface PendingDrain {
+  options: TextOutboxDrainOptions;
+  deferredRevisions: Promise<Map<string, number>>;
+}
+let pendingDrain: PendingDrain | null = null;
+// A real resume may arrive while an older FIFO item is still processing. Keep
+// its exact revision grants until that barrier clears; a later defer revision
+// cannot inherit them. This is dispatch consent, never a success receipt.
+const releasedDeferredRevisions = new Map<string, number>();
 
 function asString(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
@@ -376,7 +401,7 @@ function receiptPatch(response: ChatResponse) {
   );
 }
 
-async function runDrain(options: TextOutboxDrainOptions): Promise<TextOutboxDrainResult[]> {
+async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<string, number>): Promise<TextOutboxDrainResult[]> {
   const nowMs = options.nowMs ?? Date.now;
   const transport = options.transport ?? sendDurableTextEnvelope;
   const maxDispatches = Math.max(1, Math.min(100, options.maxDispatches ?? DEFAULT_MAX_DISPATCHES));
@@ -384,10 +409,15 @@ async function runDrain(options: TextOutboxDrainOptions): Promise<TextOutboxDrai
 
   for (let dispatch = 0; dispatch < maxDispatches; dispatch += 1) {
     const entries = await listTextExchanges();
+    const deferredIds = new Set(entries.filter((candidate) => candidate.state === "queued_by_user").map((candidate) => candidate.clientMessageId));
+    for (const id of deferredRevisions.keys()) {
+      if (!deferredIds.has(id)) deferredRevisions.delete(id);
+    }
     // Strict FIFO: an unresolved A is an ordering barrier for B. The user must
     // explicitly retry or remove A before a later cognitive turn is dispatched.
     const entry = entries[0];
     if (!entry) break;
+    if (entry.state === "queued_by_user" && deferredRevisions.get(entry.clientMessageId) !== entry.updatedAtMs) break;
     if (
       entry.state === "authentication_required" ||
       entry.state === "recovery_required" ||
@@ -418,7 +448,14 @@ async function runDrain(options: TextOutboxDrainOptions): Promise<TextOutboxDrai
     }
 
     const wasQueuedByUser = entry.state === "queued_by_user";
-    const sending = await markTextExchangeSending(entry.clientMessageId, currentTime);
+    const sending = await markTextExchangeSending(entry.clientMessageId, currentTime, {
+      snapshot: entry,
+      deferredRevision: deferredRevisions.get(entry.clientMessageId),
+    });
+    // A manual defer/removal raced with this reader. It is a normal ordering
+    // barrier, not a storage failure, and must never send the stale snapshot.
+    if (!sending) break;
+    deferredRevisions.delete(entry.clientMessageId);
     await options.faultInjector?.("after_mark_sending", sending);
     let transportResult: ChatHttpResult;
     try {
@@ -549,20 +586,45 @@ async function runDrain(options: TextOutboxDrainOptions): Promise<TextOutboxDrai
 
 /** One process-local FIFO drain. Concurrent boot/resume/send triggers share it. */
 export function drainTextOutbox(options: TextOutboxDrainOptions = {}): Promise<TextOutboxDrainResult[]> {
+  const trigger = options.trigger ?? "automatic";
+  const triggeredAtMs = (options.nowMs ?? Date.now)();
+  const deferredRevisions = releasesDeferredText(trigger)
+    ? listTextExchanges().then((entries) => deferredDispatchRevisions(entries, trigger, triggeredAtMs))
+    : Promise.resolve(new Map<string, number>());
+  // Capture resume consent now, not after an unrelated in-flight send ends.
+  // Coalescing preserves that consent even when a subsequent timer arrives.
+  pendingDrain = pendingDrain
+    ? {
+        options: pendingDrain.options,
+        deferredRevisions: Promise.all([pendingDrain.deferredRevisions, deferredRevisions])
+          .then(([previous, incoming]) => new Map([...previous, ...incoming])),
+      }
+    : { options, deferredRevisions };
+  // The active transport may take time. Retain any snapshot failure for the
+  // awaited consumer, but do not emit an unhandled rejection while it waits.
+  void pendingDrain.deferredRevisions.catch(() => {});
   if (activeDrain) {
-    drainRequestedWhileActive = true;
     return activeDrain;
   }
   activeDrain = (async () => {
     const combined: TextOutboxDrainResult[] = [];
-    do {
-      drainRequestedWhileActive = false;
-      combined.push(...await runDrain(options));
-    } while (drainRequestedWhileActive);
-    return combined;
-  })().finally(() => {
-    activeDrain = null;
-  });
+    try {
+      while (pendingDrain) {
+        const request = pendingDrain;
+        pendingDrain = null;
+        for (const [id, revision] of await request.deferredRevisions) {
+          releasedDeferredRevisions.set(id, revision);
+        }
+        combined.push(...await runDrain(request.options, releasedDeferredRevisions));
+      }
+      return combined;
+    } finally {
+      // Clear before resolving the shared promise, so a new trigger cannot be
+      // queued between completion and a later .finally microtask and get lost.
+      pendingDrain = null;
+      activeDrain = null;
+    }
+  })();
   return activeDrain;
 }
 
@@ -571,7 +633,8 @@ export async function nextTextOutboxAttemptAt(): Promise<number | null> {
   const head = entries[0];
   if (
     !head ||
-    head.state === "queued_by_user" ||
+    (head.state === "queued_by_user" && releasedDeferredRevisions.get(head.clientMessageId) !== head.updatedAtMs) ||
+    head.state === "authentication_required" ||
     head.state === "recovery_required" ||
     head.state === "terminal_failed"
   ) return null;
