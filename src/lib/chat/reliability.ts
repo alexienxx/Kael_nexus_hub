@@ -1,5 +1,22 @@
 import type { ChatMessage } from "@/types";
 
+/** Receipt fields from canonical history outrank local outbox presentation.
+ * Only use this after the message identity has been reconciled by its IDs.
+ */
+export function mergeDeliveryMetadata(
+  canonical: ChatMessage["meta"],
+  local: ChatMessage["meta"],
+): NonNullable<ChatMessage["meta"]> {
+  const merged = { ...canonical, ...local };
+  if (typeof canonical?.exchange_status === "string" && canonical.exchange_status.length > 0) {
+    for (const key of ["exchange_status", "outcome_kind", "exchange_id", "exchange_error_code", "exchange_receipt_count"]) {
+      delete merged[key];
+      if (canonical[key] !== undefined) merged[key] = canonical[key];
+    }
+  }
+  return merged;
+}
+
 export type AssistantIdSource =
   | "assistant_turn_id"
   | "backend_turn_id"
@@ -235,7 +252,22 @@ export function mergeMessagesIdempotent(existing: ChatMessage[], incoming: ChatM
     return true;
   });
 
-  const merged = [...existing, ...newItems];
+  // Deduplication must not discard a newer canonical receipt for an existing
+  // USER bubble (SSE/catch-up and durable WAL use this path as well as reload).
+  const incomingUsers = new Map(incoming.filter((m) => m.sender === "user" && m.client_message_id)
+    .map((m) => [m.client_message_id, m]));
+  const incomingUserTurns = new Map(incoming.filter((m) => m.sender === "user" && m.backend_turn_id)
+    .map((m) => [m.backend_turn_id, m]));
+  const reconciled = existing.map((message) => {
+    if (message.sender !== "user") return message;
+    const canonical = (message.client_message_id ? incomingUsers.get(message.client_message_id) : undefined)
+      ?? (message.backend_turn_id ? incomingUserTurns.get(message.backend_turn_id) : undefined);
+    if (canonical?.client_message_id && message.client_message_id && canonical.client_message_id !== message.client_message_id) return message;
+    if (!canonical || canonical.meta?.durable_outbox === true || !canonical.meta?.exchange_status) return message;
+    return { ...message, backend_turn_id: canonical.backend_turn_id ?? message.backend_turn_id,
+      meta: mergeDeliveryMetadata(canonical.meta, message.meta) };
+  });
+  const merged = [...reconciled, ...newItems];
   merged.sort((a, b) => {
     // FIXED 2026-05-09: Sort by TIMESTAMP (chronological order is canonical).
     // Timestamps are NORMALIZED at ingestion time in mapBackendMsg via getCanonicalTimeMs(),

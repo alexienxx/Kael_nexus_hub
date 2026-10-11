@@ -39,6 +39,13 @@ successivi restano in ordine FIFO finché il primo elemento non viene risolto o
 rimosso esplicitamente dalla coda locale. La rimozione locale non cancella né
 riscrive l'evidenza già accettata dal backend.
 
+La ricevuta canonica prevale sullo stato locale della bolla durante reload,
+catch-up e lettura del WAL, anche quando il messaggio esiste gia. Il risultato
+validato dall'outbox prevale invece sui campi grezzi della risposta HTTP: una
+receipt rifiutata per incoerenza o UUID errato non puo presentarsi come
+`complete`. Questi controlli di codice non attestano l'installazione sul telefono
+ne la lettura cognitiva dei messaggi differiti.
+
 `queued_by_user` indica invece «Consegna dopo»: conserva lo stesso envelope e
 lo stesso UUID prima di una consegna cognitiva, sospende il timer automatico e
 lo ripresenta al successivo evento reale di riconnessione/ripresa. Non può

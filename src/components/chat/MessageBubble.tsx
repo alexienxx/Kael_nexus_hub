@@ -60,13 +60,13 @@ function userMessageDeliveryPresentation(
   if (status === "authentication_required") {
     return { label: "Non consegnato · accesso richiesto", className: "text-red-200" };
   }
-  if (status === "terminal_failed" || status === "terminal_failure" || status === "integrity_failure") {
+  if (status === "terminal_failed" || status === "terminal_failure" || status === "integrity_failure" || status === "abandoned") {
     return { label: "Non consegnato", className: "text-red-200" };
   }
   if (status === "in_progress" || status === "processing" || status === "sending") {
     return { label: "In elaborazione", className: "text-foreground/55" };
   }
-  if (status === "retryable_failure" || status === "transport_deferred") {
+  if (status === "retryable_failure" || status === "failed_retryable" || status === "transport_deferred") {
     return { label: "In coda · nuovo tentativo", className: "text-foreground/55" };
   }
   return { label: "In coda", className: "text-foreground/55" };

@@ -34,6 +34,7 @@ import { fetchAvatarVideo, getVideoJobStatus } from "@/lib/api/avatar";
 import { emitTelemetry } from "@/lib/telemetry/sseTelemetry";
 import {
   mergeMessagesIdempotent,
+  mergeDeliveryMetadata,
   normalizeAfterTs,
   resolveAssistantIdentity,
   resolveBackendDeliveryMode,
@@ -59,6 +60,7 @@ import {
 } from "@/lib/chat/durableExchangeStore";
 import {
   drainTextOutbox,
+  outboxDeliveryStatus,
   nextTextOutboxAttemptAt,
   type TextOutboxDrainResult,
 } from "@/lib/chat/textOutbox";
@@ -552,7 +554,7 @@ const Chat = () => {
           ? existingDeliveryMeta.get(m.client_message_id)
           : undefined;
         if (deliveryMeta) {
-          result = { ...result, meta: { ...(result.meta ?? {}), ...deliveryMeta } };
+          result = { ...result, meta: mergeDeliveryMetadata(result.meta, deliveryMeta) };
         }
         return result;
       });
@@ -633,7 +635,7 @@ const Chat = () => {
               if (!durable) return message;
               return {
                 ...message,
-                meta: { ...(message.meta ?? {}), ...(durable.meta ?? {}) },
+                meta: mergeDeliveryMetadata(message.meta, durable.meta),
               };
             });
             return mergeMessagesIdempotent(overlaid, optimistic);
@@ -926,11 +928,7 @@ const Chat = () => {
         setMessages((previous) => mergeMessagesIdempotent(previous, durableMessages));
       }
 
-      const visibleExchangeStatus = result.response?.exchange_status ?? (
-        result.kind === "reply" || result.kind === "replay"
-          ? "complete"
-          : result.kind
-      );
+      const visibleExchangeStatus = outboxDeliveryStatus(result);
       setMessages((previous) => previous.map((message) =>
         message.sender === "user" && message.client_message_id === result.clientMessageId
           ? {

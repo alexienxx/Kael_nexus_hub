@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "@/types";
 import {
   mergeMessagesIdempotent,
+  mergeDeliveryMetadata,
   normalizeAfterTs,
   resolveAssistantIdentity,
   resolveBackendDeliveryMode,
@@ -10,6 +11,36 @@ import {
 } from "@/lib/chat/reliability";
 
 describe("chat reliability", () => {
+  it.each(["recovery_required", "complete", "silence", "failed_retryable", "processing"])(
+    "canonical %s outranks stale local delivery metadata", (status) => {
+      expect(mergeDeliveryMetadata({ exchange_status: status, exchange_id: "canonical" }, {
+        exchange_status: "queued_by_user", exchange_error_code: "stale", durable_outbox: true,
+      })).toEqual({ exchange_status: status, exchange_id: "canonical", durable_outbox: true });
+    },
+  );
+
+  it("retains local delivery state for legacy history without a receipt", () => {
+    expect(mergeDeliveryMetadata({ source: "legacy" }, { exchange_status: "queued_by_user" }))
+      .toEqual({ source: "legacy", exchange_status: "queued_by_user" });
+  });
+
+  it("reconciles a duplicate USER receipt without losing content or confusing an assistant echo", () => {
+    const local: ChatMessage = { id: "local", client_message_id: "uuid", text: "retained",
+      time: "10:00", sender: "user", meta: { durable_outbox: true, exchange_status: "queued" } };
+    const canonical: ChatMessage = { ...local, id: "server", backend_turn_id: "5066",
+      meta: { exchange_status: "recovery_required", exchange_receipt_count: 1 } };
+    const result = mergeMessagesIdempotent([local], [canonical]);
+    expect(result).toHaveLength(1);
+    expect(result[0].text).toBe("retained");
+    expect(result[0].backend_turn_id).toBe("5066");
+    expect(result[0].meta?.exchange_status).toBe("recovery_required");
+    expect(mergeMessagesIdempotent([{ ...local, backend_turn_id: "5066" }], [
+      { ...canonical, client_message_id: undefined },
+    ])[0].meta?.exchange_status).toBe("recovery_required");
+    expect(mergeMessagesIdempotent([local], [{ ...canonical, sender: "kael" }])[0].meta?.exchange_status).toBe("queued");
+    expect(mergeMessagesIdempotent(result, [local])[0].meta?.exchange_status).toBe("recovery_required");
+  });
+
   it("restores external-agent role and provenance from durable mixed history", () => {
     const identity = resolveBackendMessageIdentity({
       role: "external_agent",

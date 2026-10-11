@@ -39,6 +39,13 @@ export interface TextOutboxDrainResult {
   errorCode?: string;
 }
 
+/** Never re-promote an untrusted response after classification/correlation
+ * has rejected it. The drain result is the validated presentation boundary.
+ */
+export function outboxDeliveryStatus(result: TextOutboxDrainResult): string {
+  return result.kind === "reply" || result.kind === "replay" ? "complete" : result.kind;
+}
+
 export interface TextOutboxDrainOptions {
   nowMs?: () => number;
   transport?: (requestBody: DurableTextExchange["requestBody"]) => Promise<ChatHttpResult>;
