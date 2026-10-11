@@ -50,6 +50,7 @@ import {
   listTextExchanges,
   listTimelineMessages,
   MANUAL_OUTBOX_CONFIRMATION,
+  deferTextExchangeManually,
   MAX_TEXT_OUTBOX_ENTRIES,
   recoverInboxBatches,
   removeTextExchangeManually,
@@ -531,6 +532,14 @@ const Chat = () => {
           .filter((m) => m.backend_turn_id && m.image && !m.image.startsWith("__asset__"))
           .map((m) => [m.backend_turn_id, m.image])
       );
+      const existingDeliveryMeta = new Map(
+        prev
+          .filter((m) => m.sender === "user" && m.client_message_id && m.meta?.durable_outbox === true)
+          .map((m) => [m.client_message_id, {
+            exchange_status: m.meta?.exchange_status,
+            durable_outbox: true,
+          }])
+      );
 
       const merged = incoming.map((m) => {
         const fb = existingFeedback.get(m.backend_turn_id);
@@ -538,6 +547,12 @@ const Chat = () => {
         let result = fb ? { ...m, feedback: fb } : m;
         if (localImg && (!m.image || m.image.startsWith("__asset__"))) {
           result = { ...result, image: localImg };
+        }
+        const deliveryMeta = m.client_message_id
+          ? existingDeliveryMeta.get(m.client_message_id)
+          : undefined;
+        if (deliveryMeta) {
+          result = { ...result, meta: { ...(result.meta ?? {}), ...deliveryMeta } };
         }
         return result;
       });
@@ -606,7 +621,23 @@ const Chat = () => {
           },
         }));
         if (optimistic.length) {
-          setMessages((previous) => mergeMessagesIdempotent(previous, optimistic));
+          const outboxByClientId = new Map(
+            optimistic.map((message) => [message.client_message_id, message]),
+          );
+          setMessages((previous) => {
+            // A USER row can already exist in the backend timeline while its
+            // cognition is recovery_required. Persistence is not delivery.
+            const overlaid = previous.map((message) => {
+              if (message.sender !== "user" || !message.client_message_id) return message;
+              const durable = outboxByClientId.get(message.client_message_id);
+              if (!durable) return message;
+              return {
+                ...message,
+                meta: { ...(message.meta ?? {}), ...(durable.meta ?? {}) },
+              };
+            });
+            return mergeMessagesIdempotent(overlaid, optimistic);
+          });
         }
         setOutboxSummary(summary);
 
@@ -895,6 +926,25 @@ const Chat = () => {
         setMessages((previous) => mergeMessagesIdempotent(previous, durableMessages));
       }
 
+      const visibleExchangeStatus = result.response?.exchange_status ?? (
+        result.kind === "reply" || result.kind === "replay"
+          ? "complete"
+          : result.kind
+      );
+      setMessages((previous) => previous.map((message) =>
+        message.sender === "user" && message.client_message_id === result.clientMessageId
+          ? {
+              ...message,
+              meta: {
+                ...(message.meta ?? {}),
+                exchange_status: visibleExchangeStatus,
+                durable_outbox: true,
+                ...(result.errorCode ? { exchange_error_code: result.errorCode } : {}),
+              },
+            }
+          : message
+      ));
+
       if (result.kind === "reply" || result.kind === "replay" || result.kind === "silence") {
         setIsTyping(false);
         if (result.response?.avatar_job_id && result.response.assistant_turn_id != null) {
@@ -929,6 +979,32 @@ const Chat = () => {
       }
       if (result.kind === "retryable_failure" || result.kind === "transport_deferred") {
         setIsTyping(false);
+        toast.error("Connessione non disponibile: il messaggio resta nella coda durevole", {
+          action: {
+            label: "Consegna dopo",
+            onClick: () => {
+              void deferTextExchangeManually(
+                result.clientMessageId,
+                MANUAL_OUTBOX_CONFIRMATION,
+              ).then(() => {
+                setMessages((previous) => previous.map((message) =>
+                  message.client_message_id === result.clientMessageId
+                    ? {
+                        ...message,
+                        meta: {
+                          ...(message.meta ?? {}),
+                          exchange_status: "queued_by_user",
+                          durable_outbox: true,
+                        },
+                      }
+                    : message
+                ));
+              }).catch((error) => {
+                toast.error(error instanceof Error ? error.message : "Differimento non riuscito");
+              });
+            },
+          },
+        });
       }
     }
     if (results.some((result) => result.timelineMessages?.length)) scrollToBottom();

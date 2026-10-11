@@ -4,6 +4,25 @@
 > Aggiornato ad ogni intervento.
 
 ---
+## [Unreleased — verità di consegna e semantica luce Netharion] — 2026-10-11
+
+- La timeline USER non viene più presentata come prova implicita di consegna:
+  l'app conserva `exchange_status` e distingue coda, elaborazione, consegna,
+  silenzio e recupero cognitivo anche dopo reload.
+- Un `recovery_required` visibile resta etichettato «Non consegnato · verifica
+  richiesta»; i messaggi successivi restano nella coda FIFO fino alla
+  risoluzione esplicita del primo, senza creare un secondo UUID.
+- «Consegna dopo» usa ora lo stato distinto `queued_by_user`: mantiene envelope
+  e UUID, ferma i timer automatici e riparte soltanto da un evento di
+  riconnessione/ripresa. Non riclassifica né reinvoca un recupero cognitivo.
+- La luce Netharion non usa più lo stato tecnico del canale come colore
+  cognitivo. Grigio = modulo indisponibile; verde = operativo senza eventi;
+  arancione/rosso richiedono una ricevuta esterna tipizzata con evidence refs.
+  Errori di rete e riavvii non possono fabbricare un evento rosso.
+- Verifica di codice: 42 test Vitest mirati e build Vite di produzione verdi.
+  Installazione APK, evento multiswarm reale e recupero PostgreSQL del vecchio
+  scambio restano prove distinte.
+
 ## [Documentazione — manuale Arrakis e addendum roadmap] — 2026-09-09
 
 - Sostituito il template Lovable con un manuale del client117: connessione,

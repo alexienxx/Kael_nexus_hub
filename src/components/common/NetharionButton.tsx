@@ -1,8 +1,8 @@
 import { Shield } from "lucide-react";
 import { useLongPress } from "@/hooks/useLongPress";
-import type { NetharionChannelState } from "@/lib/api/netharion";
+import type { NetharionIndicatorState } from "@/hooks/useNetharion";
 
-export type NetharionState = NetharionChannelState;
+export type NetharionState = NetharionIndicatorState;
 
 interface NetharionButtonProps {
   state?: NetharionState;
@@ -11,14 +11,13 @@ interface NetharionButtonProps {
 }
 
 const stateConfig: Record<NetharionState, { hue: number; sat: number; label: string }> = {
-  OFF:       { hue: 215, sat: 10, label: "canale spento" },
-  ACTIVE:    { hue: 205, sat: 75, label: "scambio attivo" },
-  RECEIVING: { hue: 42,  sat: 90, label: "ricezione in corso" },
-  VERIFIED:  { hue: 145, sat: 70, label: "ricezione verificata e salvata" },
-  DEGRADED:  { hue: 0,   sat: 80, label: "canale degradato" },
+  UNAVAILABLE:    { hue: 215, sat: 10, label: "modulo non operativo" },
+  CLEAR:          { hue: 145, sat: 90, label: "nessun evento multiswarm rilevato" },
+  WEAK_SIGNAL:    { hue: 32,  sat: 95, label: "segnale multiswarm debole, sotto soglia" },
+  ADMITTED_EVENT: { hue: 0,   sat: 90, label: "evento multiswarm rilevato sopra soglia" },
 };
 
-const NetharionButton = ({ state = "OFF", onClick, onLongPress }: NetharionButtonProps) => {
+const NetharionButton = ({ state = "UNAVAILABLE", onClick, onLongPress }: NetharionButtonProps) => {
   const cfg = stateConfig[state];
   const longPressHandlers = useLongPress({
     onLongPress: () => onLongPress?.(),
@@ -30,10 +29,10 @@ const NetharionButton = ({ state = "OFF", onClick, onLongPress }: NetharionButto
     <button
       {...longPressHandlers}
       className="netharion-btn group relative flex h-9 w-9 items-center justify-center rounded-full outline-none transition-transform active:scale-90"
-      aria-label={`Netharion ${state}: ${cfg.label}`}
+      aria-label={`Netharion: ${cfg.label}`}
     >
       <span
-        className={`absolute inset-0 rounded-full ${state === "RECEIVING" ? "netharion-pulse" : ""}`}
+        className={`absolute inset-0 rounded-full ${state === "WEAK_SIGNAL" || state === "ADMITTED_EVENT" ? "netharion-pulse" : ""}`}
         style={{
           boxShadow: `0 0 8px 2px hsla(${cfg.hue},${cfg.sat}%,55%,0.45), 0 0 20px 4px hsla(${cfg.hue},${cfg.sat}%,55%,0.2)`,
         }}

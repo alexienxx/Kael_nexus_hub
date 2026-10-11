@@ -323,6 +323,9 @@ function timelineMessagesForOutcome(
     metadata: {
       client_message_id: entry.clientMessageId,
       exchange_id: response.exchange_id,
+      exchange_status: response.exchange_status ?? kind,
+      outcome_kind: response.outcome_kind ?? kind,
+      durable_outbox: true,
     },
   };
   if (kind === "silence") return [userMessage];
@@ -407,6 +410,7 @@ async function runDrain(options: TextOutboxDrainOptions): Promise<TextOutboxDrai
       continue;
     }
 
+    const wasQueuedByUser = entry.state === "queued_by_user";
     const sending = await markTextExchangeSending(entry.clientMessageId, currentTime);
     await options.faultInjector?.("after_mark_sending", sending);
     let transportResult: ChatHttpResult;
@@ -417,7 +421,7 @@ async function runDrain(options: TextOutboxDrainOptions): Promise<TextOutboxDrai
       const delay = retryDelay(sending.attempts);
       const nextAttemptAtMs = currentTime + delay;
       await patchTextExchange(sending.clientMessageId, {
-        state: exhausted ? "terminal_failed" : "queued",
+        state: exhausted ? "terminal_failed" : wasQueuedByUser ? "queued_by_user" : "queued",
         nextAttemptAtMs: exhausted ? 0 : nextAttemptAtMs,
         errorCode: exhausted ? "transport_retry_budget_exhausted" : "transport_unavailable",
       }, nowMs());
@@ -494,7 +498,13 @@ async function runDrain(options: TextOutboxDrainOptions): Promise<TextOutboxDrai
       const delay = retryDelay(sending.attempts, transportResult.retryAfterSeconds);
       const nextAttemptAtMs = currentTime + delay;
       await patchTextExchange(sending.clientMessageId, {
-        state: exhausted ? "terminal_failed" : classified.kind === "in_progress" ? "in_progress" : "queued",
+        state: exhausted
+          ? "terminal_failed"
+          : classified.kind === "in_progress"
+            ? "in_progress"
+            : wasQueuedByUser
+              ? "queued_by_user"
+              : "queued",
         nextAttemptAtMs: exhausted ? 0 : nextAttemptAtMs,
         errorCode: exhausted ? "chat_retry_budget_exhausted" : classified.errorCode,
         ...receiptPatch(response),
@@ -552,6 +562,11 @@ export function drainTextOutbox(options: TextOutboxDrainOptions = {}): Promise<T
 export async function nextTextOutboxAttemptAt(): Promise<number | null> {
   const entries = await listTextExchanges();
   const head = entries[0];
-  if (!head || head.state === "recovery_required" || head.state === "terminal_failed") return null;
+  if (
+    !head ||
+    head.state === "queued_by_user" ||
+    head.state === "recovery_required" ||
+    head.state === "terminal_failed"
+  ) return null;
   return Math.max(0, head.nextAttemptAtMs);
 }

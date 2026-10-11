@@ -1,6 +1,6 @@
 # Arrakis Companion — source tree
 
-Aggiornato: 2026-09-05. Questo indice elenca i punti architetturali mantenuti manualmente; artefatti generati (`dist/`, report Playwright e APK) non sono autorità sorgente.
+Aggiornato: 2026-10-11. Questo indice elenca i punti architetturali mantenuti manualmente; artefatti generati (`dist/`, report Playwright e APK) non sono autorità sorgente.
 
 ```text
 kael_nexus_hub/
@@ -8,10 +8,13 @@ kael_nexus_hub/
 │   ├── pages/
 │   │   └── Chat.tsx                         # UI chat + boot/resume/reconnect integration
 │   ├── hooks/
-│   │   └── useNetharion.ts                  # sola lettura REST temporanea fino a P0-B
+│   │   └── useNetharion.ts                  # stato tecnico + proiezione evento tipizzata
 │   ├── components/
-│   │   ├── chat/OutboxAttentionPanel.tsx    # retry/rimozione espliciti per invii bloccati
-│   │   └── settings/BackendConfig.tsx       # health pubblico + verifica credenziale protetta
+│   │   ├── chat/MessageBubble.tsx           # superficie stato ricevuta USER
+│   │   ├── chat/OutboxAttentionPanel.tsx   # retry/rimozione espliciti per invii bloccati
+│   │   ├── common/NetharionButton.tsx       # luce semantica, separata dallo stato tecnico
+│   │   ├── layout/BottomNav.tsx             # consumo della proiezione luce Netharion
+│   │   └── settings/BackendConfig.tsx      # health pubblico + verifica credenziale protetta
 │   ├── lib/
 │   │   ├── api/
 │   │   │   ├── client.ts                    # config, auth header e JSON whole-body canonici
@@ -27,7 +30,7 @@ kael_nexus_hub/
 │       ├── chat-api.test.ts                 # envelope HTTP e status tipizzati
 │       ├── durable-chat-indexeddb.test.ts    # outbox/WAL e barriera auth persistente
 │       ├── chat-reliability.test.ts         # dedup USER/ASSISTANT
-│       ├── netharion-rest.test.ts           # nessuna autorità SSE Observatory residua
+│       ├── netharion-rest.test.ts           # niente falso rosso; evidenza richiesta per eventi
 │       └── text-outbox-classifier.test.ts   # matrice esiti Gate A
 ├── tests/e2e/
 │   ├── support/appFixture.ts                # backend finto diagnostico, mai acceptance live
@@ -53,3 +56,6 @@ kael_nexus_hub/
   runtime Arrakis.
 - Netharion non usa più snapshot Observatory. Fino al redesign P0-B legge solo
   il heartbeat REST esistente e non viene dichiarato autorità cognitiva.
+- La luce APK non deriva da `ACTIVE/RECEIVING/VERIFIED`: questi restano stati
+  tecnici del canale. Solo `agentic_detection` esterna e provata può produrre
+  arancione o rosso; senza eventi il modulo operativo è verde.

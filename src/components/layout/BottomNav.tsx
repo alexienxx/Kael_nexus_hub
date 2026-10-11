@@ -67,6 +67,7 @@ const BottomNav = () => {
   const { state: backendState } = useBackendConnection();
   const {
     state: netharionState,
+    indicator: netharionIndicator,
     channel: netharionChannel,
     error: netharionError,
     refresh: refreshNetharion,
@@ -101,7 +102,7 @@ const BottomNav = () => {
   return (
     <nav className="glass-strong relative z-20 px-2 pb-[max(env(safe-area-inset-bottom),0.375rem)] pt-3">
       <div className="absolute -top-5 left-1/2 z-30 -translate-x-1/2">
-        <NetharionButton state={netharionState} onLongPress={() => setShowRealEvents(true)} />
+        <NetharionButton state={netharionIndicator} onLongPress={() => setShowRealEvents(true)} />
       </div>
 
       <ReconnectButton />

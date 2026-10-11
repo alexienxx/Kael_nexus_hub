@@ -151,6 +151,30 @@ describe("chat diagnostic markers", () => {
     expect(container.textContent).not.toContain("[ALWAYS_ON_IGNORED]");
   });
 
+  it("never presents a recovery-required user envelope as delivered", () => {
+    const message: ChatMessage = {
+      id: "user-recovery-1",
+      client_message_id: "10000000-0000-4000-8000-000000000099",
+      text: "Messaggio con esito incerto",
+      time: "10:01",
+      timestamp: 10,
+      sender: "user",
+      feedback: null,
+      meta: {
+        exchange_status: "recovery_required",
+      },
+    };
+
+    render(
+      <ThemeProvider>
+        <MessageBubble message={message} />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText(/Non consegnato · verifica richiesta/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Consegnato$/)).not.toBeInTheDocument();
+  });
+
   it("renders assistant semantic bubbles as separate stacked chunks", () => {
     const message: ChatMessage = {
       id: "assistant-bubbles-1",

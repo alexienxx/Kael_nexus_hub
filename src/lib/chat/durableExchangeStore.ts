@@ -27,6 +27,7 @@ export type TimelineCursorKind = "conversation_turn_id" | "snapshot";
 
 export type TextExchangeState =
   | "queued"
+  | "queued_by_user"
   | "sending"
   | "in_progress"
   | "server_committed"
@@ -472,6 +473,41 @@ export async function retryTextExchangeManually(
   entry.nextAttemptAtMs = 0;
   entry.updatedAtMs = nowMs;
   delete entry.errorCode;
+  store.put(entry);
+  await transactionDone(transaction);
+  return cloneExchange(entry);
+}
+
+/**
+ * Preserve a never-accepted transport send for the next connectivity/resume
+ * trigger. This is not recovery_required: no canonical cognition receipt is
+ * being overridden or retried.
+ */
+export async function deferTextExchangeManually(
+  clientMessageId: string,
+  confirmation: string,
+  nowMs = Date.now(),
+): Promise<DurableTextExchange> {
+  requireManualConfirmation(confirmation);
+  const db = await openDatabase();
+  const transaction = db.transaction(OUTBOX_STORE, "readwrite", { durability: "strict" });
+  const store = transaction.objectStore(OUTBOX_STORE);
+  const entry = await requestResult(store.get(clientMessageId)) as DurableTextExchange | undefined;
+  if (!entry) {
+    transaction.abort();
+    throw new Error("Durable chat exchange no longer exists");
+  }
+  if (entry.state !== "queued" && entry.state !== "in_progress") {
+    transaction.abort();
+    throw new Error("Only a pending pre-delivery exchange can be deferred");
+  }
+  if (entry.exchangeStatus && entry.exchangeStatus !== "received" && entry.exchangeStatus !== "processing") {
+    transaction.abort();
+    throw new Error("A canonical recovery or terminal receipt cannot be deferred");
+  }
+  entry.state = "queued_by_user";
+  entry.nextAttemptAtMs = 0;
+  entry.updatedAtMs = nowMs;
   store.put(entry);
   await transactionDone(transaction);
   return cloneExchange(entry);

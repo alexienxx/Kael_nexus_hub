@@ -14,9 +14,9 @@ l'implementazione di questo client, non una roadmap concorrente.
 
 | Superficie | Contratto presente | Limite dichiarato |
 |---|---|---|
-| Chat | Storico misto, streaming SSE, recupero per cursore canonico, cache/WAL IndexedDB e outbox testo | Un messaggio visibile/provvisorio non sostituisce la ricevuta del backend; verificare errori, replay e persistenza |
+| Chat | Storico misto, streaming SSE, recupero per cursore canonico, cache/WAL IndexedDB e outbox testo | `In coda`, `in elaborazione`, `consegnato`, `silenzio` e `recupero richiesto` derivano dalla ricevuta; la presenza nella timeline non prova il consumo cognitivo |
 | Riconnessione | Retry automatici single-flight con backoff/jitter, eventi rete/ripresa e catch-up | Reconnect è un comando diagnostico aggiuntivo, non un passaggio richiesto. Il server deve essere raggiungibile |
-| Netharion / agente esterno | Ricevute tecniche `OFF/ACTIVE/RECEIVING/VERIFIED/DEGRADED`, `exchange_id` stabile e turni esterni durevoli | Non presenza/umore/coscienza. La nuova accettazione provider reale -> DB isolato -> APK117 è ancora aperta |
+| Netharion / agente esterno | Ricevute tecniche `OFF/ACTIVE/RECEIVING/VERIFIED/DEGRADED`, `exchange_id` stabile e turni esterni durevoli | La luce ha semantica separata: grigio modulo indisponibile, verde operativo senza evento, arancione segnale multiswarm debole, rosso evento ammesso; arancione/rosso richiedono evidenza esterna tipizzata |
 | Allegati / media | Pagina media, contratti upload/galleria e reference fotografiche | Non certifica consumo cognitivo Vision o rigenerazione ComfyUI; verifiche G12 |
 | Chiamate e servizi | Pagine chiamate, workspace, impostazioni e callback OAuth | Dipendono da servizi, credenziali e permessi reali; non tutte live-verified |
 | Aspetto | Tema/avatar configurabili, header neon e marchio dorato Arrakis | Package, storage ed eventi `kael` restano alias tecnici di compatibilità |
@@ -27,6 +27,38 @@ Sorgenti principali: [route](src/App.tsx),
 [configurazione backend](src/components/settings/BackendConfig.tsx),
 [persistenza scambi](src/lib/chat/durableExchangeStore.ts),
 [outbox](src/lib/chat/textOutbox.ts).
+
+### Stato di consegna della chat
+
+La bolla USER può essere visibile appena l'envelope è conservato localmente o
+appena il backend ne ha registrato il turno. Questo non significa che Arrakis
+lo abbia consumato. L'app conserva e presenta lo stato della ricevuta anche al
+reload: un turno `recovery_required` resta **non consegnato** e non viene
+trasformato in successo dalla sola presenza nella cronologia. Gli invii
+successivi restano in ordine FIFO finché il primo elemento non viene risolto o
+rimosso esplicitamente dalla coda locale. La rimozione locale non cancella né
+riscrive l'evidenza già accettata dal backend.
+
+`queued_by_user` indica invece «Consegna dopo»: conserva lo stesso envelope e
+lo stesso UUID prima di una consegna cognitiva, sospende il timer automatico e
+lo ripresenta al successivo evento reale di riconnessione/ripresa. Non può
+essere usato per riclassificare `recovery_required`, che richiede prima la
+riconciliazione della receipt canonica. Quando più elementi differiti attendono
+insieme, la futura consegna cognitiva deve usare un catch-up batch tipizzato;
+finché quel verticale backend non è LIVE VERIFIED, il client non dichiara che
+una sequenza di risposte individuali equivalga a una sintesi coerente del batch.
+
+### Contratto luce Netharion
+
+La luce non rappresenta la salute generica dell'app o del backend. Il grigio
+significa che il modulo Netharion non è attestato operativo; il verde significa
+operativo senza eventi multiswarm rilevati; l'arancione richiede un segnale
+esterno debole sotto soglia; il rosso richiede un evento esterno ammesso sopra
+soglia, con riferimenti distinti di ammissione, registrazione e presa d'atto
+cognitiva. Un errore di rete o di polling non può mai produrre rosso. Finché il
+backend non pubblica una ricevuta `agentic_detection` con provenienza ed
+evidence refs complete, lo stato operativo è verde e non vengono inventati
+eventi.
 
 ## Connessione e uso offline
 

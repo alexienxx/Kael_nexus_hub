@@ -4,6 +4,7 @@ import type { ChatHttpResult } from "@/lib/api/chat";
 import {
   MANUAL_OUTBOX_CONFIRMATION,
   commitInboxBatch,
+  deferTextExchangeManually,
   enqueueTextExchange,
   getTextOutboxSummary,
   getTimelineCursor,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/chat/durableExchangeStore";
 import {
   drainTextOutbox,
+  nextTextOutboxAttemptAt,
   type TextOutboxFaultCheckpoint,
 } from "@/lib/chat/textOutbox";
 
@@ -310,6 +312,36 @@ describe("durable chat IndexedDB contract (diagnostic; not live acceptance)", ()
     expect(retried.bodyHash).toBe(original.bodyHash);
     expect(retried.clientMessageId).toBe(id);
     expect(retried.state).toBe("queued");
+  });
+
+  it("keeps deliver-later distinct from recovery and sends it once on reconnect", async () => {
+    const id = "10000000-0000-4000-8000-000000000031";
+    const original = await enqueue(id, "Consegna questo al ripristino");
+    const offline = vi.fn(async () => {
+      throw new TypeError("network unavailable");
+    });
+
+    expect((await drainTextOutbox({ transport: offline }))[0].kind).toBe("transport_deferred");
+    const deferred = await deferTextExchangeManually(
+      id,
+      MANUAL_OUTBOX_CONFIRMATION,
+    );
+    expect(deferred.state).toBe("queued_by_user");
+    expect(deferred.requestBody).toEqual(original.requestBody);
+    expect(deferred.bodyHash).toBe(original.bodyHash);
+    expect(await nextTextOutboxAttemptAt()).toBeNull();
+
+    const online = vi.fn(async () => canonicalReply(id, {
+      user_turn_id: 301,
+      assistant_turn_id: 302,
+    }));
+    const resumed = await drainTextOutbox({ transport: online });
+
+    expect(resumed).toEqual([
+      expect.objectContaining({ clientMessageId: id, kind: "reply" }),
+    ]);
+    expect(online).toHaveBeenCalledTimes(1);
+    expect(await listTextExchanges()).toEqual([]);
   });
 
   it("commits canonical WAL pages only when fromCursor equals current cursor", async () => {
