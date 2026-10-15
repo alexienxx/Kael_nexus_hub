@@ -40,6 +40,7 @@ import {
   resolveBackendDeliveryMode,
   resolveBackendMessageIdentity,
   resolveHistoryMessageId,
+  voiceNoteReceiptPresentation,
 } from "@/lib/chat/reliability";
 import { getCanonicalTimeMs } from "@/lib/chat/timeNormalization";
 import { applyDiagnosticMarkers } from "@/lib/chat/diagnosticMarkers";
@@ -1503,16 +1504,34 @@ const Chat = () => {
 
         setIsTyping(false);
 
+        const presentation = voiceNoteReceiptPresentation(response);
+        if (presentation === "non_assistant") {
+          // A technical receipt is not an assistant turn. Reconcile only;
+          // never re-send the audio or manufacture a response card.
+          setTimeout(() => fetchAndAppendPending(), 5000);
+          return;
+        }
+
         // ACK: Update the optimistic message with the backend turn ID
         if (response.user_turn_id != null) {
           setMessages((prev) =>
             prev.map((m) =>
               m.client_message_id === clientMessageId
-                ? { ...m, backend_turn_id: String(response.user_turn_id) }
+                ? {
+                    ...m,
+                    backend_turn_id: String(response.user_turn_id),
+                    meta: {
+                      ...(m.meta ?? {}),
+                      exchange_status: response.exchange_status,
+                      outcome_kind: response.outcome_kind,
+                    },
+                  }
                 : m
             )
           );
         }
+
+        if (presentation === "silence") return;
 
         const assistantIdentity = resolveAssistantIdentity(
           response as unknown as Record<string, unknown>,
@@ -1527,6 +1546,7 @@ const Chat = () => {
           });
         }
         const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
+        if (!normalizedReply.text.trim()) return;
         const responseMsg: ChatMessage = {
           id: assistantIdentity.messageId,
           text: normalizedReply.text,

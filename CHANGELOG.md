@@ -1,5 +1,14 @@
 # 📝 KAEL COMPANION — Changelog
 
+## 2026-10-15 — Voice-note receipt presentation, NONDEPLOY
+
+- Canonical silence acknowledges the user note without fabricating an assistant
+  card. Technical/partial bodies use existing pending reconciliation only.
+- Reply cards require coherent turn IDs and nonempty text; original audio stays
+  intact. No audio outbox, retention policy, new transport or synthetic HTTP status.
+- Eight actual Node/source contracts and scoped TypeScript check pass. Browser,
+  APK, reload and live acceptance remain pending.
+
 > Registro cronologico di tutte le modifiche al progetto.
 > Aggiornato ad ogni intervento.
 

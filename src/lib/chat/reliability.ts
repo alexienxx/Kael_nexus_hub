@@ -1,5 +1,27 @@
 import type { ChatMessage } from "@/types";
 
+export type VoiceNoteReceiptPresentation = "reply" | "silence" | "non_assistant";
+
+/** Rendering eligibility only: a receipt/message ID is not an assistant turn.
+ * This does not reconstruct the HTTP status or decide whether Arrakis speaks.
+ */
+export function voiceNoteReceiptPresentation(response: unknown): VoiceNoteReceiptPresentation {
+  if (!response || typeof response !== "object" || Array.isArray(response)) return "non_assistant";
+  const receipt = response as Record<string, unknown>;
+  const userTurn = receipt.user_turn_id;
+  const assistantTurn = receipt.assistant_turn_id;
+  if (receipt.error != null || typeof userTurn !== "number" ||
+      !Number.isSafeInteger(userTurn) || userTurn <= 0) return "non_assistant";
+  if (receipt.outcome_kind === "silence" && receipt.exchange_status === "silence" &&
+      (receipt.reply == null || receipt.reply === "") && assistantTurn == null) return "silence";
+  if (receipt.outcome_kind === "reply" &&
+      (receipt.exchange_status === "complete" || receipt.exchange_status === "response_committed") &&
+      typeof receipt.reply === "string" && receipt.reply.trim().length > 0 &&
+      typeof assistantTurn === "number" && Number.isSafeInteger(assistantTurn) &&
+      assistantTurn > 0 && assistantTurn !== userTurn) return "reply";
+  return "non_assistant";
+}
+
 /** Receipt fields from canonical history outrank local outbox presentation.
  * Only use this after the message identity has been reconciled by its IDs.
  */

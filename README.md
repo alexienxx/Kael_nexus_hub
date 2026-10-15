@@ -12,6 +12,11 @@ l'implementazione di questo client, non una roadmap concorrente.
 
 ## Funzionalità e stato
 
+Le note vocali rispettano la ricevuta di silenzio senza creare una falsa bolla
+assistant. Una ricevuta tecnica avvia soltanto la riconciliazione esistente;
+l'audio originale resta nella bolla locale. Verifica Node/TypeScript disponibile,
+prova browser/APK e recupero durevole dell'audio ancora pendenti.
+
 | Superficie | Contratto presente | Limite dichiarato |
 |---|---|---|
 | Chat | Storico misto, streaming SSE, recupero per cursore canonico, cache/WAL IndexedDB e outbox testo | `In coda`, `in elaborazione`, `consegnato`, `silenzio` e `recupero richiesto` derivano dalla ricevuta; la presenza nella timeline non prova il consumo cognitivo |
