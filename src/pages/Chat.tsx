@@ -348,7 +348,7 @@ const Chat = () => {
     const normalizedBubbles = sender === "user"
       ? undefined
       : rawBubbles
-        ?.map((part: unknown) => String(part ?? "").trim())
+        ?.map((part: unknown) => String(part ?? ""))
         .filter((part: string) => part.length > 0);
 
     const audioDuration = typeof m.duration_ms === "number"

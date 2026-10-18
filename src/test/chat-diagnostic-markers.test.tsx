@@ -37,7 +37,7 @@ describe("chat diagnostic markers", () => {
   it("normalizes memory marker only", () => {
     const normalized = normalizeDiagnosticMarkers("[MEMORY_CONTEXT_IGNORED]");
 
-    expect(normalized.cleanText).toBe("");
+    expect(normalized.cleanText).toBe("[MEMORY_CONTEXT_IGNORED]");
     expect(normalized.markers).toEqual(["MEMORY_CONTEXT_IGNORED"]);
     expect(normalized.note).toContain("contesto memoria");
     expect(normalized.severity).toBe("warning");
@@ -46,7 +46,7 @@ describe("chat diagnostic markers", () => {
   it("normalizes always-on marker only", () => {
     const normalized = normalizeDiagnosticMarkers("[ALWAYS_ON_IGNORED]");
 
-    expect(normalized.cleanText).toBe("");
+    expect(normalized.cleanText).toBe("[ALWAYS_ON_IGNORED]");
     expect(normalized.markers).toEqual(["ALWAYS_ON_IGNORED"]);
     expect(normalized.note).toContain("sempre attivo");
     expect(normalized.severity).toBe("warning");
@@ -57,7 +57,7 @@ describe("chat diagnostic markers", () => {
       "Risposta [MEMORY_CONTEXT_IGNORED] [ALWAYS_ON_IGNORED]",
     );
 
-    expect(normalized.cleanText).toBe("Risposta");
+    expect(normalized.cleanText).toBe("Risposta [MEMORY_CONTEXT_IGNORED] [ALWAYS_ON_IGNORED]");
     expect(normalized.markers).toEqual(["MEMORY_CONTEXT_IGNORED", "ALWAYS_ON_IGNORED"]);
     expect(normalized.note).toContain("contesto memoria e del contesto sempre attivo");
     expect(normalized.severity).toBe("warning");
@@ -66,18 +66,18 @@ describe("chat diagnostic markers", () => {
   it("normalizes unknown markers without dropping metadata", () => {
     const normalized = normalizeDiagnosticMarkers("[UNSEEN_INTERNAL_FLAG]");
 
-    expect(normalized.cleanText).toBe("");
+    expect(normalized.cleanText).toBe("[UNSEEN_INTERNAL_FLAG]");
     expect(normalized.markers).toEqual(["UNSEEN_INTERNAL_FLAG"]);
     expect(normalized.note).toContain("marker interno non previsto");
     expect(normalized.severity).toBe("info");
   });
 
-  it("strips free-form instruction markers used by backend leaks", () => {
+  it("preserves free-form markers while recording diagnostic metadata", () => {
     const normalized = normalizeDiagnosticMarkers(
       "Risposta [Generating response...] [non specificare il ragionamento interno] finale",
     );
 
-    expect(normalized.cleanText).toBe("Risposta finale");
+    expect(normalized.cleanText).toBe("Risposta [Generating response...] [non specificare il ragionamento interno] finale");
     expect(normalized.markers).toEqual([
       "Generating response...",
       "non specificare il ragionamento interno",
@@ -86,21 +86,21 @@ describe("chat diagnostic markers", () => {
     expect(normalized.severity).toBe("info");
   });
 
-  it("strips think/reasoning tags from assistant text", () => {
+  it("preserves literal think/reasoning tags in assistant text", () => {
     const normalized = normalizeDiagnosticMarkers(
       "Risposta <think>internal chain</think> finale",
     );
 
-    expect(normalized.cleanText).toBe("Risposta finale");
+    expect(normalized.cleanText).toBe("Risposta <think>internal chain</think> finale");
     expect(normalized.markers).toEqual([]);
   });
 
-  it("strips dangling reasoning tags and keeps visible content", () => {
+  it("preserves dangling reasoning tags and original content", () => {
     const normalized = normalizeDiagnosticMarkers(
       "<reasoning>hidden</reasoning>Contenuto visibile</reasoning>",
     );
 
-    expect(normalized.cleanText).toBe("Contenuto visibile");
+    expect(normalized.cleanText).toBe("<reasoning>hidden</reasoning>Contenuto visibile</reasoning>");
     expect(normalized.markers).toEqual([]);
   });
 
@@ -118,7 +118,7 @@ describe("chat diagnostic markers", () => {
       source: "history",
     });
 
-    expect(normalized.text).toBe("Contenuto");
+    expect(normalized.text).toBe("Contenuto [MEMORY_CONTEXT_IGNORED]");
     expect(normalized.meta?.source).toBe("history");
     expect(normalized.meta?.diagnostic_markers).toEqual(["MEMORY_CONTEXT_IGNORED"]);
     expect(normalized.meta?.diagnostic_severity).toBe("warning");
@@ -145,10 +145,10 @@ describe("chat diagnostic markers", () => {
       </ThemeProvider>,
     );
 
-    expect(screen.getByText("Risposta finale")).toBeInTheDocument();
+    expect(screen.getByText("Risposta finale [MEMORY_CONTEXT_IGNORED] [ALWAYS_ON_IGNORED]")).toBeInTheDocument();
     expect(screen.queryByText(/Nota diagnostica:/)).not.toBeInTheDocument();
-    expect(container.textContent).not.toContain("[MEMORY_CONTEXT_IGNORED]");
-    expect(container.textContent).not.toContain("[ALWAYS_ON_IGNORED]");
+    expect(container.textContent).toContain("[MEMORY_CONTEXT_IGNORED]");
+    expect(container.textContent).toContain("[ALWAYS_ON_IGNORED]");
   });
 
   it("never presents a recovery-required user envelope as delivered", () => {
