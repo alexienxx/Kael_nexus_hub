@@ -1546,7 +1546,7 @@ const Chat = () => {
           });
         }
         const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
-        if (!normalizedReply.text.trim()) return;
+        if (!normalizedReply.text) return;
         const responseMsg: ChatMessage = {
           id: assistantIdentity.messageId,
           text: normalizedReply.text,
