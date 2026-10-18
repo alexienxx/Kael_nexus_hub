@@ -149,3 +149,10 @@
 .netharion-pulse {
   animation: netharion-heartbeat 2.8s ease-in-out infinite;
 }
+
+/* Keep the operational indicator visible without motion when requested. */
+@media (prefers-reduced-motion: reduce) {
+  .netharion-pulse {
+    animation: none;
+  }
+}

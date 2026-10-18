@@ -32,7 +32,7 @@ const NetharionButton = ({ state = "UNAVAILABLE", onClick, onLongPress }: Nethar
       aria-label={`Netharion: ${cfg.label}`}
     >
       <span
-        className={`absolute inset-0 rounded-full ${state === "WEAK_SIGNAL" || state === "ADMITTED_EVENT" ? "netharion-pulse" : ""}`}
+        className={`absolute inset-0 rounded-full ${state === "CLEAR" || state === "WEAK_SIGNAL" || state === "ADMITTED_EVENT" ? "netharion-pulse" : ""}`}
         style={{
           boxShadow: `0 0 8px 2px hsla(${cfg.hue},${cfg.sat}%,55%,0.45), 0 0 20px 4px hsla(${cfg.hue},${cfg.sat}%,55%,0.2)`,
         }}
