@@ -62,16 +62,22 @@ export function useNetharion(
   const [error, setError] = useState<string | null>(null);
   const consecutiveErrors = useRef(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // A lifecycle transition or newer read invalidates older in-flight results.
+  const readGeneration = useRef(0);
 
   const poll = useCallback(async () => {
+    if (!enabled) return;
+    const generation = ++readGeneration.current;
     try {
       const snapshot = await getNetharionChannel();
+      if (generation !== readGeneration.current) return;
       setChannel(snapshot);
       setState(snapshot.state);
       setIndicator(projectNetharionIndicator(snapshot));
       setError(null);
       consecutiveErrors.current = 0;
     } catch (cause) {
+      if (generation !== readGeneration.current) return;
       consecutiveErrors.current += 1;
       // A read/transport failure only proves that Netharion is unavailable.
       // It must never fabricate an admitted multiswarm event.
@@ -79,9 +85,11 @@ export function useNetharion(
       setIndicator("UNAVAILABLE");
       setError(cause instanceof Error ? cause.message : "Canale Netharion non disponibile");
     }
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
+    // Invalidate requests from the preceding lifecycle before starting this one.
+    readGeneration.current += 1;
     if (!enabled) {
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = null;
@@ -108,6 +116,7 @@ export function useNetharion(
     void tick();
     return () => {
       cancelled = true;
+      readGeneration.current += 1;
       if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [enabled, poll, pollIntervalMs]);

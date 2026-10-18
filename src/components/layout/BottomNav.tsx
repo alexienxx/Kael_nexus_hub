@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink as RouterNavLink, useNavigate } from "react-router-dom";
 import {
   MessageCircle,
@@ -65,13 +65,23 @@ const ReconnectButton = () => {
 
 const BottomNav = () => {
   const { state: backendState } = useBackendConnection();
+  const [wasOnline, setWasOnline] = useState(false);
+  useEffect(() => {
+    if (backendState === "online") setWasOnline(true);
+    else if (backendState !== "checking") setWasOnline(false);
+  }, [backendState]);
+  // A confirmation probe is not evidence that the authenticated channel failed.
+  // Keep its own reads authoritative after a real online observation; initial
+  // startup and confirmed offline states still leave the indicator unavailable.
+  const pollNetharion = backendState === "online"
+    || (backendState === "checking" && wasOnline);
   const {
     state: netharionState,
     indicator: netharionIndicator,
     channel: netharionChannel,
     error: netharionError,
     refresh: refreshNetharion,
-  } = useNetharion(5000, backendState === "online");
+  } = useNetharion(5000, pollNetharion);
   const [showRealEvents, setShowRealEvents] = useState(false);
   const [agentActive, setAgentActive] = useState(false);
   const navigate = useNavigate();
