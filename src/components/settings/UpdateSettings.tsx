@@ -12,7 +12,7 @@ import {
 } from "@/lib/api/updates";
 import { App as CapacitorApp } from "@capacitor/app";
 import {
-  checkNativeUpdatesNow, configureNativeUpdates, getNativeUpdateStatus, isNativeUpdatePlatform,
+  checkNativeUpdatesNow, configureNativeUpdates, getNativeUpdateStatus, hasNewNativeUpdateOutcome, isNativeUpdatePlatform,
   nativeUpdateErrorCode, nativeUpdatesEnabled, nativeUpdateStateLabel, openNativeInstallSettings,
   setNativeUpdatesEnabled, type NativeUpdateStatus,
 } from "@/lib/nativeUpdater";
@@ -36,6 +36,49 @@ const UpdateSettings = () => {
   const [nativeError, setNativeError] = useState("");
   const [automaticEnabled, setAutomaticEnabled] = useState(nativeUpdatesEnabled);
   const native = isNativeUpdatePlatform();
+  const [nativeCheckNotice, setNativeCheckNotice] = useState("");
+  const [observingNative, setObservingNative] = useState<NativeUpdateStatus | null>(null);
+
+  // Read the existing native owner only while this visible screen awaits a check.
+  // Scheduling is not completion; no extra job, server poll or install is started.
+  useEffect(() => {
+    if (!observingNative) return;
+    let active = true;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (notice: string) => {
+      if (!active) return;
+      active = false;
+      clearTimeout(pollTimer);
+      setNativeCheckNotice(notice); setObservingNative(null); setChecking(false);
+    };
+    const deadline = setTimeout(() => finish("Richiesta accettata da Android; nessun nuovo esito confermato in questa schermata. Android può eseguire il controllo più tardi."), 60_000);
+    const poll = async () => {
+      try {
+        const status = await getNativeUpdateStatus();
+        if (!active) return;
+        setNativeStatus(status); setNativeError("");
+        if (hasNewNativeUpdateOutcome(observingNative, status)) {
+          finish("Nuovo stato verificato da Android, riportato sotto."); return;
+        }
+      } catch (e) {
+        if (!active) return;
+        setNativeError(nativeUpdateErrorCode(e));
+        finish("Richiesta accettata da Android; il nuovo esito non è verificabile al momento."); return;
+      }
+      if (active) pollTimer = setTimeout(() => void poll(), 2_000);
+    };
+    pollTimer = setTimeout(() => void poll(), 1_000);
+    const pause = () => finish("Richiesta accettata da Android. Osservazione sospesa mentre l'app non è in primo piano.");
+    const visibility = () => { if (document.visibilityState === "hidden") pause(); };
+    document.addEventListener("visibilitychange", visibility);
+    const listener = CapacitorApp.addListener("appStateChange", ({ isActive }) => { if (!isActive) pause(); });
+    if (document.visibilityState === "hidden") pause();
+    return () => {
+      active = false; clearTimeout(deadline); clearTimeout(pollTimer);
+      document.removeEventListener("visibilitychange", visibility);
+      void listener.then((h) => h.remove()).catch(() => {});
+    };
+  }, [observingNative]);
 
   useEffect(() => {
     let active = true;
@@ -91,14 +134,28 @@ const UpdateSettings = () => {
   };
 
   const handleNativeCheck = async () => {
-    setChecking(true); setNativeError("");
+    setChecking(true); setNativeError(""); setNativeCheckNotice("");
+    let observing = false;
     try {
       const configured = await configureNativeUpdates();
-      setNativeStatus(configured.enabled ? await checkNativeUpdatesNow() : configured);
+      setNativeStatus(configured);
+      if (!configured.enabled) {
+        // An explicit manual request does not silently re-enable background work.
+        await handleCheck(); return;
+      }
+      const scheduled = await checkNativeUpdatesNow();
+      setNativeStatus(scheduled);
+      setNativeCheckNotice("Richiesta accettata da Android. In attesa di un nuovo stato; la programmazione non conferma un controllo concluso.");
+      if (hasNewNativeUpdateOutcome(configured, scheduled)) {
+        setNativeCheckNotice("Nuovo stato verificato da Android, riportato sotto.");
+      } else {
+        setObservingNative(configured); observing = true;
+      }
     } catch (e) { setNativeError(nativeUpdateErrorCode(e)); }
-    finally { setChecking(false); }
+    finally { if (!observing) setChecking(false); }
   };
   const handleNativeToggle = async (enabled: boolean) => {
+    setObservingNative(null); setNativeCheckNotice("");
     setAutomaticEnabled(enabled); setChecking(true); setNativeError("");
     try { setNativeStatus(await setNativeUpdatesEnabled(enabled)); }
     catch (e) { setNativeError(nativeUpdateErrorCode(e)); }
@@ -153,6 +210,8 @@ const UpdateSettings = () => {
           </div>
         )}
 
+        {nativeCheckNotice && <p role="status" className="text-xs text-muted-foreground">{nativeCheckNotice}</p>}
+        {nativeError && <p role="alert" className="text-xs text-destructive">Controllo non disponibile: {nativeError}</p>}
         <Button
           onClick={native ? handleNativeCheck : handleCheck}
           disabled={checking}
@@ -160,7 +219,7 @@ const UpdateSettings = () => {
           className="w-full gap-2"
         >
           <RefreshCw size={14} className={checking ? "animate-spin" : ""} />
-          {checking ? "Controllo in corso..." : "Controlla aggiornamenti"}
+          {observingNative ? "In attesa di Android..." : checking ? "Controllo in corso..." : "Controlla aggiornamenti"}
         </Button>
       </div>
 
@@ -168,7 +227,7 @@ const UpdateSettings = () => {
         <section className="glass rounded-xl p-4 space-y-3" aria-label="Aggiornamenti automatici Android">
           <label className="flex items-center justify-between gap-3 text-sm">
             Aggiornamenti in background
-            <input type="checkbox" checked={automaticEnabled} disabled={checking}
+            <input type="checkbox" checked={automaticEnabled} disabled={checking && !observingNative}
               onChange={(e) => void handleNativeToggle(e.currentTarget.checked)} />
           </label>
           <p className="text-xs text-muted-foreground">
@@ -186,7 +245,6 @@ const UpdateSettings = () => {
             </Button>}
             {nativeStatus.state === "user_action_required" && <p>Android richiede una conferma. Se compare un avviso di installazione, aprilo; altrimenti usa il download manuale.</p>}
           </div>}
-          {nativeError && <p role="status" className="text-xs text-destructive">Stato non disponibile: {nativeError}</p>}
           <Button variant="ghost" disabled={checking} onClick={handleCheck}>Verifica per download manuale</Button>
         </section>
       )}

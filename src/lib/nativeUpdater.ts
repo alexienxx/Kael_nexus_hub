@@ -141,3 +141,11 @@ export function nativeUpdateStateLabel(state: NativeUpdateState): string {
   };
   return labels[state];
 }
+
+/** A changed terminal snapshot is a new owner observation, never a job-correlated receipt. */
+export function hasNewNativeUpdateOutcome(before: NativeUpdateStatus, current: NativeUpdateStatus): boolean {
+  if (["configured", "scheduled", "checking", "downloading", "verifying", "install_requested"].includes(current.state)) return false;
+  return before.state !== current.state || before.lastCheckedAt !== current.lastCheckedAt
+    || before.errorCode !== current.errorCode || before.requestedVersionCode !== current.requestedVersionCode
+    || before.installedVersionCode !== current.installedVersionCode;
+}

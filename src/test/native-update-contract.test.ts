@@ -3,7 +3,7 @@ import {
   parseInstalledAppVersion, parseUpdateManifestJson, validateUpdateManifest, validateUpdateUrl,
 } from "@/lib/api/updates";
 import {
-  nativeUpdateOrigins, nativeUpdateStateLabel, validateNativeUpdateStatus,
+  hasNewNativeUpdateOutcome, nativeUpdateOrigins, nativeUpdateStateLabel, validateNativeUpdateStatus,
 } from "@/lib/nativeUpdater";
 
 const backend = "http://100.89.31.50:8002";
@@ -48,6 +48,25 @@ describe("native self-update actual boundary validators", () => {
     expect(() => validateNativeUpdateStatus({ ...status, enabled: "true" })).toThrow("UPDATE_STATUS_INVALID");
     expect(() => validateNativeUpdateStatus({ ...status, state: "completed" })).toThrow("UPDATE_STATUS_INVALID");
     expect(() => validateNativeUpdateStatus({ ...status, errorCode: "secret payload with spaces" })).toThrow("UPDATE_STATUS_INVALID");
+  });
+
+  it("distinguishes an old terminal snapshot or scheduling from a newly observed outcome", () => {
+    const before = validateNativeUpdateStatus({
+      enabled: true, configured: true, installedVersionName: "1.0.21", installedVersionCode: 121,
+      canRequestPackageInstalls: true, platformSupportsUnattended: true, state: "installed",
+      lastCheckedAt: "2026-10-20T20:00:00.000Z",
+    });
+    expect(hasNewNativeUpdateOutcome(before, before)).toBe(false);
+    for (const state of ["configured", "scheduled", "checking", "downloading", "verifying", "install_requested"]) {
+      expect(hasNewNativeUpdateOutcome(before, validateNativeUpdateStatus({ ...before, state,
+        lastCheckedAt: "2026-10-20T20:01:00.000Z" }))).toBe(false);
+    }
+    for (const state of ["up_to_date", "failed", "unavailable", "permission_required", "user_action_required", "disabled"]) {
+      expect(hasNewNativeUpdateOutcome(before, validateNativeUpdateStatus({ ...before, state }))).toBe(true);
+    }
+    expect(hasNewNativeUpdateOutcome(before, { ...before, lastCheckedAt: "2026-10-20T20:01:00.000Z" })).toBe(true);
+    expect(hasNewNativeUpdateOutcome(before, { ...before, installedVersionCode: 122 })).toBe(true);
+    expect(hasNewNativeUpdateOutcome(before, { ...before, errorCode: "UPDATE_PRESENT_WITHOUT_SESSION_RECEIPT" })).toBe(true);
   });
 
   it("rejects malformed JSON and noninteger or oversized release metadata before consumption", () => {

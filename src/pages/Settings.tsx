@@ -193,7 +193,7 @@ const Settings = () => {
 
         <div className="pt-6">
           <p className="mb-2 text-center text-[10px] text-muted-foreground">
-            Arrakis Companion v1.0
+            Arrakis Companion
           </p>
           <p className="text-center text-[10px] text-muted-foreground/50">
             Built with 💜

@@ -158,6 +158,21 @@ separate. Dopo ogni implementazione importante aggiornare questo manuale,
 [CHANGELOG](CHANGELOG.md), manuali/TREE backend pertinenti e PR26, quindi
 commit/push. Non promettere una funzione perché esiste una pagina.
 
+### Controllo aggiornamenti dalla schermata Impostazioni
+
+Il pulsante mostra la ricevuta della richiesta accettata da Android. Questa non
+attesta un controllo concluso o un'installazione. La schermata rilegge soltanto
+lo stato locale del medesimo owner per un massimo di 60 secondi in primo piano;
+si ferma su un nuovo esito, un errore, background o uscita dalla schermata.
+Un timeout lascia l'esito non confermato e non cancella il job Android. Gli stati
+precedenti non sono presentati come esiti della nuova richiesta. La disattivazione
+resta disponibile anche durante questa osservazione.
+
+Con gli aggiornamenti in background disattivati, il pulsante usa il controllo
+manuale esistente e non riabilita implicitamente i job. Errori e ricevuta sono
+visibili accanto al pulsante. Il footer generico non mostra una versione statica:
+il riquadro installato conserva la versione effettiva letta dal sistema.
+
 ### Recupero delle sessioni di aggiornamento interrotte
 
 Il job nativo distingue una sessione già committata a PackageInstaller da una

@@ -1,5 +1,15 @@
 # 📝 KAEL COMPANION — Changelog
 
+## 2026-10-20 — Manual updater request and bounded status observation
+
+- Show scheduling acknowledgement beside the update button and read the actual
+  local Android updater status for at most 60 seconds while Settings is active.
+  Preserve old/pending states and report an unconfirmed outcome on timeout.
+- Use the existing manual check when background updates are disabled, without
+  enabling jobs; keep explicit disable available during observation.
+- Remove the misleading static v1.0 footer. No installer, permission or native
+  job behavior changes; source checks do not prove a phone interaction.
+
 ## 2026-10-20 — Uncommitted updater session recovery, source review
 
 - Recover only an owned, inactive, unsealed and uncommitted full self-update
