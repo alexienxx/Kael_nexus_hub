@@ -32,46 +32,6 @@ interface MessageBubbleProps {
   wallpaperStyle?: WallpaperDisplaySettings | null;
 }
 
-type DeliveryPresentation = {
-  label: string;
-  className: string;
-};
-
-function userMessageDeliveryPresentation(
-  message: ChatMessage,
-): DeliveryPresentation | null {
-  if (
-    message.sender !== "user" ||
-    (message.meta?.durable_outbox !== true && !message.meta?.exchange_status)
-  ) return null;
-  const status = String(message.meta?.exchange_status ?? "").toLowerCase();
-  if (status === "queued_by_user") {
-    return { label: "Da consegnare al ripristino", className: "text-sky-200" };
-  }
-  if (status === "complete" || status === "response_committed" || status === "replayed") {
-    return { label: "Consegnato", className: "text-emerald-300/80" };
-  }
-  if (status === "silence") {
-    return { label: "Elaborazione conclusa · nessuna risposta", className: "text-foreground/55" };
-  }
-  if (status === "recovery_required") {
-    return { label: "Messaggio conservato · verifica richiesta", className: "text-amber-200" };
-  }
-  if (status === "authentication_required") {
-    return { label: "Non consegnato · accesso richiesto", className: "text-red-200" };
-  }
-  if (status === "terminal_failed" || status === "terminal_failure" || status === "integrity_failure" || status === "abandoned") {
-    return { label: "Non consegnato", className: "text-red-200" };
-  }
-  if (status === "in_progress" || status === "processing" || status === "sending") {
-    return { label: "In elaborazione", className: "text-foreground/55" };
-  }
-  if (status === "retryable_failure" || status === "failed_retryable" || status === "transport_deferred") {
-    return { label: "In coda · nuovo tentativo", className: "text-foreground/55" };
-  }
-  return { label: "In coda", className: "text-foreground/55" };
-}
-
 /**
  * Get bubble CSS based on wallpaper style mode.
  * Keeps bubbles readable while allowing atmosphere inheritance.
@@ -148,7 +108,6 @@ const MessageBubble = ({
   const { theme, kaelAvatarSrc } = useTheme();
   const isUser = message.sender === "user";
   const isExternalAgent = message.sender === "external_agent";
-  const deliveryPresentation = userMessageDeliveryPresentation(message);
 
   const getSenderInfo = () => {
     if (isUser) return { name: null, avatar: null };
@@ -331,11 +290,7 @@ const MessageBubble = ({
             </p>
           )}
 
-          {message.isProcessingImage && (
-            <p className="text-xs italic text-muted-foreground mb-1">
-              Arrakis sta guardando la tua foto...
-            </p>
-          )}
+
 
           {/* Render priority based on delivery_mode:
               voice_note → audio first, hide text
@@ -422,14 +377,7 @@ const MessageBubble = ({
 
           <div className={`mt-1 flex items-center gap-1 ${isUser ? "justify-end" : ""}`}>
             <p className="text-[10px] text-foreground/40">{message.time}</p>
-            {deliveryPresentation && (
-              <span
-                data-testid={`message-delivery-status-${message.id}`}
-                className={`text-[10px] font-medium ${deliveryPresentation.className}`}
-              >
-                · {deliveryPresentation.label}
-              </span>
-            )}
+
           </div>
         </div>
 

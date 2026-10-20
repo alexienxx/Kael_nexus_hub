@@ -74,6 +74,7 @@ export function useKaelSSE(enabled: boolean): void {
     mountedRef.current = true;
 
     const cleanup = (invalidateSeq: boolean = true) => {
+      window.dispatchEvent(new CustomEvent("kael-generation-reset"));
       if (invalidateSeq) {
         // Invalidate any in-flight async connect started before this cleanup.
         connectSeqRef.current += 1;
@@ -126,6 +127,15 @@ export function useKaelSSE(enabled: boolean): void {
           window.dispatchEvent(new CustomEvent("kael-sse-connected"));
         });
 
+        // Existing authenticated stream; never derive typing from a submitted POST.
+        es.addEventListener("generation_activity", (evt) => {
+          if (esRef.current !== es) return;
+          try {
+            const data = JSON.parse((evt as MessageEvent).data);
+            window.dispatchEvent(new CustomEvent("kael-generation-activity", { detail: data }));
+          } catch { /* malformed hint carries no state */ }
+        });
+
         // ── "new_message" — autonomous messages from Kael ──
         es.addEventListener("new_message", (evt) => {
           try {
@@ -155,6 +165,8 @@ export function useKaelSSE(enabled: boolean): void {
 
         // ── connection error → reconnect with fresh token ──
         es.onerror = () => {
+          if (esRef.current !== es) return;
+          window.dispatchEvent(new CustomEvent("kael-generation-reset"));
           console.warn("[KaelSSE] Disconnected, scheduling reconnect");
           es.close();
           esRef.current = null;
@@ -204,6 +216,7 @@ export function useKaelSSE(enabled: boolean): void {
 
     const onVisibilityChange = () => {
       const state = document.visibilityState;
+      if (state !== "visible") window.dispatchEvent(new CustomEvent("kael-generation-reset"));
       emitTelemetry("sse.visibilitychange", { state });
       if (state === "visible" && mountedRef.current) {
         forceReconnect("visibilitychange");

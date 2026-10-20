@@ -13,6 +13,7 @@ import KaelHeader from "@/components/layout/KaelHeader";
 import ChatInput from "@/components/chat/ChatInput";
 import MessageBubble from "@/components/chat/MessageBubble";
 import type { NativeVoicePlaybackState } from "@/components/chat/NativeVoiceNoteControl";
+import ChatTypingDots from "@/components/chat/ChatTypingDots";
 import OutboxAttentionPanel from "@/components/chat/OutboxAttentionPanel";
 import ChatProcessingNotice from "@/components/chat/ChatProcessingNotice";
 import {
@@ -136,6 +137,11 @@ const Chat = () => {
   const [quotedMessagePayload, setQuotedMessagePayload] = useState<QuotedMessagePayload | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [processingNotice, setProcessingNotice] = useState<ChatProcessingState | null>(null);
+  useEffect(() => {
+    if (processingNotice && !["waiting", "in_progress", "unconfirmed"].includes(processingNotice.kind)) {
+      window.dispatchEvent(new CustomEvent("kael-generation-reset"));
+    }
+  }, [processingNotice]);
   const [continuityReady, setContinuityReady] = useState(false);
   const [continuityError, setContinuityError] = useState<string | null>(null);
   const [timelineReady, setTimelineReady] = useState(false);
@@ -974,20 +980,21 @@ const Chat = () => {
         continue;
       }
       if (result.kind === "recovery_required") {
-        toast.warning("Messaggio conservato: il recupero richiede verifica, nessun reinvio automatico");
+        // The single top error surface owns presentation.
         continue;
       }
       if (result.kind === "terminal_failure" || result.kind === "integrity_failure") {
-        toast.error("Messaggio conservato nell'outbox: invio non completato");
+        // Keep the receipt without a duplicate toast.
         continue;
       }
-      if (result.kind === "retryable_failure" || result.kind === "transport_deferred") {
-        toast.error("Connessione non disponibile: il messaggio resta nella coda durevole", {
-          action: {
-            label: "Consegna dopo",
-            onClick: () => {
+
+    }
+    if (results.some((result) => result.timelineMessages?.length)) scrollToBottom();
+  }, [mapBackendMsg, scrollToBottom]);
+
+  const handleManualDefer = useCallback((clientMessageId: string) => {
               void deferTextExchangeManually(
-                result.clientMessageId,
+                clientMessageId,
                 MANUAL_OUTBOX_CONFIRMATION,
               ).then(() => {
                 if (outboxRetryTimerRef.current) {
@@ -995,7 +1002,7 @@ const Chat = () => {
                   outboxRetryTimerRef.current = null;
                 }
                 setMessages((previous) => previous.map((message) =>
-                  message.client_message_id === result.clientMessageId
+                  message.client_message_id === clientMessageId
                     ? {
                         ...message,
                         meta: {
@@ -1007,15 +1014,9 @@ const Chat = () => {
                     : message
                 ));
               }).catch((error) => {
-                toast.error(error instanceof Error ? error.message : "Differimento non riuscito");
+                setProcessingNotice({ kind: "terminal_failure", clientMessageId, errorCode: "manual_defer_failed" });
               });
-            },
-          },
-        });
-      }
-    }
-    if (results.some((result) => result.timelineMessages?.length)) scrollToBottom();
-  }, [mapBackendMsg, scrollToBottom]);
+  }, []);
 
   const scheduleNextOutboxDrain = useCallback(async () => {
     if (outboxRetryTimerRef.current) {
@@ -1292,10 +1293,10 @@ const Chat = () => {
         }
       } catch {
         setProcessingNotice((current) => current?.clientMessageId === clientMsgId
-          ? { ...current, kind: "unconfirmed" } : current);
+          ? { ...current, kind: "transport_deferred" } : current);
         // The exact envelope remains in IndexedDB. Reconnect/boot retries the
         // same logical request; never synthesize a second UUID here.
-        toast.error("Connessione interrotta: messaggio conservato e retry sicuro in coda");
+        // The top error surface presents this retained transport failure.
         probeAndResolveBackend().catch(() => {});
       }
     },
@@ -1706,10 +1707,7 @@ const Chat = () => {
   const handleManualOutboxRetry = useCallback(async (clientMessageId: string) => {
     const entry = outboxSummary.attention.find((item) => item.clientMessageId === clientMessageId);
     if (!entry) return;
-    const recoveryNote = entry.state === "recovery_required"
-      ? "Il backend ha bloccato il recupero cognitivo. Verrà reinviato soltanto lo stesso envelope con lo stesso UUID, per rileggere il receipt idempotente; non verrà creato un nuovo messaggio."
-      : "Verrà reinviato soltanto lo stesso envelope con lo stesso UUID.";
-    if (!window.confirm(recoveryNote + "\n\nConfermi il tentativo manuale?")) return;
+    if (!window.confirm("Vuoi riprovare lo stesso invio?")) return;
 
     setOutboxActionBusy(clientMessageId);
     try {
@@ -1731,7 +1729,7 @@ const Chat = () => {
     const entry = outboxSummary.attention.find((item) => item.clientMessageId === clientMessageId);
     if (!entry) return;
     if (!window.confirm(
-      "Rimuovere questo envelope soltanto dall'outbox locale? L'operazione non cancella eventuali turni già registrati nel backend e sblocca i messaggi successivi.",
+      "Annullare questo invio in attesa? I messaggi già salvati rimangono nella cronologia.",
     )) return;
 
     setOutboxActionBusy(clientMessageId);
@@ -1794,6 +1792,8 @@ const Chat = () => {
         onRemove={handleManualOutboxRemove}
       />
 
+      <ChatProcessingNotice state={outboxSummary.attention.length || outboxSummary.total >= outboxSummary.capacity ? null : processingNotice} onDefer={handleManualDefer} />
+
       {/* Messages — long press on background triggers wallpaper menu */}
       <div
         className="relative z-10 flex-1 overflow-y-auto px-4 py-4 space-y-3"
@@ -1838,12 +1838,11 @@ const Chat = () => {
             wallpaperStyle={bubbleWallpaperStyle}
           />
         ))}
+        <ChatTypingDots />
 
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Technical status is outside the canonical message timeline. */}
-      <ChatProcessingNotice state={processingNotice} />
 
       {/* Input */}
       <ChatInput

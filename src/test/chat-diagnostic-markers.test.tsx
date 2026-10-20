@@ -171,7 +171,9 @@ describe("chat diagnostic markers", () => {
       </ThemeProvider>,
     );
 
-    expect(screen.getByText(/Messaggio conservato · verifica richiesta/)).toBeInTheDocument();
+    expect(screen.queryByText(/Messaggio conservato · verifica richiesta/)).not.toBeInTheDocument();
+    expect(screen.getByText(message.text)).toBeInTheDocument();
+    expect(message.meta?.exchange_status).toBe("recovery_required");
     expect(screen.queryByText(/^Consegnato$/)).not.toBeInTheDocument();
   });
 
