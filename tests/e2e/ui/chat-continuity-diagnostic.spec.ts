@@ -159,7 +159,7 @@ test.describe("chat continuity diagnostics (browser IndexedDB; not live acceptan
     await expect(
       page.locator('[data-testid^="message-bubble-"]').filter({ hasText: "E2E_RECOVERY_REQUIRED" }),
     ).toHaveCount(1);
-    await expect(page.getByText("Non consegnato · verifica richiesta", { exact: true })).toBeVisible();
+    await expect(page.getByText("Messaggio conservato · verifica richiesta", { exact: true })).toBeVisible();
     await expect(page.getByText("Consegnato", { exact: true })).toHaveCount(0);
     const state = await page.evaluate(async () => {
       const db = await new Promise<IDBDatabase>((resolve, reject) => {

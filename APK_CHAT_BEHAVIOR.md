@@ -1,6 +1,6 @@
 # APK chat behavior — canonical implementation
 
-Updated: 2026-09-05
+Updated: 2026-10-20
 
 The APK has one durable canonical timeline and one realtime notification path.
 PostgreSQL remains the server authority; IndexedDB retains the last committed
@@ -20,6 +20,27 @@ timeline and the outbound WAL across offline launches.
 - When the backend is unavailable, committed IndexedDB history remains visible.
   A powered-off local PC cannot create or transmit new turns; that requires a
   separate always-on relay.
+
+## Processing status and quiet outcomes
+
+The request being in flight is not evidence that Arrakis is writing. Until a
+generation-specific backend signal exists, the client shows an honest waiting
+notice; a validated `in_progress` receipt shows the last confirmed processing
+snapshot, not a continuous phase or typing. Older FIFO results cannot overwrite
+the notice for a newer client request. A committed assistant catch-up row clears
+the notice only with an actually matching client-message binding; without that
+binding it makes an old processing snapshot explicitly unconfirmed. The
+current SSE connected/new_message path does not attest D5 generation.
+
+A validated `silence` outcome announces “Elaborazione conclusa senza una risposta”.
+It creates no assistant message and is distinct from failure, recovery_required,
+authentication and an unconfirmed transport outcome. These notices sit outside
+the canonical timeline. Technical error identifiers remain separate from message
+text. A timeout does not prove that the backend is still processing, nor that a
+response was generated or delivered. No new retry behavior follows a notice.
+
+This describes source behavior; an APK build, installation and device validation
+remain separate evidence.
 
 ## External-agent exchange
 

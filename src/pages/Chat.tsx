@@ -14,7 +14,12 @@ import ChatInput from "@/components/chat/ChatInput";
 import MessageBubble from "@/components/chat/MessageBubble";
 import type { NativeVoicePlaybackState } from "@/components/chat/NativeVoiceNoteControl";
 import OutboxAttentionPanel from "@/components/chat/OutboxAttentionPanel";
-import TypingIndicator from "@/components/TypingIndicator";
+import ChatProcessingNotice from "@/components/chat/ChatProcessingNotice";
+import {
+  applyChatProcessingOutcome,
+  reconcileChatProcessingMessages,
+  type ChatProcessingState,
+} from "@/lib/chat/processingNotice";
 import ImageViewer from "@/components/media/ImageViewer";
 
 import ServiceActionChips from "@/components/services/ServiceActionChips";
@@ -130,7 +135,7 @@ const Chat = () => {
   const [quotedPreview, setQuotedPreview] = useState<QuotedPreview | null>(null);
   const [quotedMessagePayload, setQuotedMessagePayload] = useState<QuotedMessagePayload | null>(null);
   const [historyLoading, setHistoryLoading] = useState(true);
-  const [isTyping, setIsTyping] = useState(false);
+  const [processingNotice, setProcessingNotice] = useState<ChatProcessingState | null>(null);
   const [continuityReady, setContinuityReady] = useState(false);
   const [continuityError, setContinuityError] = useState<string | null>(null);
   const [timelineReady, setTimelineReady] = useState(false);
@@ -888,6 +893,7 @@ const Chat = () => {
           received += committed.messages.length;
           if (committed.messages.length) {
             const newMessages: ChatMessage[] = committed.messages.map(mapBackendMsg);
+            setProcessingNotice((current) => reconcileChatProcessingMessages(current, newMessages));
             setMessages((previous) => {
               const combined = mergeMessagesIdempotent(previous, newMessages);
               appended += combined.length - previous.length;
@@ -926,6 +932,7 @@ const Chat = () => {
 
   const applyOutboxResults = useCallback((results: TextOutboxDrainResult[]) => {
     for (const result of results) {
+      setProcessingNotice((current) => applyChatProcessingOutcome(current, result));
       if (result.timelineMessages?.length) {
         const durableMessages = result.timelineMessages.map(mapBackendMsg);
         setMessages((previous) => mergeMessagesIdempotent(previous, durableMessages));
@@ -947,7 +954,6 @@ const Chat = () => {
       ));
 
       if (result.kind === "reply" || result.kind === "replay" || result.kind === "silence") {
-        setIsTyping(false);
         if (result.response?.avatar_job_id && result.response.assistant_turn_id != null) {
           const assistantTurnId = String(result.response.assistant_turn_id);
           pollAndFetchAvatarVideo(result.response.avatar_job_id).then((videoDataUrl) => {
@@ -965,21 +971,17 @@ const Chat = () => {
       }
 
       if (result.kind === "in_progress") {
-        setIsTyping(true);
         continue;
       }
       if (result.kind === "recovery_required") {
-        setIsTyping(false);
         toast.warning("Messaggio conservato: il recupero richiede verifica, nessun reinvio automatico");
         continue;
       }
       if (result.kind === "terminal_failure" || result.kind === "integrity_failure") {
-        setIsTyping(false);
         toast.error("Messaggio conservato nell'outbox: invio non completato");
         continue;
       }
       if (result.kind === "retryable_failure" || result.kind === "transport_deferred") {
-        setIsTyping(false);
         toast.error("Connessione non disponibile: il messaggio resta nella coda durevole", {
           action: {
             label: "Consegna dopo",
@@ -1050,7 +1052,7 @@ const Chat = () => {
       emitTelemetry("chatContinuity.failed", { error: name });
       setContinuityError("Archivio durevole chat non disponibile");
       setContinuityReady(false);
-      setIsTyping(false);
+      setProcessingNotice((current) => ({ ...current, kind: "unconfirmed" }));
       throw error;
     }
   }, [continuityReady, lifecycleState, applyOutboxResults, refreshOutboxSummary, scheduleNextOutboxDrain]);
@@ -1242,10 +1244,12 @@ const Chat = () => {
       setQuotedMessagePayload(null);
       scrollToBottom();
 
-      setIsTyping(true);
+      setProcessingNotice({ kind: "waiting", clientMessageId: clientMsgId });
       try {
         const results = await runTextOutboxDrain();
         const ownResult = results.find((result) => result.clientMessageId === clientMsgId);
+        if (!ownResult) setProcessingNotice((current) => current?.clientMessageId === clientMsgId
+          ? { ...current, kind: "unconfirmed" } : current);
         if (agentMode && (ownResult?.kind === "reply" || ownResult?.kind === "replay")) {
           try {
             const agentHistory: ExternalChatMessage[] = [...messages, userMsg]
@@ -1287,7 +1291,8 @@ const Chat = () => {
           }
         }
       } catch {
-        setIsTyping(false);
+        setProcessingNotice((current) => current?.clientMessageId === clientMsgId
+          ? { ...current, kind: "unconfirmed" } : current);
         // The exact envelope remains in IndexedDB. Reconnect/boot retries the
         // same logical request; never synthesize a second UUID here.
         toast.error("Connessione interrotta: messaggio conservato e retry sicuro in coda");
@@ -1380,13 +1385,12 @@ const Chat = () => {
         setMessages((prev) => [...prev, imgMsg]);
         scrollToBottom();
 
-        setIsTyping(true);
+        setProcessingNotice({ kind: "waiting", clientMessageId: clientMsgId });
         try {
           const startTime = Date.now();
           const response = await chatApi.sendImage(file, sessionId, caption);
           const latency = Date.now() - startTime;
 
-          setIsTyping(false);
           // Warn user if vision failed (Kael replied without seeing the image)
           if (response.vision_ok === false && response.failure_kind) {
             const failureKind = response.failure_kind;
@@ -1427,6 +1431,11 @@ const Chat = () => {
             });
           }
           const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
+          if (!normalizedReply.text && !response.image_base64) {
+            setProcessingNotice((current) => current?.clientMessageId === clientMsgId
+              ? { ...current, kind: "unconfirmed" } : current);
+            return;
+          }
           const responseMsg: ChatMessage = {
             id: assistantIdentity.messageId,
             text: normalizedReply.text,
@@ -1446,6 +1455,10 @@ const Chat = () => {
             agent_avatar: response.agent_avatar,
           };
           setMessages((prev) => mergeMessagesIdempotent(prev, [responseMsg]));
+          setProcessingNotice((current) => current?.clientMessageId === clientMsgId
+            ? response.error == null && /^[1-9]\d*$/.test(assistantIdentity.backendTurnId ?? "")
+              ? null : { ...current, kind: "unconfirmed" }
+            : current);
           scrollToBottom();
           // Avatar video: async poll if backend triggered a render job
           if (response.avatar_job_id) {
@@ -1459,12 +1472,13 @@ const Chat = () => {
             });
           }
         } catch (error) {
-          setIsTyping(false);
+          setProcessingNotice((current) => current?.clientMessageId === clientMsgId
+            ? { ...current, kind: "unconfirmed" } : current);
           const isTimeout =
             error instanceof Error &&
             (error.name === "AbortError" || error.message.includes("timeout"));
           if (isTimeout) {
-            toast.error("Risposta in ritardo — Arrakis sta elaborando l'immagine...", { duration: 6000 });
+            toast.warning("Il server non ha confermato un esito per l'immagine", { duration: 6000 });
             setTimeout(() => fetchAndAppendPending(), 5_000);
             setTimeout(() => fetchAndAppendPending(), 20_000);
           } else {
@@ -1496,16 +1510,16 @@ const Chat = () => {
       setMessages((prev) => [...prev, voiceMsg]);
       scrollToBottom();
 
-      setIsTyping(true);
+      setProcessingNotice({ kind: "waiting", clientMessageId });
       try {
         const startTime = Date.now();
         const response = await chatApi.sendVoiceNote(blob, sessionId, clientMessageId);
         const latency = Date.now() - startTime;
 
-        setIsTyping(false);
-
         const presentation = voiceNoteReceiptPresentation(response);
         if (presentation === "non_assistant") {
+          setProcessingNotice((current) => current?.clientMessageId === clientMessageId
+            ? { ...current, kind: "unconfirmed" } : current);
           // A technical receipt is not an assistant turn. Reconcile only;
           // never re-send the audio or manufacture a response card.
           setTimeout(() => fetchAndAppendPending(), 5000);
@@ -1531,7 +1545,11 @@ const Chat = () => {
           );
         }
 
-        if (presentation === "silence") return;
+        if (presentation === "silence") {
+          setProcessingNotice((current) => current?.clientMessageId === clientMessageId
+            ? { ...current, kind: "silence" } : current);
+          return;
+        }
 
         const assistantIdentity = resolveAssistantIdentity(
           response as unknown as Record<string, unknown>,
@@ -1546,7 +1564,11 @@ const Chat = () => {
           });
         }
         const normalizedReply = normalizeAssistantPayload(response.reply ?? "", response.meta);
-        if (!normalizedReply.text) return;
+        if (!normalizedReply.text) {
+          setProcessingNotice((current) => current?.clientMessageId === clientMessageId
+            ? { ...current, kind: "unconfirmed" } : current);
+          return;
+        }
         const responseMsg: ChatMessage = {
           id: assistantIdentity.messageId,
           text: normalizedReply.text,
@@ -1570,6 +1592,7 @@ const Chat = () => {
           agent_avatar: response.agent_avatar,
         };
         setMessages((prev) => mergeMessagesIdempotent(prev, [responseMsg]));
+        setProcessingNotice((current) => current?.clientMessageId === clientMessageId ? null : current);
         scrollToBottom();
         if (response.avatar_job_id) {
           const msgId = responseMsg.id;
@@ -1582,7 +1605,8 @@ const Chat = () => {
           });
         }
       } catch (error) {
-        setIsTyping(false);
+        setProcessingNotice((current) => current?.clientMessageId === clientMessageId
+          ? { ...current, kind: "unconfirmed" } : current);
         toast.error(error instanceof Error ? error.message : "Failed to send voice note");
         // Reconcile: fetch pending in case backend completed after timeout
         setTimeout(() => fetchAndAppendPending(), 5000);
@@ -1815,14 +1839,11 @@ const Chat = () => {
           />
         ))}
 
-        {isTyping && (
-          <div className="flex items-end gap-2">
-            <img src={kaelAvatarSrc} alt="Arrakis" className="h-8 w-8 rounded-full object-contain" />
-            <TypingIndicator />
-          </div>
-        )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Technical status is outside the canonical message timeline. */}
+      <ChatProcessingNotice state={processingNotice} />
 
       {/* Input */}
       <ChatInput

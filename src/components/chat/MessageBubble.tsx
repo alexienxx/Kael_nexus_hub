@@ -52,10 +52,10 @@ function userMessageDeliveryPresentation(
     return { label: "Consegnato", className: "text-emerald-300/80" };
   }
   if (status === "silence") {
-    return { label: "Consegnato · nessuna risposta", className: "text-emerald-300/80" };
+    return { label: "Elaborazione conclusa · nessuna risposta", className: "text-foreground/55" };
   }
   if (status === "recovery_required") {
-    return { label: "Non consegnato · verifica richiesta", className: "text-amber-200" };
+    return { label: "Messaggio conservato · verifica richiesta", className: "text-amber-200" };
   }
   if (status === "authentication_required") {
     return { label: "Non consegnato · accesso richiesto", className: "text-red-200" };
