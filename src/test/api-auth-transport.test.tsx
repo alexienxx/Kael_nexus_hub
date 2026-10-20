@@ -228,9 +228,9 @@ describe("APK Gate-A authentication and JSON transport", () => {
       latest_version: "1.0.13",
       version_name: "1.0.13",
       version_code: 13,
-      apk_url: `${BACKEND}/app/download`,
-      download_url: `${BACKEND}/app/download`,
-      apk_filename: "kael.apk",
+      apk_url: `${BACKEND}/app/download/kael-13-aaaaaaaa.apk`,
+      download_url: `${BACKEND}/app/download/kael-13-aaaaaaaa.apk`,
+      apk_filename: "kael-13-aaaaaaaa.apk",
       apk_sha256: "a".repeat(64),
       apk_size_bytes: 1,
       release_notes: "test",
@@ -250,9 +250,8 @@ describe("APK Gate-A authentication and JSON transport", () => {
     await fetchUpdateManifest();
     expect(requestHeaders(fetchMock.mock.calls[0]?.[1]).get("X-KAEL-KEY")).toBe(TEST_KEY);
 
-    setManifestUrl("https://updates.example.test/manifest.json");
-    await fetchUpdateManifest();
-    expect(requestHeaders(fetchMock.mock.calls[1]?.[1]).has("X-KAEL-KEY")).toBe(false);
+    expect(() => setManifestUrl("https://updates.example.test/manifest.json")).toThrow("UPDATE_URL_NOT_TRUSTED");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("exchanges the primary header for an exact short-lived resource URL", async () => {

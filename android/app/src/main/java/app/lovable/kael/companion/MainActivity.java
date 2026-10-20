@@ -7,6 +7,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        registerPlugin(NativeAppUpdaterPlugin.class);
         super.onCreate(savedInstanceState);
         // Allow HTTP requests from WebView (mixed content safety net)
         getBridge().getWebView().getSettings()

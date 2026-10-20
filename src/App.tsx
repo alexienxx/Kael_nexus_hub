@@ -88,6 +88,7 @@ const AppRoutes = () => {
         open={showDialog}
         onOpenChange={setShowDialog}
         manifest={result?.manifest ?? null}
+        currentVersion={result?.currentVersion}
       />
     </>
   );

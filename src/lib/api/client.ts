@@ -20,6 +20,8 @@ const STORAGE_KEY = "kael-backend-config";
 const ROUTE_STATE_KEY = "kael-backend-route-state-v1";
 const DEFAULT_TIMEOUT = 30000; // 30 seconds
 
+/** Explicit config saves, including credential removal; event carries no secret. */
+export const API_CONFIG_CHANGED_EVENT = "kael-api-config-changed";
 /** Emitted after the active backend origin changes. Long-lived transports
  * (SSE/WebSocket) must reconnect and obtain fresh scoped credentials. */
 export const BACKEND_ROUTE_CHANGED_EVENT = "kael-backend-route-changed";
@@ -161,6 +163,7 @@ export function setApiConfig(config: ApiConfig) {
     preferredHealthProofs: 0,
     lastPreferredProofAt: 0,
   });
+  window.dispatchEvent(new Event(API_CONFIG_CHANGED_EVENT));
 }
 
 /**

@@ -9,28 +9,30 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { Download, CheckCircle, AlertTriangle, Sparkles, X } from "lucide-react";
+import { Download, ExternalLink, AlertTriangle, Sparkles } from "lucide-react";
 import type { UpdateManifest } from "@/lib/api/updates";
 import { downloadApk } from "@/lib/api/updates";
-import { APP_NAME, APP_VERSION } from "@/lib/constants";
+import { APP_NAME } from "@/lib/constants";
 
 interface UpdateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   manifest: UpdateManifest | null;
   forceUpdate?: boolean;
+  currentVersion?: string;
 }
 
-type DownloadState = "idle" | "downloading" | "success" | "error";
+type DownloadState = "idle" | "downloading" | "browser_opened" | "browser_download_requested" | "error";
 
-const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialogProps) => {
+const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate, currentVersion }: UpdateDialogProps) => {
   const [downloadState, setDownloadState] = useState<DownloadState>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState("");
 
   if (!manifest) return null;
 
-  const isForcedAndNotDone = (forceUpdate || manifest.force_update) && downloadState !== "success";
+  const handedOff = downloadState === "browser_opened" || downloadState === "browser_download_requested";
+  const isForcedAndNotDone = (forceUpdate || manifest.force_update) && !handedOff;
 
   const handleDownload = async () => {
     setDownloadState("downloading");
@@ -38,8 +40,8 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
     setError("");
 
     try {
-      await downloadApk(manifest.apk_url, (p) => setProgress(p));
-      setDownloadState("success");
+      const handoff = await downloadApk(manifest.apk_url, (p) => setProgress(p), manifest);
+      setDownloadState(handoff.kind);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Download failed");
       setDownloadState("error");
@@ -74,7 +76,7 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
         <div className="flex items-center justify-center gap-3 py-2">
           <div className="text-center">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Attuale</p>
-            <p className="text-sm font-mono font-medium text-foreground">{APP_VERSION}</p>
+            <p className="text-sm font-mono font-medium text-foreground">{currentVersion ?? "Non verificata"}</p>
           </div>
           <div className="text-muted-foreground">→</div>
           <div className="text-center">
@@ -115,13 +117,15 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
           </div>
         )}
 
-        {downloadState === "success" && (
+        {handedOff && (
           <div className="flex items-center gap-2 rounded-lg bg-primary/10 px-3 py-2">
-            <CheckCircle className="h-4 w-4 text-primary shrink-0" />
+            <ExternalLink className="h-4 w-4 text-primary shrink-0" />
             <div>
-              <p className="text-xs text-primary font-medium">Download completato!</p>
+              <p className="text-xs text-primary font-medium">
+                {downloadState === "browser_opened" ? "Browser aperto" : "Salvataggio affidato al browser"}
+              </p>
               <p className="text-[10px] text-muted-foreground">
-                Apri il file scaricato per installare l'aggiornamento.
+                Il browser gestisce il file. L'installazione non è confermata dall'app.
               </p>
             </div>
           </div>
@@ -139,7 +143,7 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
             <>
               <Button onClick={handleDownload} className="w-full gap-2">
                 <Download className="h-4 w-4" />
-                Installa ora
+                Scarica APK
               </Button>
               {!isForcedAndNotDone && (
                 <Button variant="ghost" onClick={handleClose} className="w-full text-muted-foreground text-xs">
@@ -156,9 +160,9 @@ const UpdateDialog = ({ open, onOpenChange, manifest, forceUpdate }: UpdateDialo
             </Button>
           )}
 
-          {downloadState === "success" && (
+          {handedOff && (
             <Button onClick={handleClose} className="w-full gap-2">
-              <CheckCircle className="h-4 w-4" />
+              <ExternalLink className="h-4 w-4" />
               Chiudi
             </Button>
           )}

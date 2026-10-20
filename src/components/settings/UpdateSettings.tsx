@@ -2,13 +2,20 @@ import { useState, useEffect } from "react";
 import { RefreshCw, Download, ExternalLink, ChevronDown, ChevronUp, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { APP_VERSION, APP_VERSION_CODE, APP_NAME } from "@/lib/constants";
 import {
   checkForUpdates,
   getManifestUrl,
   setManifestUrl,
   type UpdateCheckResult,
+  readInstalledAppVersion,
+  type InstalledAppVersion,
 } from "@/lib/api/updates";
+import { App as CapacitorApp } from "@capacitor/app";
+import {
+  checkNativeUpdatesNow, configureNativeUpdates, getNativeUpdateStatus, isNativeUpdatePlatform,
+  nativeUpdateErrorCode, nativeUpdatesEnabled, nativeUpdateStateLabel, openNativeInstallSettings,
+  setNativeUpdatesEnabled, type NativeUpdateStatus,
+} from "@/lib/nativeUpdater";
 import UpdateDialog from "@/components/updates/UpdateDialog";
 import { Browser } from "@capacitor/browser";
 import { Capacitor } from "@capacitor/core";
@@ -23,6 +30,27 @@ const UpdateSettings = () => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [manifestUrl, setManifestUrlLocal] = useState(getManifestUrl());
   const [lovableOpen, setLovableOpen] = useState(false);
+  const [installed, setInstalled] = useState<InstalledAppVersion | null>(null);
+  const [versionUnavailable, setVersionUnavailable] = useState(false);
+  const [nativeStatus, setNativeStatus] = useState<NativeUpdateStatus | null>(null);
+  const [nativeError, setNativeError] = useState("");
+  const [automaticEnabled, setAutomaticEnabled] = useState(nativeUpdatesEnabled);
+  const native = isNativeUpdatePlatform();
+
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      try { const info = await readInstalledAppVersion(); if (active) { setInstalled(info); setVersionUnavailable(false); } }
+      catch { if (active) setVersionUnavailable(true); }
+      if (native) {
+        try { const status = await getNativeUpdateStatus(); if (active) { setNativeStatus(status); setNativeError(""); } }
+        catch (e) { if (active) setNativeError(nativeUpdateErrorCode(e)); }
+      }
+    };
+    void refresh();
+    const listener = native ? CapacitorApp.addListener("appStateChange", ({ isActive }) => { if (isActive) void refresh(); }) : null;
+    return () => { active = false; void listener?.then((h) => h.remove()).catch(() => {}); };
+  }, [native]);
 
   // Listen for browserFinished — fires when the external browser is closed
   useEffect(() => {
@@ -31,7 +59,7 @@ const UpdateSettings = () => {
       setLovableOpen(false);
       window.dispatchEvent(new Event("kael-content-refresh"));
     });
-    return () => { listener.then(h => h.remove()); };
+    return () => { void listener.then(h => h.remove()).catch(() => {}); };
   }, []);
 
   const handleOpenLovable = async () => {
@@ -58,7 +86,27 @@ const UpdateSettings = () => {
   };
 
   const handleSaveUrl = () => {
-    setManifestUrl(manifestUrl);
+    try { setManifestUrl(manifestUrl); setError(""); }
+    catch { setError("UPDATE_URL_NOT_TRUSTED"); }
+  };
+
+  const handleNativeCheck = async () => {
+    setChecking(true); setNativeError("");
+    try {
+      const configured = await configureNativeUpdates();
+      setNativeStatus(configured.enabled ? await checkNativeUpdatesNow() : configured);
+    } catch (e) { setNativeError(nativeUpdateErrorCode(e)); }
+    finally { setChecking(false); }
+  };
+  const handleNativeToggle = async (enabled: boolean) => {
+    setAutomaticEnabled(enabled); setChecking(true); setNativeError("");
+    try { setNativeStatus(await setNativeUpdatesEnabled(enabled)); }
+    catch (e) { setNativeError(nativeUpdateErrorCode(e)); }
+    finally { setChecking(false); }
+  };
+  const handleInstallPermission = async () => {
+    try { await openNativeInstallSettings(); setNativeStatus(await getNativeUpdateStatus()); }
+    catch (e) { setNativeError(nativeUpdateErrorCode(e)); }
   };
 
   return (
@@ -67,10 +115,10 @@ const UpdateSettings = () => {
       <div className="glass rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-muted-foreground">Versione installata</p>
+            <p className="text-xs text-muted-foreground">{installed?.source === "web_bundle" ? "Versione del client web" : "Versione installata"}</p>
             <p className="text-base font-mono font-semibold text-foreground">
-              {APP_VERSION}
-              <span className="text-xs text-muted-foreground ml-2">(build {APP_VERSION_CODE})</span>
+              {installed?.version ?? (versionUnavailable ? "Non disponibile" : "Verifica in corso…")}
+              {installed && <span className="text-xs text-muted-foreground ml-2">(build {installed.versionCode})</span>}
             </p>
           </div>
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
@@ -81,7 +129,7 @@ const UpdateSettings = () => {
         {/* Last check result */}
         {result && !result.updateAvailable && (
           <div className="rounded-lg bg-primary/10 px-3 py-2">
-            <p className="text-xs text-primary">✓ L'app è aggiornata</p>
+            <p className="text-xs text-primary">Ultimo controllo: nessuna nuova versione sul server</p>
           </div>
         )}
 
@@ -106,7 +154,7 @@ const UpdateSettings = () => {
         )}
 
         <Button
-          onClick={handleCheck}
+          onClick={native ? handleNativeCheck : handleCheck}
           disabled={checking}
           variant="outline"
           className="w-full gap-2"
@@ -116,13 +164,40 @@ const UpdateSettings = () => {
         </Button>
       </div>
 
+      {native && (
+        <section className="glass rounded-xl p-4 space-y-3" aria-label="Aggiornamenti automatici Android">
+          <label className="flex items-center justify-between gap-3 text-sm">
+            Aggiornamenti in background
+            <input type="checkbox" checked={automaticEnabled} disabled={checking}
+              onChange={(e) => void handleNativeToggle(e.currentTarget.checked)} />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Android programma i controlli periodici; servono una rete disponibile e il server raggiungibile tramite Tailscale o LAN.
+          </p>
+          {nativeStatus && <div role="status" className="space-y-1 text-xs">
+            <p>{nativeUpdateStateLabel(nativeStatus.state)}</p>
+            {nativeStatus.lastCheckedAt && <p>Ultimo controllo: {new Date(nativeStatus.lastCheckedAt).toLocaleString()}</p>}
+            {nativeStatus.errorCode && <p className="font-mono">{nativeStatus.errorCode}</p>}
+            <p className="text-muted-foreground">{nativeStatus.platformSupportsUnattended
+              ? "Il sistema supporta il percorso senza conferma, ma Android può comunque richiedere un intervento."
+              : "Questa versione di Android può richiedere una conferma per installare."}</p>
+            {nativeStatus.platformSupportsUnattended && !nativeStatus.canRequestPackageInstalls && <Button variant="outline" onClick={() => void handleInstallPermission()}>
+              Consenti installazioni da questa app
+            </Button>}
+            {nativeStatus.state === "user_action_required" && <p>Android richiede una conferma. Se compare un avviso di installazione, aprilo; altrimenti usa il download manuale.</p>}
+          </div>}
+          {nativeError && <p role="status" className="text-xs text-destructive">Stato non disponibile: {nativeError}</p>}
+          <Button variant="ghost" disabled={checking} onClick={handleCheck}>Verifica per download manuale</Button>
+        </section>
+      )}
+
       {/* Aggiorna contenuti via Lovable */}
       <div className="glass rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-foreground">Aggiorna contenuti</p>
+            <p className="text-sm font-medium text-foreground">Sito Lovable</p>
             <p className="text-[11px] text-muted-foreground">
-              Apre Lovable per sincronizzare aggiornamenti
+              Apre il sito esterno; non aggiorna l'APK installata.
             </p>
           </div>
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-neon-purple/15 text-neon-purple">
@@ -161,11 +236,11 @@ const UpdateSettings = () => {
             <Input
               value={manifestUrl}
               onChange={(e) => setManifestUrlLocal(e.target.value)}
-              placeholder="https://your-host.com/update-manifest.json"
+              placeholder="http://100.89.31.50:8002/app/update-check"
               className="text-xs font-mono"
             />
             <p className="text-[10px] text-muted-foreground mt-1">
-              URL del file JSON o endpoint che contiene le informazioni sull'ultima versione.
+              Solo l'endpoint /app/update-check dello stesso backend configurato. Il controllo automatico Android usa le rotte note.
             </p>
           </div>
           <Button onClick={handleSaveUrl} variant="secondary" size="sm" className="w-full">
@@ -179,6 +254,7 @@ const UpdateSettings = () => {
         open={showDialog}
         onOpenChange={setShowDialog}
         manifest={result?.manifest ?? null}
+        currentVersion={result?.currentVersion}
       />
     </div>
   );
