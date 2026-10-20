@@ -47,7 +47,7 @@ const KNOWN_PRIMARY_HOSTS = [
 ];
 
 const KNOWN_TAILSCALE_HOSTS = [
-  "100.89.31.50",        // Existing Tailscale endpoint
+  "100.89.31.50",        // Owner-selected aligned PC/phone Tailscale network (20 Oct 2026)
 ];
 
 /** Timeout for a single health probe (ms). */

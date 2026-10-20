@@ -303,7 +303,11 @@ final class NativeUpdateController {
             String credential = unseal(configuration.getString("credential")); JSONArray origins = configuration.getJSONArray("origins");
             NativeUpdateManifest release = null; String origin = null;
             for (int i = 0; i < origins.length(); i++) {
-                String candidate = approvedOrigin(origins.getString(i)); HttpURLConnection http = null;
+                String candidate;
+                try { candidate = approvedOrigin(origins.getString(i)); }
+                catch (Exception revokedOrigin) { check(c, operation, revision); continue; }
+                // Persisted old routes are skipped BEFORE opening a connection or sending the key.
+                HttpURLConnection http = null;
                 try {
                     http = connection(c, operation, revision, candidate, "/app/update-check", credential);
                     if (http.getResponseCode() != 200) continue;

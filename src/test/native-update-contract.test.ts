@@ -20,7 +20,7 @@ describe("native self-update actual boundary validators", () => {
     const expectedOrigins = [backend, "http://192.168.178.78:8002"];
     expect(nativeUpdateOrigins("http://127.0.0.1:8002")).toEqual(expectedOrigins);
     expect(nativeUpdateOrigins(backend)).toEqual(expectedOrigins);
-    for (const input of ["https://100.89.31.50:8002", "http://example.com:8002", "http://100.89.31.50:8016", "http://secret@100.89.31.50:8002", `${backend}/private`]) {
+    for (const input of ["http://100.110.163.10:8002","https://100.89.31.50:8002", "http://example.com:8002", "http://100.89.31.50:8016", "http://secret@100.89.31.50:8002", `${backend}/private`]) {
       expect(() => nativeUpdateOrigins(input)).toThrow("UPDATE_BACKEND_NOT_TRUSTED");
     }
     expect(validateUpdateUrl("/app/update-check", backend, "manifest").origin).toBe(backend);
