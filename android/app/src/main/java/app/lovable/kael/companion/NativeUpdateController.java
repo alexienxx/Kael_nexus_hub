@@ -283,6 +283,66 @@ final class NativeUpdateController {
         while ((count = input.read(block)) != -1) { check(c, operation, revision); if (out.size() + count > max) throw new Exception("RESPONSE_TOO_LARGE"); out.write(block, 0, count); }
         check(c, operation, revision); return out.toByteArray();
     }
+    /** Pure technical condition; every observation comes from the existing owner/OS. */
+    static boolean canRecoverUncommittedSession(String state, boolean bindingMatches, boolean ownerMatches,
+            boolean committed, boolean sealed, boolean active, boolean staged, boolean multiPackage) {
+        return "install_requested".equals(state) && canDiscardUncommittedSession(bindingMatches, ownerMatches,
+                committed, sealed, active, staged, multiPackage);
+    }
+    private static boolean canDiscardUncommittedSession(boolean bindingMatches, boolean ownerMatches,
+            boolean committed, boolean sealed, boolean active, boolean staged, boolean multiPackage) {
+        return bindingMatches && ownerMatches && !committed && !sealed && !active && !staged && !multiPackage;
+    }
+    static boolean preserveUnconfirmedInstall(boolean commitAttempted, boolean osCommittedOrPending, boolean cleanupConfirmed) {
+        return osCommittedOrPending || (commitAttempted && !cleanupConfirmed);
+    }
+    private enum SessionCleanup { CLEARED, ABSENT, PRESERVED, UNCONFIRMED }
+    private static final class InstallOutcomeUnconfirmed extends Exception {}
+    /** Caller holds CONFIG_LOCK; observation alone never authorizes an install. */
+    private static SessionCleanup discardOwnedUncommittedSession(Context c, Operation operation, long revision, int session) throws InterruptedException {
+        check(c, operation, revision);
+        if (Build.VERSION.SDK_INT < 29) return SessionCleanup.UNCONFIRMED;
+        try {
+            SharedPreferences p = prefs(c); PackageInstaller installer = c.getPackageManager().getPackageInstaller();
+            PackageInstaller.SessionInfo info = session < 0 ? null : installer.getSessionInfo(session);
+            if (info == null) return SessionCleanup.ABSENT;
+            // A real OS commit/confirmation cannot be undone by a local error flag.
+            if ("user_action_required".equals(p.getString("state", "")) || info.isCommitted() || info.isSealed()) return SessionCleanup.PRESERVED;
+            String operationId = p.getString("operationId", "");
+            boolean binding = p.getLong("requestedVersionCode", 0) > 0 && !operationId.isEmpty()
+                    && isOurSession(c, session, operationId) && p.getLong("sessionConfigurationRevision", -1) == revision;
+            boolean owned = info.getSessionId() == session && c.getPackageName().equals(info.getInstallerPackageName())
+                    && c.getPackageName().equals(info.getAppPackageName())
+                    && info.getMode() == PackageInstaller.SessionParams.MODE_FULL_INSTALL;
+            String state = p.getString("state", "");
+            boolean discard = "install_requested".equals(state)
+                    ? canRecoverUncommittedSession(state, binding, owned, info.isCommitted(), info.isSealed(),
+                        info.isActive(), info.isStaged(), info.isMultiPackage())
+                    : canDiscardUncommittedSession(binding, owned, info.isCommitted(), info.isSealed(),
+                        info.isActive(), info.isStaged(), info.isMultiPackage());
+            if (!discard) return SessionCleanup.UNCONFIRMED;
+            // Sole JobService BUSY owner plus CONFIG_LOCK exclude another app commit here.
+            check(c, operation, revision); installer.abandonSession(session);
+            if (installer.getSessionInfo(session) != null) return SessionCleanup.UNCONFIRMED;
+            save(p.edit().remove("sessionId").remove("operationId").remove("sessionConfigurationRevision"));
+            cancelNotification(c, session);
+            return SessionCleanup.CLEARED;
+        } catch (InterruptedException stopped) { throw stopped; }
+        catch (Exception unavailable) { return SessionCleanup.UNCONFIRMED; }
+    }
+    /** Existing API31 admission and sole job owner precede this recovery call. */
+    private static void observePriorInstall(Context c, Operation operation, long revision, String previous, int session) throws InterruptedException {
+        check(c, operation, revision); long wanted = prefs(c).getLong("requestedVersionCode", 0);
+        SessionCleanup observation = discardOwnedUncommittedSession(c, operation, revision, session);
+        if (observation == SessionCleanup.CLEARED) {
+            // Preserve the failed target: cleanup is neither installation nor same-version retry.
+            block(c, "failed", "UPDATE_SESSION_NOT_COMMITTED", wanted);
+        } else if (observation == SessionCleanup.ABSENT) {
+            block(c, "failed", "UPDATE_SESSION_STATE_UNCONFIRMED", wanted);
+        } else if (observation == SessionCleanup.UNCONFIRMED) {
+            record(c, previous, "UPDATE_SESSION_RECOVERY_UNAVAILABLE", wanted);
+        }
+    }
     static void run(Context c, Operation operation) {
         File apk = null; long target = 0, revision = -1; String phase = "checking";
         operation.thread = Thread.currentThread();
@@ -295,8 +355,7 @@ final class NativeUpdateController {
                 if (!c.getPackageManager().canRequestPackageInstalls()) { record(c, "permission_required", "INSTALL_PERMISSION_REQUIRED", 0); return; }
                 String previous = prefs(c).getString("state", ""); int session = prefs(c).getInt("sessionId", -1);
                 if ("install_requested".equals(previous) || "user_action_required".equals(previous)) {
-                    if (session >= 0 && c.getPackageManager().getPackageInstaller().getSessionInfo(session) != null) return;
-                    block(c, "failed", "UPDATE_SESSION_STATE_UNCONFIRMED", prefs(c).getLong("requestedVersionCode", 0)); return;
+                    observePriorInstall(c, operation, revision, previous, session); return;
                 }
                 configuration = config(c); record(c, "checking", "", 0);
             }
@@ -350,6 +409,16 @@ final class NativeUpdateController {
             if (archive == null || !c.getPackageName().equals(archive.packageName) || version(archive) != target
                     || version(archive) <= version(current) || !certificateSet(current).equals(certificateSet(archive))) throw new Exception("APK_IDENTITY_REJECTED");
             install(c, operation, revision, apk, release);
+        } catch (InstallOutcomeUnconfirmed uncertain) {
+            synchronized (CONFIG_LOCK) {
+                if (!prefs(c).getBoolean("enabled", false) || prefs(c).getLong("configurationRevision", 0) != revision) return;
+                String observed = prefs(c).getString("state", "");
+                // Keep genuine OS terminal/pending callbacks if one already arrived.
+                if (!"installed".equals(observed) && !"up_to_date".equals(observed)
+                        && !"user_action_required".equals(observed) && !"failed".equals(observed)) {
+                    record(c, "install_requested", "UPDATE_INSTALL_OUTCOME_UNCONFIRMED", target);
+                }
+            }
         } catch (InterruptedException stopped) {
             synchronized (CONFIG_LOCK) {
                 if (prefs(c).getBoolean("enabled", false) && prefs(c).getLong("configurationRevision", 0) == revision) record(c, "unavailable", "UPDATE_JOB_INTERRUPTED", 0);
@@ -384,7 +453,7 @@ final class NativeUpdateController {
                 throw failure;
             }
         }
-        boolean committed = false;
+        boolean committed = false, commitAttempted = false;
         try (PackageInstaller.Session install = installer.openSession(sessionId)) {
             try (FileInputStream in = new FileInputStream(apk); OutputStream out = install.openWrite("base.apk", 0, release.size)) {
                 byte[] block = new byte[65536]; int count;
@@ -400,10 +469,17 @@ final class NativeUpdateController {
                         .putExtra("operationId", prefs(c).getString("operationId", ""));
                 PendingIntent callback = PendingIntent.getBroadcast(c, sessionId, result, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
                 block(c, "install_requested", "", release.versionCode);
-                check(c, operation, revision); install.commit(callback.getIntentSender()); committed = true;
+                check(c, operation, revision); commitAttempted = true;
+                install.commit(callback.getIntentSender()); committed = true;
             }
         } finally {
-            if (!committed) { try { installer.abandonSession(sessionId); } catch (Exception ignored) { /* Exact owned session only. */ } }
+            if (!committed) {
+                synchronized (CONFIG_LOCK) {
+                    SessionCleanup observation = discardOwnedUncommittedSession(c, operation, revision, sessionId);
+                    if (preserveUnconfirmedInstall(commitAttempted, observation == SessionCleanup.PRESERVED,
+                            observation == SessionCleanup.CLEARED)) throw new InstallOutcomeUnconfirmed();
+                }
+            }
         }
     }
 }

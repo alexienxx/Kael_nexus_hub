@@ -1,5 +1,18 @@
 # 📝 KAEL COMPANION — Changelog
 
+## 2026-10-20 — Uncommitted updater session recovery, source review
+
+- Recover only an owned, inactive, unsealed and uncommitted full self-update
+  session left between durable intent and OS commit. Preserve actual committed
+  and pending-confirmation sessions; no automatic UI, retry or installed claim.
+- Preserve the failed version marker and read back session absence before
+  clearing its private binding. Unknown observation/cleanup stays explicit.
+  Source/build checks and physical installation remain separate evidence.
+- Use the same conservative OS observation after an uncertain commit call;
+  preserve real terminal/pending receipts and report unknown outcomes without
+  cancelling a committed installation. Document the existing network/manual
+  route for an older APK that cannot consume the fix automatically.
+
 ## 2026-10-15 — Voice-note receipt presentation, NONDEPLOY
 
 - Canonical silence acknowledges the user note without fabricating an assistant

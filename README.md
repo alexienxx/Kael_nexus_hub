@@ -158,6 +158,35 @@ separate. Dopo ogni implementazione importante aggiornare questo manuale,
 [CHANGELOG](CHANGELOG.md), manuali/TREE backend pertinenti e PR26, quindi
 commit/push. Non promettere una funzione perché esiste una pagina.
 
+### Recupero delle sessioni di aggiornamento interrotte
+
+Il job nativo distingue una sessione già committata a PackageInstaller da una
+sessione propria rimasta inattiva e mai committata dopo un arresto del processo.
+Solo quest'ultima può essere eliminata, con binding privato e revisione della
+configurazione corrispondenti, stesso installer/package e sessione full singola
+non staged. Il target resta marcato come fallito e bloccato: il recupero non
+installa e non ritenta automaticamente la stessa versione. L'assenza della
+sessione viene riletta prima di cancellarne il binding locale.
+
+Le sessioni committate o in attesa di conferma Android vengono conservate.
+Se l'osservazione o la pulizia non sono confermate, lo stato resta esplicito;
+non si dichiara un'installazione riuscita. La notifica di conferma richiede le
+autorizzazioni Android effettive. L'eventuale mancanza della notifica non riapre
+automaticamente la UI del sistema. Compilazione e controlli locali non provano
+che questo ramo sia stato eseguito sul telefono.
+
+Anche il cleanup dopo un errore di `commit()` usa lo stesso readback OS: il
+solo flag locale di ritorno non dimostra che Android non abbia ricevuto la
+richiesta. Un esito incerto conserva le ricevute terminali/pending reali oppure
+espone `UPDATE_INSTALL_OUTCOME_UNCONFIRMED`; non annulla una sessione committata.
+
+La correzione in una futura APK non cambia il codice di una 118 già installata.
+Il percorso manuale esistente via rete è Impostazioni → sezione aggiornamenti →
+**Verifica per download manuale** → **Scarica APK**. Dopo il download si apre il
+file e si segue l'eventuale conferma Android. Servono backend raggiungibile e
+permessi effettivi del sistema; l'apertura del browser non attesta download o
+installazione. Non serve un nuovo canale o un collegamento USB per questo percorso.
+
 ### Chiamate e nuovo AudioRuntime
 
 La pagina chiamate usa il nuovo ingresso `/audio/notes` e presenta esclusivamente
