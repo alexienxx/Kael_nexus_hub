@@ -20,6 +20,7 @@ import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.AtomicFile;
 import android.util.Base64;
+import android.util.Log;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import org.json.JSONArray;
@@ -58,7 +59,18 @@ final class NativeUpdateController {
     private static SharedPreferences prefs(Context c) { return c.getSharedPreferences("self-update-status-v1", Context.MODE_PRIVATE); }
     private static AtomicFile configFile(Context c) { return new AtomicFile(new File(c.getNoBackupFilesDir(), "self-update-config-v1.json")); }
     private static void save(SharedPreferences.Editor edit) {
-        if (!edit.commit()) throw new IllegalStateException("UPDATE_STATUS_PERSISTENCE_FAILED");
+        synchronized (CONFIG_LOCK) {
+            // Android commit() returns false if its completion latch is interrupted,
+            // even when the disk write succeeded. Cancellation uses this same lock:
+            // finish this status write, then preserve the caller's stop signal.
+            boolean interrupted = Thread.interrupted();
+            try {
+                if (interrupted) Log.w("ArrakisSelfUpdate", "UPDATE_STATUS_COMMIT_AFTER_INTERRUPT");
+                if (!edit.commit()) throw new IllegalStateException("UPDATE_STATUS_PERSISTENCE_FAILED");
+            } finally {
+                if (interrupted) Thread.currentThread().interrupt();
+            }
+        }
     }
     static final class Operation {
         volatile boolean stopped;
@@ -425,6 +437,10 @@ final class NativeUpdateController {
             }
             Thread.currentThread().interrupt();
         } catch (Exception failure) {
+            Log.w("ArrakisSelfUpdate", "UPDATE_OPERATION_FAILED phase=" + phase
+                    + " type=" + failure.getClass().getSimpleName()
+                    + " stopped=" + operation.stopped
+                    + " interrupted=" + Thread.currentThread().isInterrupted());
             synchronized (CONFIG_LOCK) {
                 if (!prefs(c).getBoolean("enabled", false) || prefs(c).getLong("configurationRevision", 0) != revision) return;
                 if (target > 0 && "verifying".equals(phase)) block(c, "failed", "UPDATE_VERIFICATION_OR_INSTALL_FAILED", target);
