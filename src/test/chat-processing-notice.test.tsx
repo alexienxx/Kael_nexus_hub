@@ -17,8 +17,9 @@ describe("clean chat with retained diagnostics", () => {
     const outcome = classifyChatOutcome({ status: 409, statusText: "Conflict", body: {
       exchange_status: "recovery_required", error: { code: "cognition_outcome_requires_recovery" },
     } });
-    const state = chatProcessingNoticeFromOutcome(outcome);
-    const view = render(<ChatProcessingNotice state={state} />);
+    const state = chatProcessingNoticeFromOutcome({ ...outcome, clientMessageId: "declared-ui-request" });
+    const view = render(<ChatProcessingNotice state={null} />);
+    view.rerender(<ChatProcessingNotice state={state} />);
     expect(screen.getAllByRole("alert")).toHaveLength(1);
     expect(screen.getByRole("alert")).toHaveTextContent("Non è stato possibile completare la richiesta.");
     expect(screen.queryByText(/Recupero|cognition_outcome|Codice:/)).not.toBeInTheDocument();
@@ -34,7 +35,8 @@ describe("clean chat with retained diagnostics", () => {
       exchange_status: "complete", outcome_kind: "reply", reply: "untrusted test text", user_turn_id: 42, assistant_turn_id: 42,
     } });
     expect(outcome.kind).toBe("terminal_failure");
-    const view = render(<ChatProcessingNotice state={chatProcessingNoticeFromOutcome(outcome)} />);
+    const view = render(<ChatProcessingNotice state={null} />);
+    view.rerender(<ChatProcessingNotice state={chatProcessingNoticeFromOutcome({ ...outcome, clientMessageId: "declared-ui-request" })} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Non è stato possibile completare la richiesta.");
     expect(screen.queryByText(/untrusted test text|committed_reply_turn_ids_collide/)).not.toBeInTheDocument();
     const reply = classifyChatOutcome({ status: 200, statusText: "OK", body: {

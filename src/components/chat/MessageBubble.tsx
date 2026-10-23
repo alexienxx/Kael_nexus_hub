@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Reply } from "lucide-react";
+import { Reply, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/lib/store/theme-context";
 import { saveToGallery } from "@/lib/api/media";
@@ -28,6 +28,9 @@ interface MessageBubbleProps {
   onImageClick?: (url: string) => void;
   onImageLoad?: (message: ChatMessage) => void;
   onEditMessage?: (id: string, currentText: string) => void;
+  onRetrySend?: () => void;
+  onCancelSend?: () => void;
+  sendActionBusy?: boolean;
   onSwipeReply?: (message: ChatMessage) => void;
   wallpaperStyle?: WallpaperDisplaySettings | null;
 }
@@ -102,12 +105,18 @@ const MessageBubble = ({
   onImageClick,
   onImageLoad,
   onEditMessage,
+  onRetrySend,
+  onCancelSend,
+  sendActionBusy,
   onSwipeReply,
   wallpaperStyle = null,
 }: MessageBubbleProps) => {
   const { theme, kaelAvatarSrc } = useTheme();
   const isUser = message.sender === "user";
   const isExternalAgent = message.sender === "external_agent";
+  const sendNeedsAttention = isUser && (Boolean(onRetrySend || onCancelSend) || [
+    "recovery_required", "authentication_required", "terminal_failed", "terminal_failure", "integrity_failure", "abandoned",
+  ].includes(String(message.meta?.exchange_status ?? "").toLowerCase()));
 
   const getSenderInfo = () => {
     if (isUser) return { name: null, avatar: null };
@@ -209,6 +218,9 @@ const MessageBubble = ({
     <BubbleContextMenu
       message={message}
       onEditMessage={onEditMessage}
+      onRetrySend={onRetrySend}
+      onCancelSend={onCancelSend}
+      sendActionBusy={sendActionBusy}
       onDownloadImage={(url) => downloadFile(url, `kael-image-${Date.now()}.jpg`)}
       onDownloadAudio={(url) => downloadFile(url, `kael-audio-${Date.now()}.webm`)}
       onSaveToGallery={async (type, dataUrl) => {
@@ -237,8 +249,6 @@ const MessageBubble = ({
     <div
       data-testid={`message-bubble-${message.id}`}
       className={`relative flex ${isUser ? "justify-end" : "justify-start"} group ${message.isEditing ? "opacity-40 scale-[0.98] transition-all duration-200" : ""}`}
-      onTouchStart={(e) => e.stopPropagation()}
-      onMouseDown={(e) => e.stopPropagation()}
       onTouchStartCapture={handleTouchStart}
       onTouchMoveCapture={handleTouchMove}
       onTouchEndCapture={handleTouchEnd}
@@ -377,7 +387,10 @@ const MessageBubble = ({
 
           <div className={`mt-1 flex items-center gap-1 ${isUser ? "justify-end" : ""}`}>
             <p className="text-[10px] text-foreground/40">{message.time}</p>
-
+            {sendNeedsAttention && <span
+              role="img" aria-label="Invio da verificare" title="Invio da verificare. Tieni premuto sul messaggio per le opzioni."
+              className="text-amber-300"
+            ><AlertCircle size={12} aria-hidden="true" /></span>}
           </div>
         </div>
 

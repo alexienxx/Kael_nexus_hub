@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Pencil, Download, Share2, Save } from "lucide-react";
+import { Pencil, Download, Save, RotateCcw, X } from "lucide-react";
 import { useLongPress } from "@/hooks/useLongPress";
 import type { ChatMessage } from "@/types";
 
@@ -7,6 +7,9 @@ interface BubbleContextMenuProps {
   message: ChatMessage;
   children: React.ReactNode;
   onEditMessage?: (id: string, currentText: string) => void;
+  onRetrySend?: () => void;
+  onCancelSend?: () => void;
+  sendActionBusy?: boolean;
   onDownloadImage?: (url: string) => void;
   onDownloadAudio?: (url: string) => void;
   onSaveToGallery?: (type: "image" | "video", dataUrl: string) => void;
@@ -21,6 +24,9 @@ const BubbleContextMenu = ({
   message,
   children,
   onEditMessage,
+  onRetrySend,
+  onCancelSend,
+  sendActionBusy = false,
   onDownloadImage,
   onDownloadAudio,
   onSaveToGallery,
@@ -35,7 +41,7 @@ const BubbleContextMenu = ({
   const canSaveToGallery = hasImage || hasVideo;
 
   // Only enable if there's something to show
-  const hasActions = (isUser && !!message.text) || hasImage || hasAudio || hasVideo;
+  const hasActions = (isUser && !!message.text) || hasImage || hasAudio || hasVideo || !!onRetrySend || !!onCancelSend;
 
   const longPressHandlers = useLongPress({
     onLongPress: (e) => {
@@ -81,12 +87,19 @@ const BubbleContextMenu = ({
   };
 
   // Clamp menu position to viewport
-  const clampedX = Math.min(menuPos.x, window.innerWidth - 200);
-  const clampedY = Math.min(menuPos.y, window.innerHeight - 120);
+  const actionCount = Number(isUser && !!message.text) + Number(!!onRetrySend)
+    + Number(!!onCancelSend) + Number(hasImage) + Number(hasAudio) + Number(canSaveToGallery);
+  const clampedX = Math.max(8, Math.min(menuPos.x, window.innerWidth - 200));
+  const clampedY = Math.max(8, Math.min(menuPos.y, window.innerHeight - (actionCount * 44 + 8)));
 
   return (
     <>
-      <div {...(hasActions ? longPressHandlers : {})} style={{ touchAction: "pan-y" }}>
+      <div
+        {...(hasActions ? longPressHandlers : {})}
+        onTouchStart={(event) => { event.stopPropagation(); if (hasActions) longPressHandlers.onTouchStart(event); }}
+        onMouseDown={(event) => { event.stopPropagation(); if (hasActions) longPressHandlers.onMouseDown(event); }}
+        style={{ touchAction: "pan-y" }}
+      >
         {children}
       </div>
 
@@ -112,6 +125,18 @@ const BubbleContextMenu = ({
                 Modifica messaggio
               </button>
             )}
+            {onRetrySend && <button
+              type="button"
+              disabled={sendActionBusy}
+              onClick={() => { setMenuOpen(false); onRetrySend(); }}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+            ><RotateCcw size={15} className="text-neon-purple" />Riprova invio</button>}
+            {onCancelSend && <button
+              type="button"
+              disabled={sendActionBusy}
+              onClick={() => { setMenuOpen(false); onCancelSend(); }}
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+            ><X size={15} className="text-neon-purple" />Annulla invio</button>}
             {hasImage && (
               <button
                 onClick={handleDownloadImage}

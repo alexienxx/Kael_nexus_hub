@@ -1727,14 +1727,14 @@ const Chat = () => {
         }
       />
 
-      <OutboxAttentionPanel
+      {continuityReady && <OutboxAttentionPanel
         summary={outboxSummary}
         busyClientMessageId={outboxActionBusy}
         onRetry={handleManualOutboxRetry}
         onRemove={handleManualOutboxRemove}
-      />
+      />}
 
-      <ChatProcessingNotice state={outboxSummary.attention.length || outboxSummary.total >= outboxSummary.capacity ? null : timelineError ? { kind: "terminal_failure", errorCode: "timeline_unavailable" } : processingNotice} onDefer={handleManualDefer} />
+      <ChatProcessingNotice state={outboxSummary.attention.length || outboxSummary.total >= outboxSummary.capacity ? null : processingNotice} onDefer={handleManualDefer} />
 
       {/* Messages — long press on background triggers wallpaper menu */}
       <div
@@ -1751,7 +1751,14 @@ const Chat = () => {
           </div>
         )}
 
-        {!historyLoading && messages.length === 0 && (
+        {!historyLoading && messages.length === 0 && timelineError && (
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center text-sm text-muted-foreground">
+            <p>Cronologia non disponibile.</p>
+            <button type="button" onClick={() => void loadHistory()} className="rounded-lg border border-border px-3 py-2">Riprova caricamento</button>
+          </div>
+        )}
+
+        {!historyLoading && messages.length === 0 && !timelineError && (
           <div className="flex flex-col items-center justify-center h-full opacity-60 text-center px-8">
             <img src={kaelAvatarSrc} alt="Arrakis" className="h-16 w-16 rounded-full object-contain mb-4 opacity-90" />
             <p className="text-sm text-muted-foreground">Scrivi un messaggio per iniziare.</p>
@@ -1759,7 +1766,11 @@ const Chat = () => {
           </div>
         )}
 
-        {messages.map((msg) => (
+        {messages.map((msg) => {
+          const pendingSend = msg.sender === "user" && outboxSummary.attention.find(
+            (entry) => entry.clientMessageId === msg.client_message_id,
+          );
+          return (
           <MessageBubble
             key={msg.id}
             message={msg}
@@ -1776,10 +1787,14 @@ const Chat = () => {
             onImageClick={setViewerImage}
             onImageLoad={handleGeneratedImageLoad}
             onEditMessage={handleEditMessage}
+            onRetrySend={pendingSend ? () => void handleManualOutboxRetry(pendingSend.clientMessageId) : undefined}
+            onCancelSend={pendingSend ? () => void handleManualOutboxRemove(pendingSend.clientMessageId) : undefined}
+            sendActionBusy={Boolean(pendingSend && outboxActionBusy === pendingSend.clientMessageId)}
             onSwipeReply={handleSwipeReply}
             wallpaperStyle={bubbleWallpaperStyle}
           />
-        ))}
+          );
+        })}
         <ChatTypingDots />
 
         <div ref={messagesEndRef} />
