@@ -17,7 +17,7 @@ afterEach(cleanup);
 describe("recovery actions on the actual message components", () => {
   it("retains a failed receipt indication without restoring verbose delivery notes", () => {
     render(<ThemeProvider><MessageBubble message={message} /></ThemeProvider>);
-    expect(screen.getByRole("img", { name: "Invio da verificare" })).toBeVisible();
+    expect(screen.getByText("messaggio non consegnato")).toBeVisible();
     expect(screen.queryByText(/Codice:|Consegnato|Outbox chat:/)).toBeNull();
   });
 

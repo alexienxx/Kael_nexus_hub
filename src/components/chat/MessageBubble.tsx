@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Reply, AlertCircle } from "lucide-react";
+import { Reply } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/lib/store/theme-context";
 import { saveToGallery } from "@/lib/api/media";
@@ -385,12 +385,12 @@ const MessageBubble = ({
             </p>
           )}
 
+          {sendNeedsAttention && <p
+            className="mt-1 text-right text-[10px] text-amber-300"
+            title="Tieni premuto sul messaggio per le opzioni di invio."
+          >messaggio non consegnato</p>}
           <div className={`mt-1 flex items-center gap-1 ${isUser ? "justify-end" : ""}`}>
             <p className="text-[10px] text-foreground/40">{message.time}</p>
-            {sendNeedsAttention && <span
-              role="img" aria-label="Invio da verificare" title="Invio da verificare. Tieni premuto sul messaggio per le opzioni."
-              className="text-amber-300"
-            ><AlertCircle size={12} aria-hidden="true" /></span>}
           </div>
         </div>
 
