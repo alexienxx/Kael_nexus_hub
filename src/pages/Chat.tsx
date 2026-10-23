@@ -16,6 +16,7 @@ import type { NativeVoicePlaybackState } from "@/components/chat/NativeVoiceNote
 import ChatTypingDots from "@/components/chat/ChatTypingDots";
 import OutboxAttentionPanel from "@/components/chat/OutboxAttentionPanel";
 import ChatProcessingNotice from "@/components/chat/ChatProcessingNotice";
+import { createChatRecoveryTask } from "@/lib/chat/recoveryTask";
 import {
   applyChatProcessingOutcome,
   reconcileChatProcessingMessages,
@@ -145,6 +146,7 @@ const Chat = () => {
   const [continuityReady, setContinuityReady] = useState(false);
   const [continuityError, setContinuityError] = useState<string | null>(null);
   const [timelineReady, setTimelineReady] = useState(false);
+  const [timelineError, setTimelineError] = useState(false);
   const [outboxSummary, setOutboxSummary] = useState<TextOutboxSummary>({
     total: 0,
     capacity: MAX_TEXT_OUTBOX_ENTRIES,
@@ -181,18 +183,27 @@ const Chat = () => {
    * + APK foreground (visibilitychange, kael-sse-connected, kael-server-restarted).
    * Without serialization they all read the same `after_ts` and the resulting
    * sort can show duplicated/mixed last messages. We hold the in-flight Promise
-   * here; concurrent callers await the same Promise and do NOT issue a second
-   * network request. mergeHistoryIntoState dedup invariants stay unchanged.
+   * here; callers share one flight and coalesce one trailing read if another
+   * event arrives during that flight. Dedup invariants stay unchanged.
    */
-  const fetchInFlightRef = useRef<Promise<void> | null>(null);
-  const lastPendingFetchStartedAtRef = useRef<number>(0);
-  // Deferred retry timer: if a drain trigger arrives during the coalescing window,
-  // we schedule one guaranteed re-drain instead of silently dropping it.
-  const pendingRetriggerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const historyRecoveryRef = useRef(createChatRecoveryTask());
+  const pendingRecoveryRef = useRef(createChatRecoveryTask());
   const outboxRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const outboxOnlineRef = useRef(false);
   const continuityInitializedRef = useRef(false);
   const lastRestartMergeBootIdRef = useRef<string | null>(null);
+
+  useEffect(() => () => {
+    // Invalidate stale continuations without releasing actual in-flight work.
+    historyRecoveryRef.current.invalidate();
+    pendingRecoveryRef.current.invalidate();
+  }, [sessionId, lifecycleState]);
+
+  useEffect(() => {
+    historyLoadedRef.current = false;
+    pendingDrainReadyRef.current = false;
+    setTimelineReady(false);
+  }, [sessionId]);
 
   const getMaxTimestamp = useCallback((items: BackendChatMessage[]): number => {
     return items
@@ -672,43 +683,32 @@ const Chat = () => {
     return () => { cancelled = true; };
   }, [mergeHistoryIntoState]);
 
-  // Load real chat history from backend once lifecycle reaches "online".
-  // Uses merge strategy: existing local messages are preserved, not replaced.
-  useEffect(() => {
+  // A failed bootstrap is retried only by genuine lifecycle/reconnect/resume
+  // events. The same owner serializes all history hydration paths.
+  const loadHistory = useCallback((): Promise<void> => {
     if (!continuityReady || lifecycleState !== "online" || historyLoadedRef.current) {
-      if (lifecycleState !== "online" && lifecycleState !== "checking") {
-        setHistoryLoading(false);
-      }
-      return;
+      return Promise.resolve();
     }
-    let cancelled = false;
-    (async () => {
+    return historyRecoveryRef.current.request(async (isCurrent) => {
+      if (!isCurrent() || historyLoadedRef.current) return;
+      setHistoryLoading(true);
       let historyMessages: BackendChatMessage[] = [];
-      let historyLoadedOk = false;
-      let durableHistoryCursor = lastFetchTurnIdRef.current;
-      const config = getApiConfig();
-      if (!config.baseUrl) {
-        setHistoryLoading(false);
-        return;
-      }
       try {
+        const config = getApiConfig();
+        if (!config.baseUrl) throw new Error("History backend URL not configured");
         const data = await chatApi.getChatHistory(sessionId);
+        if (!isCurrent()) return;
         historyMessages = data?.messages ?? [];
         if (!historyMessages.length) {
           const pendingProbe = await chatApi.fetchPendingMessages(0, sessionId);
-          const pendingCount = pendingProbe?.messages?.length ?? 0;
-          if (pendingCount > 0) {
-            // Recovery path: if history endpoint is empty but pending has rows,
-            // hydrate from pending instead of showing a blank chat.
-            console.warn("[Chat] History empty but pending has data — recovering from pending");
-            historyMessages = pendingProbe.messages;
-          }
+          if (!isCurrent()) return;
+          if (pendingProbe.messages?.length) historyMessages = pendingProbe.messages;
         }
         if (historyMessages.length) {
           const maxHistoryTurnId = getMaxTurnId(historyMessages);
           const currentDurableCursor = await getTimelineCursor(DEFAULT_CONVERSATION_ID);
-          // History is a snapshot, never cursor authority. Only the canonical
-          // /history/pending cursor contract may advance the durable cursor.
+          if (!isCurrent()) return;
+          // Snapshot rows never advance the contiguous pending cursor.
           const committed = await ingestTimelinePage({
             timelineKey: DEFAULT_CONVERSATION_ID,
             fromCursor: currentDurableCursor,
@@ -717,37 +717,33 @@ const Chat = () => {
             messages: historyMessages,
             batchId: `history:${sessionId}:${maxHistoryTurnId}:${historyMessages.length}`,
           });
-          durableHistoryCursor = committed.cursor;
-          if (!cancelled) mergeHistoryIntoState(committed.messages);
+          if (!isCurrent()) return;
+          mergeHistoryIntoState(committed.messages);
+          lastFetchTurnIdRef.current = committed.cursor;
+          persistTurnCursor(committed.cursor);
         }
-        historyLoadedOk = true;
+        if (!isCurrent()) return;
+        historyLoadedRef.current = true;
+        pendingDrainReadyRef.current = true;
+        setTimelineReady(true);
+        setTimelineError(false);
+        const maxHistoryTs = getMaxTimestamp(historyMessages);
+        if (maxHistoryTs > 0) lastFetchTsRef.current = maxHistoryTs;
       } catch (err) {
+        if (!isCurrent()) return;
         historyLoadedRef.current = false;
+        setTimelineError(true);
         console.warn("[Chat] History load failed:", err);
       } finally {
-        if (!cancelled) {
-          setHistoryLoading(false);
-          if (historyLoadedOk) {
-            historyLoadedRef.current = true;
-            pendingDrainReadyRef.current = true;
-            setTimelineReady(true);
-            // Advance watermark ONLY from confirmed backend data.
-            // Never fallback to Date.now() here: a failed/empty load must not
-            // skip pending messages that still need to be drained.
-            const maxHistoryTs = getMaxTimestamp(historyMessages);
-            if (maxHistoryTs > 0) {
-              lastFetchTsRef.current = maxHistoryTs;
-            }
-            if (durableHistoryCursor > 0) {
-              lastFetchTurnIdRef.current = durableHistoryCursor;
-              persistTurnCursor(lastFetchTurnIdRef.current);
-            }
-          }
-        }
+        if (isCurrent()) setHistoryLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
+    });
   }, [continuityReady, lifecycleState, sessionId, mergeHistoryIntoState, getMaxTimestamp, getMaxTurnId]);
+
+  useEffect(() => {
+    if (lifecycleState !== "online" && lifecycleState !== "checking") setHistoryLoading(false);
+    void loadHistory().catch(() => {});
+  }, [lifecycleState, loadHistory]);
 
   const scrollToBottom = useCallback((instant?: boolean) => {
     const doScroll = () => {
@@ -808,49 +804,29 @@ const Chat = () => {
   // No polling. SSE is the sole trigger.
   // -----------------------------------------------------------------
   const fetchAndAppendPending = useCallback(async () => {
-    const nowMs = Date.now();
-    const MIN_PENDING_FETCH_INTERVAL_MS = 700;
-
-    // Pending drain readiness is independent from watermark value.
-    // Session can be valid/ready even when after_ts is still 0 (first boot/new session).
     if (!pendingDrainReadyRef.current) return;
-
-    // Coalesce burst triggers (visibilitychange + reconnect + server-restarted)
-    // even when no fetch is currently in flight.
-    // NEXUS-FIX (2026-05-10): instead of silently returning, schedule a deferred
-    // retry so messages persisted AFTER the current in-flight fetch are not lost.
-    // The retry fires once, after the coalescing window expires (+50ms buffer).
-    if (nowMs - lastPendingFetchStartedAtRef.current < MIN_PENDING_FETCH_INTERVAL_MS) {
-      if (!pendingRetriggerTimerRef.current) {
-        const remaining = MIN_PENDING_FETCH_INTERVAL_MS - (nowMs - lastPendingFetchStartedAtRef.current) + 50;
-        pendingRetriggerTimerRef.current = setTimeout(() => {
-          pendingRetriggerTimerRef.current = null;
-          fetchAndAppendPending();
-        }, remaining);
-      }
-      return;
-    }
-    // Clear any pending deferred retry — this invocation supersedes it.
-    if (pendingRetriggerTimerRef.current) {
-      clearTimeout(pendingRetriggerTimerRef.current);
-      pendingRetriggerTimerRef.current = null;
-    }
-    lastPendingFetchStartedAtRef.current = nowMs;
-
-    // BUG-UI-DUP fix (2026-05-06): if a fetch is already in flight, await it
-    // and return. Concurrent triggers (visibilitychange + kael-sse-connected +
-    // kael-server-restarted) must NOT race — they share the same Promise.
-    if (fetchInFlightRef.current) {
-      try { await fetchInFlightRef.current; } catch { /* swallow; original caller already logged */ }
-      return;
-    }
-
-    const afterTs = normalizeAfterTs(lastFetchTsRef.current);
-    const afterTurnId = lastFetchTurnIdRef.current;
-    emitTelemetry("softResync.started", { afterTs, afterTurnId });
-
-    const job = (async () => {
+    // Every trigger while busy marks a trailing drain, including slow fetches
+    // beyond the former 700ms window. Bursts share the same real flight.
+    return pendingRecoveryRef.current.request(async (isCurrent) => {
+      if (!isCurrent() || !pendingDrainReadyRef.current) return;
       try {
+        // A real WAL transaction already in progress can commit after epoch
+        // invalidation. Re-read the durable owner after that flight settled;
+        // never resume a contiguous page from an obsolete in-memory cursor.
+        const afterTurnId = await getTimelineCursor(DEFAULT_CONVERSATION_ID);
+        if (!isCurrent()) return;
+        if (afterTurnId < lastFetchTurnIdRef.current) {
+          throw new Error("Durable timeline cursor regressed");
+        }
+        if (afterTurnId !== lastFetchTurnIdRef.current) {
+          const committedRows = await listTimelineMessages(DEFAULT_CONVERSATION_ID);
+          if (!isCurrent()) return;
+          mergeHistoryIntoState(committedRows);
+          lastFetchTurnIdRef.current = afterTurnId;
+          persistTurnCursor(afterTurnId);
+        }
+        const afterTs = normalizeAfterTs(lastFetchTsRef.current);
+        emitTelemetry("softResync.started", { afterTs, afterTurnId });
         let cursor = afterTurnId;
         let maxReceivedTs = afterTs;
         let received = 0;
@@ -865,6 +841,7 @@ const Chat = () => {
             cursor,
             PAGE_LIMIT,
           );
+          if (!isCurrent()) return;
           const pageMessages = result?.messages ?? [];
 
           for (const message of pageMessages) {
@@ -891,6 +868,7 @@ const Chat = () => {
             messages: pageMessages,
             batchId: `pending:${sessionId}:${cursor}:${nextCursor}`,
           });
+          if (!isCurrent()) return;
           cursor = committed.cursor;
           lastFetchTurnIdRef.current = cursor;
           // Compatibility mirror only. IndexedDB committed the page and cursor
@@ -912,6 +890,8 @@ const Chat = () => {
           }
         }
 
+        if (!isCurrent()) return;
+        setTimelineError(false);
         if (maxReceivedTs > afterTs) lastFetchTsRef.current = maxReceivedTs;
 
         if (!received) {
@@ -922,19 +902,23 @@ const Chat = () => {
         emitTelemetry("softResync.merged", { received, appended });
         scrollToBottom();
       } catch (err) {
+        if (!isCurrent()) return;
+        setTimelineError(true);
         const errName = err instanceof Error ? err.name : "unknown";
         emitTelemetry("softResync.failed", { error: errName });
         console.warn("[Chat] Failed to fetch pending messages:", err);
       }
-    })();
+    });
+  }, [sessionId, mapBackendMsg, mergeHistoryIntoState, scrollToBottom]);
 
-    fetchInFlightRef.current = job;
-    try {
-      await job;
-    } finally {
-      fetchInFlightRef.current = null;
-    }
-  }, [sessionId, mapBackendMsg, scrollToBottom]);
+  const recoverTimeline = useCallback(() => {
+    const isCurrent = historyRecoveryRef.current.checkpoint();
+    return loadHistory().then(() => {
+      // A delayed history continuation cannot start a fresh pending read after
+      // unmount, session change, offline transition or another backend restart.
+      if (isCurrent()) return fetchAndAppendPending();
+    });
+  }, [loadHistory, fetchAndAppendPending]);
 
   const applyOutboxResults = useCallback((results: TextOutboxDrainResult[]) => {
     for (const result of results) {
@@ -1082,7 +1066,7 @@ const Chat = () => {
     if (lifecycleState !== "online") return;
     const handleResume = () => {
       if (document.visibilityState === "visible") {
-        fetchAndAppendPending();
+        void recoverTimeline().catch(() => {});
         runTextOutboxDrain("resume").catch(() => {});
       }
     };
@@ -1090,31 +1074,35 @@ const Chat = () => {
 
     // K-2 (2026-05-19): Capacitor appStateChange — fires more reliably on Android
     // than visibilitychange when app returns to foreground. Resets the history
-    // guard so a full reload is triggered if React state was wiped by OS.
+    // bootstrap when necessary, using the same recovery owner as reconnect.
     let capListener: { remove: () => void } | null = null;
+    let disposed = false;
     CapApp.addListener("appStateChange", ({ isActive }) => {
-      if (!isActive) return;
-      historyLoadedRef.current = false;
-      fetchAndAppendPending();
+      if (!isActive || disposed) return;
+      void recoverTimeline().catch(() => {});
       runTextOutboxDrain("resume").catch(() => {});
-    }).then((l) => { capListener = l; }).catch(() => {});
+    }).then((listener) => {
+      if (disposed) void listener.remove();
+      else capListener = listener;
+    }).catch(() => {});
 
     return () => {
+      disposed = true;
       document.removeEventListener("visibilitychange", handleResume);
       capListener?.remove();
     };
-  }, [lifecycleState, fetchAndAppendPending, runTextOutboxDrain]);
+  }, [lifecycleState, recoverTimeline, runTextOutboxDrain]);
 
   useEffect(() => {
     if (lifecycleState !== "online") return;
 
     const handleAutonomous = () => {
-      fetchAndAppendPending();
+      void recoverTimeline().catch(() => {});
     };
 
     const handleReconnect = () => {
       // Catch up on any messages missed while disconnected
-      fetchAndAppendPending();
+      void recoverTimeline().catch(() => {});
       runTextOutboxDrain("reconnect").catch(() => {});
     };
 
@@ -1127,58 +1115,12 @@ const Chat = () => {
       if (newBootId) {
         lastRestartMergeBootIdRef.current = newBootId;
       }
-      // Server restarted — reset the guard so the history effect can fire again,
-      // then soft-merge: keep local messages visible without flash/disappearance.
-      console.warn("[Chat] Server restarted detected — reloading history...");
-      // Reset the load guard: without this, historyLoadedRef.current stays true
-      // and the useEffect for initial load never fires again, leaving the chat
-      // showing stale (or no) messages after a backend restart.
+      historyRecoveryRef.current.invalidate();
+      pendingRecoveryRef.current.invalidate();
       historyLoadedRef.current = false;
+      pendingDrainReadyRef.current = false;
       setTimelineReady(false);
-      (async () => {
-        try {
-          const data = await chatApi.getChatHistory(sessionId);
-          let historyMessages = data?.messages ?? [];
-          if (!historyMessages.length) {
-            const pendingProbe = await chatApi.fetchPendingMessages(0, sessionId);
-            const pendingCount = pendingProbe?.messages?.length ?? 0;
-            if (pendingCount > 0) {
-              console.warn("[Chat] Restart merge: history empty, recovering from pending");
-              historyMessages = pendingProbe.messages;
-            }
-          }
-          if (historyMessages.length) {
-            const currentDurableCursor = await getTimelineCursor(DEFAULT_CONVERSATION_ID);
-            const maxHistoryTurnId = getMaxTurnId(historyMessages);
-            const committed = await ingestTimelinePage({
-              timelineKey: DEFAULT_CONVERSATION_ID,
-              fromCursor: currentDurableCursor,
-              // A bounded history snapshot never advances the contiguous
-              // pending cursor on restart.
-              nextCursor: currentDurableCursor,
-              cursorKind: "snapshot",
-              messages: historyMessages,
-              batchId: `restart-history:${sessionId}:${maxHistoryTurnId}:${historyMessages.length}`,
-            });
-            mergeHistoryIntoState(committed.messages);
-          }
-          // Mark loaded so the useEffect doesn't double-fire on the same state tick
-          historyLoadedRef.current = true;
-          pendingDrainReadyRef.current = true;
-          setTimelineReady(true);
-          const maxHistoryTs = getMaxTimestamp(historyMessages);
-          if (maxHistoryTs > 0) {
-            lastFetchTsRef.current = maxHistoryTs;
-          }
-          const durableCursor = await getTimelineCursor(DEFAULT_CONVERSATION_ID);
-          lastFetchTurnIdRef.current = durableCursor;
-          persistTurnCursor(lastFetchTurnIdRef.current);
-        } catch (err) {
-          console.warn("[Chat] History merge after restart failed:", err);
-          // Leave historyLoadedRef.current = false so a future lifecycle
-          // state change retriggers the initial load effect
-        }
-      })();
+      void recoverTimeline().catch(() => {});
     };
 
     window.addEventListener("kael-new-message", handleAutonomous);
@@ -1189,7 +1131,7 @@ const Chat = () => {
       window.removeEventListener("kael-sse-connected", handleReconnect);
       window.removeEventListener("kael-server-restarted", handleServerRestarted);
     };
-  }, [lifecycleState, fetchAndAppendPending, runTextOutboxDrain, mergeHistoryIntoState, sessionId, getMaxTimestamp, getMaxTurnId]);
+  }, [lifecycleState, recoverTimeline, runTextOutboxDrain]);
 
   // Listen for agent mode toggle from BottomNav
   useEffect(() => {
@@ -1792,7 +1734,7 @@ const Chat = () => {
         onRemove={handleManualOutboxRemove}
       />
 
-      <ChatProcessingNotice state={outboxSummary.attention.length || outboxSummary.total >= outboxSummary.capacity ? null : processingNotice} onDefer={handleManualDefer} />
+      <ChatProcessingNotice state={outboxSummary.attention.length || outboxSummary.total >= outboxSummary.capacity ? null : timelineError ? { kind: "terminal_failure", errorCode: "timeline_unavailable" } : processingNotice} onDefer={handleManualDefer} />
 
       {/* Messages — long press on background triggers wallpaper menu */}
       <div
