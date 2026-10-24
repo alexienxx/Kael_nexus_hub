@@ -1685,6 +1685,7 @@ const Chat = () => {
       );
       setMessages((previous) => previous.filter((message) =>
         message.client_message_id !== clientMessageId
+        || Boolean(message.backend_turn_id || entry.userTurnId)
       ));
       await refreshOutboxSummary();
       await runTextOutboxDrain();
