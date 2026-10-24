@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { messageReactionsByTarget } from "@/lib/chat/messageReaction";
 import { Phone } from "lucide-react";
 import { App as CapApp } from "@capacitor/app";
 import { useTheme } from "@/lib/store/theme-context";
@@ -229,6 +230,9 @@ const Chat = () => {
       applyDiagnosticMarkers(rawText ?? "", meta),
     [],
   );
+
+  // Rebuilt from committed assistant metadata on direct reply, replay and history.
+  const reactionsByTarget = useMemo(() => messageReactionsByTarget(messages), [messages]);
 
   // Wallpaper state
   const {
@@ -1778,6 +1782,8 @@ const Chat = () => {
           <MessageBubble
             key={msg.id}
             message={msg}
+            messageReaction={msg.sender === "user" && msg.backend_turn_id
+              ? reactionsByTarget.get(msg.backend_turn_id) : undefined}
             onLike={(id) => handleFeedback(id, "like")}
             onDislike={(id) => handleFeedback(id, "dislike")}
             onPlayTTS={handlePlayNativeVoice}

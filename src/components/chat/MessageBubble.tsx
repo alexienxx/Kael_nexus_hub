@@ -15,10 +15,12 @@ import PlaylistCard from "./PlaylistCard";
 import TrackCard from "@/components/media/TrackCard";
 import SpotifyIcon from "@/components/common/SpotifyIcon";
 import type { ChatMessage } from "@/types";
+import type { MessageReaction } from "@/lib/chat/messageReaction";
 import type { WallpaperDisplaySettings, BubbleWallpaperStyle } from "@/types/wallpaper";
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  messageReaction?: MessageReaction;
   onLike?: (id: string) => void;
   onDislike?: (id: string) => void;
   onPlayTTS?: (message: ChatMessage) => void;
@@ -110,6 +112,7 @@ const MessageBubble = ({
   sendActionBusy,
   onSwipeReply,
   wallpaperStyle = null,
+  messageReaction,
 }: MessageBubbleProps) => {
   const { theme, kaelAvatarSrc } = useTheme();
   const isUser = message.sender === "user";
@@ -390,6 +393,14 @@ const MessageBubble = ({
             className="mt-1 text-right text-[10px] text-amber-300"
             title="Tieni premuto sul messaggio per le opzioni di invio."
           >messaggio non consegnato</p>}
+          {isUser && messageReaction && (
+            <div className="mt-1 flex justify-end" data-reaction-id={messageReaction.operation_id}>
+              <span className="rounded-full border border-foreground/15 bg-background/80 px-2 py-0.5 text-base"
+                role="img" aria-label="Reazione di Arrakis" title="Reazione di Arrakis">
+                {messageReaction.symbol}
+              </span>
+            </div>
+          )}
           <div className={`mt-1 flex items-center gap-1 ${isUser ? "justify-end" : ""}`}>
             <p className="text-[10px] text-foreground/40">{message.time}</p>
           </div>
