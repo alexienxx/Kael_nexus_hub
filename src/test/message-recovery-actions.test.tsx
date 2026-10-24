@@ -36,4 +36,17 @@ describe("recovery actions on the actual message components", () => {
     fireEvent.click(screen.getByRole("button", { name: "Riprova invio" }));
     expect(actions).toEqual(["retry original envelope"]);
   });
+
+  it("handles Android's native text context-menu event without invoking a retry", () => {
+    const actions: string[] = [];
+    render(<ThemeProvider><MessageBubble message={message}
+      onSwipeReply={() => actions.push("reply")}
+      onRetrySend={() => actions.push("retry")}
+    /></ThemeProvider>);
+    const nativeMenu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 100, clientY: 200 });
+    fireEvent(screen.getByText(message.text), nativeMenu);
+    expect(nativeMenu.defaultPrevented).toBe(true);
+    expect(screen.getByRole("button", { name: "Riprova invio" })).toBeVisible();
+    expect(actions).toEqual([]);
+  });
 });

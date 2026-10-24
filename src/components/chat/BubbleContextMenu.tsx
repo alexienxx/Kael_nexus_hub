@@ -43,27 +43,29 @@ const BubbleContextMenu = ({
   // Only enable if there's something to show
   const hasActions = (isUser && !!message.text) || hasImage || hasAudio || hasVideo || !!onRetrySend || !!onCancelSend;
 
+  const openMenu = (e: React.TouchEvent | React.MouseEvent) => {
+    if (!hasActions) return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    let x: number, y: number;
+    if ("touches" in e && e.touches.length > 0) {
+      x = e.touches[0].clientX;
+      y = e.touches[0].clientY;
+    } else if ("clientX" in e) {
+      x = (e as React.MouseEvent).clientX;
+      y = (e as React.MouseEvent).clientY;
+    } else {
+      x = window.innerWidth / 2;
+      y = window.innerHeight / 2;
+    }
+
+    setMenuPos({ x, y });
+    setMenuOpen(true);
+  };
+
   const longPressHandlers = useLongPress({
-    onLongPress: (e) => {
-      if (!hasActions) return;
-      e.stopPropagation();
-      e.preventDefault();
-
-      let x: number, y: number;
-      if ("touches" in e && e.touches.length > 0) {
-        x = e.touches[0].clientX;
-        y = e.touches[0].clientY;
-      } else if ("clientX" in e) {
-        x = (e as React.MouseEvent).clientX;
-        y = (e as React.MouseEvent).clientY;
-      } else {
-        x = window.innerWidth / 2;
-        y = window.innerHeight / 2;
-      }
-
-      setMenuPos({ x, y });
-      setMenuOpen(true);
-    },
+    onLongPress: openMenu,
     delay: 500,
   });
 
@@ -98,6 +100,7 @@ const BubbleContextMenu = ({
         {...(hasActions ? longPressHandlers : {})}
         onTouchStart={(event) => { event.stopPropagation(); if (hasActions) longPressHandlers.onTouchStart(event); }}
         onMouseDown={(event) => { event.stopPropagation(); if (hasActions) longPressHandlers.onMouseDown(event); }}
+        onContextMenu={openMenu}
         style={{ touchAction: "pan-y" }}
       >
         {children}
