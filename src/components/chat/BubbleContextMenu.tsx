@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { Pencil, Download, Save, RotateCcw, X } from "lucide-react";
 import { useLongPress } from "@/hooks/useLongPress";
 import type { ChatMessage } from "@/types";
@@ -106,7 +107,7 @@ const BubbleContextMenu = ({
         {children}
       </div>
 
-      {menuOpen && (
+      {menuOpen && createPortal(
         <>
           {/* Backdrop */}
           <div
@@ -175,7 +176,7 @@ const BubbleContextMenu = ({
               </button>
             )}
           </div>
-        </>
+        </>, document.body,
       )}
     </>
   );
