@@ -116,6 +116,7 @@ const MessageBubble = ({
   const isExternalAgent = message.sender === "external_agent";
   const sendNeedsAttention = isUser && (Boolean(onRetrySend || onCancelSend) || [
     "recovery_required", "authentication_required", "terminal_failed", "terminal_failure", "integrity_failure", "abandoned",
+    "transport_deferred", "retryable_failure",
   ].includes(String(message.meta?.exchange_status ?? "").toLowerCase()));
 
   const getSenderInfo = () => {

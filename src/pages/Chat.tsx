@@ -643,7 +643,10 @@ const Chat = () => {
           sender: "user",
           feedback: null,
           meta: {
-            exchange_status: entry.exchangeStatus ?? entry.state,
+            exchange_status: entry.errorCode && entry.attempts > 0
+              && (entry.state === "queued" || entry.state === "queued_by_user")
+              ? "retryable_failure"
+              : entry.exchangeStatus ?? entry.state,
             durable_outbox: true,
           },
         }));

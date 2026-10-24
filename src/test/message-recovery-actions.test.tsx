@@ -15,6 +15,16 @@ const message: ChatMessage = {
 afterEach(cleanup);
 
 describe("recovery actions on the actual message components", () => {
+  it.each(["transport_deferred", "retryable_failure"])("keeps the undelivered indication during %s", (status) => {
+    render(<ThemeProvider><MessageBubble message={{ ...message, meta: { exchange_status: status } }} /></ThemeProvider>);
+    expect(screen.getByText("messaggio non consegnato")).toBeVisible();
+  });
+
+  it.each(["queued", "in_progress", "complete"])("does not mark %s as a failed delivery", (status) => {
+    render(<ThemeProvider><MessageBubble message={{ ...message, meta: { exchange_status: status } }} /></ThemeProvider>);
+    expect(screen.queryByText("messaggio non consegnato")).toBeNull();
+  });
+
   it("retains a failed receipt indication without restoring verbose delivery notes", () => {
     render(<ThemeProvider><MessageBubble message={message} /></ThemeProvider>);
     expect(screen.getByText("messaggio non consegnato")).toBeVisible();
