@@ -6,7 +6,8 @@ import { requestMicrophonePermission } from "@/lib/permissions";
 import { notifyTyping } from "@/lib/api/presence";
 
 interface ChatInputProps {
-  onSend: (text: string) => void;
+  /** Resolves true only after the exact text is accepted into the durable outbox. */
+  onSend: (text: string) => Promise<boolean>;
   onImageUpload?: (file: File, caption?: string) => void;
   onVoiceNote?: (blob: Blob) => void;
   onOpenServices?: () => void;
@@ -34,6 +35,9 @@ const ChatInput = ({
 }: ChatInputProps) => {
   const navigate = useNavigate();
   const [input, setInput] = useState("");
+  const [isEnqueueing, setIsEnqueueing] = useState(false);
+  const enqueueingRef = useRef(false);
+  const draftRevisionRef = useRef(0);
   const [isRecording, setIsRecording] = useState(false);
   const [showMediaMenu, setShowMediaMenu] = useState(false);
   const [stagedFile, setStagedFile] = useState<File | null>(null);
@@ -52,6 +56,7 @@ const ChatInput = ({
       const text = detail?.text;
       const messageId = detail?.messageId;
       if (text) {
+        draftRevisionRef.current += 1;
         setInput(text);
         setEditingMessageId(messageId ?? null);
         setTimeout(() => inputRef.current?.focus(), 100);
@@ -75,6 +80,7 @@ const ChatInput = ({
   };
 
   const cancelEdit = () => {
+    draftRevisionRef.current += 1;
     setEditingMessageId(null);
     setInput("");
     onCancelEdit?.();
@@ -86,6 +92,7 @@ const ChatInput = ({
   const typingResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    draftRevisionRef.current += 1;
     setInput(e.target.value);
     if (sessionId) {
       notifyTyping(sessionId, true);
@@ -111,8 +118,8 @@ const ChatInput = ({
     };
   }, []);
 
-  const handleSend = () => {
-    if (disabled) return;
+  const handleSend = async () => {
+    if (disabled || enqueueingRef.current) return;
     if (stagedFile) {
       // Send image with optional caption
       const caption = input.trim() || undefined;
@@ -123,11 +130,28 @@ const ChatInput = ({
       clearTypingState();
       return;
     }
-    if (!input.trim()) return;
-    onSend(input.trim());
-    setInput("");
-    setEditingMessageId(null);
-    clearTypingState();
+    const draft = input;
+    const text = draft.trim();
+    if (!text) return;
+    const draftRevision = draftRevisionRef.current;
+    // A ref closes the gap before React renders the disabled button, so a
+    // double click or Enter cannot enqueue the same draft twice.
+    enqueueingRef.current = true;
+    setIsEnqueueing(true);
+    try {
+      if (await onSend(text) && draftRevisionRef.current === draftRevision) {
+        // A programmatic edit may have replaced the draft during the commit.
+        setInput("");
+        setEditingMessageId(null);
+        clearTypingState();
+      }
+    } catch {
+      // An unexpected error is not evidence that a commit did not occur.
+      toast.error("Impossibile verificare l'invio: controlla lo stato della chat");
+    } finally {
+      enqueueingRef.current = false;
+      setIsEnqueueing(false);
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -310,7 +334,7 @@ const ChatInput = ({
             onBlur={clearTypingState}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-            disabled={disabled}
+            disabled={disabled || isEnqueueing}
           />
         </div>
 
@@ -327,7 +351,7 @@ const ChatInput = ({
 
         <button
           onClick={handleSend}
-          disabled={(!input.trim() && !stagedFile) || disabled}
+          disabled={(!input.trim() && !stagedFile) || disabled || isEnqueueing}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-neon-purple to-accent text-primary-foreground shadow-lg shadow-neon-purple/30 transition-all hover:scale-110 active:scale-95 disabled:opacity-40"
         >
           <Send size={16} />

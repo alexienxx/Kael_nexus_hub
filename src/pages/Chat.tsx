@@ -130,6 +130,8 @@ interface QuotedPreview {
 
 const Chat = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Object identity distinguishes two edit selections of the same message.
+  const editOperationRef = useRef<{ messageId: string | null }>({ messageId: null });
   const [nativeVoicePlayback, setNativeVoicePlayback] = useState<{
     turnId: number | null;
     state: NativeVoicePlaybackState;
@@ -1154,10 +1156,12 @@ const Chat = () => {
     async (text: string) => {
       if (!continuityReady) {
         toast.error(continuityError ?? "Archivio durevole chat non ancora pronto");
-        return;
+        return false;
       }
 
       const quotedSnapshot = quotedMessagePayload;
+      const editOperationAtSend = editOperationRef.current;
+      const editedMessageId = editOperationAtSend.messageId;
       let exchange;
       try {
         // This transaction is the acceptance boundary: no optimistic UI and no
@@ -1168,35 +1172,52 @@ const Chat = () => {
           text,
           quotedMessage: quotedSnapshot,
         });
-        await refreshOutboxSummary();
       } catch {
         toast.error("Messaggio non inviato: impossibile salvarlo nell'outbox durevole");
-        return;
+        return false;
       }
 
+      // Nothing after this point may make a committed envelope look unsent.
+      // The background continuation owns UI projection, summary and drain;
+      // the caller receives acceptance without waiting for network delivery.
       const clientMsgId = exchange.clientMessageId;
-      const userMsg: ChatMessage = {
-        id: clientMsgId,
-        text: exchange.requestBody.text,
-        time: new Date(exchange.createdAtMs).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
-        timestamp: exchange.createdAtMs / 1000,
-        sender: "user",
-        feedback: null,
-        client_message_id: clientMsgId,
-        meta: { exchange_status: "queued", durable_outbox: true },
-      };
-      setMessages((previous) => {
-        const editingIndex = previous.findIndex((message) => message.isEditing);
-        const retained = editingIndex >= 0 ? previous.slice(0, editingIndex) : previous;
-        return mergeMessagesIdempotent(retained, [userMsg]);
-      });
-      setQuotedPreview(null);
-      setQuotedMessagePayload(null);
-      scrollToBottom();
-
-      setProcessingNotice({ kind: "waiting", clientMessageId: clientMsgId });
+      let userMsg: ChatMessage;
       try {
-        const results = await runTextOutboxDrain();
+        userMsg = {
+          id: clientMsgId,
+          text: exchange.requestBody.text,
+          time: new Date(exchange.createdAtMs).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
+          timestamp: exchange.createdAtMs / 1000,
+          sender: "user",
+          feedback: null,
+          client_message_id: clientMsgId,
+          meta: { exchange_status: "queued", durable_outbox: true },
+        };
+        setMessages((previous) => {
+          const activeEdit = editOperationRef.current;
+          const editChanged = activeEdit !== editOperationAtSend;
+          const editingIndex = !editChanged && editedMessageId
+            ? previous.findIndex((message) => message.isEditing && message.id === editedMessageId) : -1;
+          const retained = editingIndex >= 0 ? previous.slice(0, editingIndex)
+            : editChanged && editedMessageId && activeEdit.messageId !== editedMessageId
+              ? previous.map((message) => message.id === editedMessageId
+              ? { ...message, isEditing: false } : message) : previous;
+          return mergeMessagesIdempotent(retained, [userMsg]);
+        });
+        // Keep a different quote selected while the durable transaction was in flight.
+        setQuotedPreview((current) => current === quotedPreview ? null : current);
+        setQuotedMessagePayload((current) => current === quotedSnapshot ? null : current);
+        scrollToBottom();
+
+        setProcessingNotice({ kind: "waiting", clientMessageId: clientMsgId });
+      } catch {
+        setContinuityError("Messaggio salvato, ma aggiornamento della chat non disponibile");
+        setContinuityReady(false);
+        toast.error("Messaggio salvato. Riapri la chat per ripristinare lo stato.");
+        return true;
+      }
+      // Transport continues independently of the accepted draft.
+      void runTextOutboxDrain().then(async (results) => {
         const ownResult = results.find((result) => result.clientMessageId === clientMsgId);
         if (!ownResult) setProcessingNotice((current) => current?.clientMessageId === clientMsgId
           ? { ...current, kind: "unconfirmed" } : current);
@@ -1240,14 +1261,13 @@ const Chat = () => {
             console.warn("[Chat] External agent unavailable:", error);
           }
         }
-      } catch {
+      }).catch(() => {
         setProcessingNotice((current) => current?.clientMessageId === clientMsgId
-          ? { ...current, kind: "transport_deferred" } : current);
-        // The exact envelope remains in IndexedDB. Reconnect/boot retries the
-        // same logical request; never synthesize a second UUID here.
-        // The top error surface presents this retained transport failure.
-        probeAndResolveBackend().catch(() => {});
-      }
+          ? { ...current, kind: "unconfirmed" } : current);
+        // The durable path reported the failure. The committed envelope is
+        // preserved for recovery; never synthesize a second UUID here.
+      });
+      return true;
     },
     [
       sessionId,
@@ -1256,7 +1276,7 @@ const Chat = () => {
       continuityReady,
       continuityError,
       quotedMessagePayload,
-      refreshOutboxSummary,
+      quotedPreview,
       runTextOutboxDrain,
       scrollToBottom,
     ]
@@ -1634,9 +1654,11 @@ const Chat = () => {
 
   const handleEditMessage = useCallback(
     (id: string, currentText: string) => {
+      editOperationRef.current = { messageId: id };
       // Mark the message as being edited (dimmed in UI) instead of removing it immediately
       setMessages((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, isEditing: true } : m))
+        prev.map((m) => m.id === id ? { ...m, isEditing: true }
+          : m.isEditing ? { ...m, isEditing: false } : m)
       );
       // Dispatch event so ChatInput can pick up the text and the messageId
       window.dispatchEvent(
@@ -1647,6 +1669,7 @@ const Chat = () => {
   );
 
   const handleCancelEdit = useCallback(() => {
+    editOperationRef.current = { messageId: null };
     // Restore all messages marked as editing back to normal
     setMessages((prev) =>
       prev.map((m) => (m.isEditing ? { ...m, isEditing: false } : m))

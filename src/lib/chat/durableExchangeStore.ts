@@ -341,9 +341,12 @@ export async function enqueueTextExchange(input: {
   const previousCreatedAtMs = Number((newestCursor?.value as DurableTextExchange | undefined)?.createdAtMs ?? 0);
   entry.createdAtMs = Math.max(nowMs, previousCreatedAtMs + 1);
   entry.updatedAtMs = entry.createdAtMs;
+  // Prepare the returned copy before writing. A failure while cloning must not
+  // turn an already committed envelope into an apparent enqueue failure.
+  const acceptedEntry = cloneExchange(entry);
   store.add(entry);
   await transactionDone(transaction);
-  return cloneExchange(entry);
+  return acceptedEntry;
 }
 
 export async function verifyTextExchange(entry: DurableTextExchange): Promise<boolean> {
