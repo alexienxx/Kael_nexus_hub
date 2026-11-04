@@ -97,7 +97,7 @@ const COMPAT_REPLAY_ERROR_CODES = new Set(["duplicate_exchange"]);
 let activeDrain: Promise<TextOutboxDrainResult[]> | null = null;
 const committedResultListeners = new Set<(result: TextOutboxDrainResult) => void>();
 
-/** Observe each durable result without waiting for later FIFO exchanges. */
+/** Observe each persisted outcome without waiting for later FIFO exchanges. */
 export function subscribeCommittedTextOutboxResults(listener: (result: TextOutboxDrainResult) => void): () => void {
   committedResultListeners.add(listener);
   return () => { committedResultListeners.delete(listener); };
@@ -423,6 +423,10 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
   const transport = options.transport ?? sendDurableTextEnvelope;
   const maxDispatches = Math.max(1, Math.min(100, options.maxDispatches ?? DEFAULT_MAX_DISPATCHES));
   const results: TextOutboxDrainResult[] = [];
+  const recordDurableResult = (result: TextOutboxDrainResult) => {
+    results.push(result);
+    publishCommittedResult(result);
+  };
 
   for (let dispatch = 0; dispatch < maxDispatches; dispatch += 1) {
     const entries = await listTextExchanges();
@@ -456,7 +460,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
         state: "terminal_failed",
         errorCode: "local_outbox_integrity_failure",
       }, currentTime);
-      results.push({
+      recordDurableResult({
         clientMessageId: entry.clientMessageId,
         kind: "integrity_failure",
         errorCode: "local_outbox_integrity_failure",
@@ -486,7 +490,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
         nextAttemptAtMs: exhausted ? 0 : nextAttemptAtMs,
         errorCode: exhausted ? "transport_retry_budget_exhausted" : "transport_unavailable",
       }, nowMs());
-      results.push({
+      recordDurableResult({
         clientMessageId: sending.clientMessageId,
         kind: exhausted ? "terminal_failure" : "transport_deferred",
         nextAttemptAtMs: exhausted ? undefined : nextAttemptAtMs,
@@ -512,7 +516,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
           nextAttemptAtMs: 0,
           errorCode: correlationError,
         }, nowMs());
-        results.push({
+        recordDurableResult({
           clientMessageId: sending.clientMessageId,
           kind: "terminal_failure",
           response,
@@ -551,8 +555,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
         response,
         timelineMessages: messages,
       };
-      results.push(result);
-      publishCommittedResult(result);
+      recordDurableResult(result);
       continue;
     }
 
@@ -572,7 +575,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
         errorCode: exhausted ? "chat_retry_budget_exhausted" : classified.errorCode,
         ...receiptPatch(response),
       }, nowMs());
-      results.push({
+      recordDurableResult({
         clientMessageId: sending.clientMessageId,
         kind: exhausted ? "terminal_failure" : classified.kind,
         response,
@@ -592,7 +595,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
       errorCode: classified.errorCode,
       ...receiptPatch(response),
     }, nowMs());
-    results.push({
+    recordDurableResult({
       clientMessageId: sending.clientMessageId,
       kind: classified.kind,
       response,

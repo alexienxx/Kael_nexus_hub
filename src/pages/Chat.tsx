@@ -128,6 +128,18 @@ function optimisticOutboxMessage(entry: DurableTextExchange): ChatMessage {
   };
 }
 
+function processingNoticeFromOutbox(entry: DurableTextExchange): ChatProcessingState | null {
+  if (entry.timelineKey !== DEFAULT_CONVERSATION_ID) return null;
+  if (entry.state === "in_progress") {
+    // This state is persisted only after a classified, correlated server receipt.
+    return { kind: "in_progress", clientMessageId: entry.clientMessageId };
+  }
+  if (entry.state === "queued" || entry.state === "sending") {
+    return { kind: "waiting", clientMessageId: entry.clientMessageId };
+  }
+  return null;
+}
+
 function persistTurnCursor(cursor: number): void {
   if (!Number.isSafeInteger(cursor) || cursor < 0) return;
   try {
@@ -660,14 +672,21 @@ const Chat = () => {
       }).catch(() => {});
       if (detail.kind === "enqueued" && detail.entry?.clientMessageId === detail.clientMessageId) {
         setMessages((previous) => mergeMessagesIdempotent(previous, [optimisticOutboxMessage(detail.entry!)]));
+        const restoredNotice = processingNoticeFromOutbox(detail.entry);
+        if (restoredNotice) setProcessingNotice((current) => !current
+          || (current.clientMessageId !== restoredNotice.clientMessageId
+            && (current.kind === "silence" || current.kind === "unconfirmed"))
+          ? restoredNotice : current);
       } else if (detail.kind === "removed") {
         setMessages((previous) => previous.filter((message) =>
           message.client_message_id !== detail.clientMessageId || Boolean(message.backend_turn_id || detail.keepCommitted)));
+        setProcessingNotice((current) => current?.clientMessageId === detail.clientMessageId ? null : current);
       } else if (detail.kind === "deferred") {
         setMessages((previous) => previous.map((message) =>
           message.client_message_id === detail.clientMessageId
             ? { ...message, meta: { ...(message.meta ?? {}), exchange_status: "queued_by_user", durable_outbox: true } }
             : message));
+        setProcessingNotice((current) => current?.clientMessageId === detail.clientMessageId ? null : current);
       }
     };
     window.addEventListener("kael-outbox-view-change", reconcile);
@@ -710,6 +729,10 @@ const Chat = () => {
         } while (revision !== outboxViewChangeRevisionRef.current);
         if (cancelled) return;
         if (cachedTimeline.length) mergeHistoryIntoState(cachedTimeline);
+
+        // Entries are FIFO-sorted; the latest pending request owns the singleton notice.
+        const restoredNotice = outbox.map(processingNoticeFromOutbox).filter((notice) => notice !== null).pop();
+        if (restoredNotice) setProcessingNotice((current) => current ?? restoredNotice);
 
         const optimistic = outbox.map(optimisticOutboxMessage);
         if (optimistic.length) {
@@ -1131,6 +1154,8 @@ const Chat = () => {
   }, []);
 
   useEffect(() => subscribeCommittedTextOutboxResults((result) => {
+    // A result received during bootstrap invalidates its outbox snapshot.
+    outboxViewChangeRevisionRef.current += 1;
     applyOutboxResultsOnce([result]);
   }), [applyOutboxResultsOnce]);
   const refreshOutboxSummary = useCallback(async () => {
@@ -1845,6 +1870,8 @@ const Chat = () => {
         window.dispatchEvent(new CustomEvent("kael-outbox-retry"));
         return;
       }
+      setProcessingNotice((current) => !current || current.clientMessageId === clientMessageId
+        ? { kind: "waiting", clientMessageId } : current);
       await refreshOutboxSummary();
       if (!isCurrentView()) return;
       await runTextOutboxDrain("explicit_retry");
@@ -1935,7 +1962,9 @@ const Chat = () => {
         onRemove={handleManualOutboxRemove}
       />}
 
-      <ChatProcessingNotice state={outboxSummary.attention.length || outboxSummary.total >= outboxSummary.capacity ? null : processingNotice} onDefer={handleManualDefer} />
+      <ChatProcessingNotice state={processingNotice && ["waiting", "in_progress"].includes(processingNotice.kind)
+        ? processingNotice : outboxSummary.attention.length || outboxSummary.total >= outboxSummary.capacity
+          ? null : processingNotice} onDefer={handleManualDefer} />
 
       {/* Messages — long press on background triggers wallpaper menu */}
       <div

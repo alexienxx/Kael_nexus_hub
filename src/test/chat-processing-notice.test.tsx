@@ -6,7 +6,7 @@ import type { ChatMessage } from "@/types";
 import { classifyChatOutcome } from "@/lib/chat/textOutbox";
 
 describe("clean chat with retained diagnostics", () => {
-  it("does not render waiting, processing, quiet or unknown as chat notices", () => {
+  it("does not render uncorrelated waiting, processing, quiet or unknown as chat notices", () => {
     const view = render(<ChatProcessingNotice state={null} />);
     for (const kind of ["waiting", "in_progress", "silence", "unconfirmed"] as const) {
       view.rerender(<ChatProcessingNotice state={{ kind, errorCode: "private_detail" }} />);

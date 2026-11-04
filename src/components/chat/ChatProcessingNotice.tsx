@@ -15,6 +15,16 @@ export default function ChatProcessingNotice({ state, onDefer }: { state: ChatPr
     const timer = window.setTimeout(() => setVisibleIdentity(null), 5_000);
     return () => window.clearTimeout(timer);
   }, [identity]);
+  if (state?.clientMessageId && (state.kind === "waiting" || state.kind === "in_progress")) {
+    // Waiting only means local acceptance; in_progress is the last server
+    // receipt, not a continuously verified generation signal.
+    const title = state.kind === "waiting" ? "Messaggio in attesa di conferma."
+      : "Ultimo stato ricevuto: elaborazione in corso.";
+    return <section role="status" aria-live="polite" data-testid="chat-processing-notice"
+      className="relative z-20 mx-3 mt-2 rounded-xl bg-background/95 px-3 py-2 text-xs">
+      <p>{title}</p>
+    </section>;
+  }
   if (!state || !identity || visibleIdentity !== identity) return null;
   const title = state.kind === "authentication_required" ? "Accedi per inviare messaggi."
     : state.kind === "retryable_failure" || state.kind === "transport_deferred"
