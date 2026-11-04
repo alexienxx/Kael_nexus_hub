@@ -65,6 +65,7 @@ import {
   recoverInboxBatches,
   removeTextExchangeManually,
   retryTextExchangeManually,
+  type DurableTextExchange,
   type TextOutboxSummary,
 } from "@/lib/chat/durableExchangeStore";
 import {
@@ -114,6 +115,18 @@ import { nativeCallVoiceService } from "@/lib/audio/nativeCallVoiceService";
 // Default conversation ID for the main Kael chat
 const DEFAULT_CONVERSATION_ID = "kael-main";
 const CHAT_CURSOR_STORAGE_KEY = "kael-chat-turn-cursor-v1";
+
+function optimisticOutboxMessage(entry: DurableTextExchange): ChatMessage {
+  return {
+    id: entry.clientMessageId, client_message_id: entry.clientMessageId,
+    backend_turn_id: entry.userTurnId, text: entry.requestBody.text,
+    time: new Date(entry.createdAtMs).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
+    timestamp: entry.createdAtMs / 1000, sender: "user", feedback: null,
+    meta: { exchange_status: entry.errorCode && entry.attempts > 0
+      && (entry.state === "queued" || entry.state === "queued_by_user")
+      ? "retryable_failure" : entry.exchangeStatus ?? entry.state, durable_outbox: true },
+  };
+}
 
 function persistTurnCursor(cursor: number): void {
   if (!Number.isSafeInteger(cursor) || cursor < 0) return;
@@ -195,7 +208,15 @@ const Chat = () => {
   const outboxRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const outboxScheduleRevisionRef = useRef(0);
   const outboxScheduleAppliedRef = useRef(0);
-  const outboxOnlineRef = useRef(false);
+  const projectedOutboxResultsRef = useRef(new WeakSet<TextOutboxDrainResult>());
+  const outboxViewEpochRef = useRef(0);
+  const outboxViewMountedRef = useRef(false);
+  const outboxOnlineRef = useRef<boolean | null>(null);
+  const outboxReconnectPendingRef = useRef(false);
+  const outboxViewChangeRevisionRef = useRef(0);
+  const outboxSummaryReadRef = useRef(0);
+  const outboxSummaryAppliedRef = useRef(0);
+  const outboxLatestSummaryRef = useRef<TextOutboxSummary | null>(null);
   const continuityInitializedRef = useRef(false);
   const lastRestartMergeBootIdRef = useRef<string | null>(null);
 
@@ -622,6 +643,40 @@ const Chat = () => {
     });
   }, [mapBackendMsg]);
 
+  useEffect(() => {
+    let disposed = false;
+    const reconcile = (event: Event) => {
+      const detail = (event as CustomEvent<{kind: string; clientMessageId: string; keepCommitted?: boolean; entry?: DurableTextExchange}>).detail;
+      if (!detail?.clientMessageId) return;
+      outboxViewChangeRevisionRef.current += 1;
+      const revision = outboxViewChangeRevisionRef.current;
+      const summaryRead = ++outboxSummaryReadRef.current;
+      void getTextOutboxSummary().then((summary) => {
+        if (!disposed && outboxViewChangeRevisionRef.current === revision && summaryRead >= outboxSummaryAppliedRef.current) {
+          outboxSummaryAppliedRef.current = summaryRead;
+          outboxLatestSummaryRef.current = summary;
+          setOutboxSummary(summary);
+        }
+      }).catch(() => {});
+      if (detail.kind === "enqueued" && detail.entry?.clientMessageId === detail.clientMessageId) {
+        setMessages((previous) => mergeMessagesIdempotent(previous, [optimisticOutboxMessage(detail.entry!)]));
+      } else if (detail.kind === "removed") {
+        setMessages((previous) => previous.filter((message) =>
+          message.client_message_id !== detail.clientMessageId || Boolean(message.backend_turn_id || detail.keepCommitted)));
+      } else if (detail.kind === "deferred") {
+        setMessages((previous) => previous.map((message) =>
+          message.client_message_id === detail.clientMessageId
+            ? { ...message, meta: { ...(message.meta ?? {}), exchange_status: "queued_by_user", durable_outbox: true } }
+            : message));
+      }
+    };
+    window.addEventListener("kael-outbox-view-change", reconcile);
+    return () => {
+      disposed = true;
+      window.removeEventListener("kael-outbox-view-change", reconcile);
+    };
+  }, []);
+
   // Open and recover the local write-ahead logs before any network send or
   // cursor-based catch-up is allowed.  Outbox rows become optimistic bubbles
   // only after they have survived an IndexedDB transaction.
@@ -634,31 +689,29 @@ const Chat = () => {
       try {
         await recoverInboxBatches(DEFAULT_CONVERSATION_ID);
 
-        const [cachedTimeline, outbox, summary] = await Promise.all([
-          listTimelineMessages(DEFAULT_CONVERSATION_ID),
-          listTextExchanges(),
-          getTextOutboxSummary(),
-        ]);
+        const cachedTimeline = await listTimelineMessages(DEFAULT_CONVERSATION_ID);
+        let outbox: DurableTextExchange[];
+        let summary: TextOutboxSummary;
+        let revision: number;
+        let summaryRead: number;
+        do {
+          revision = outboxViewChangeRevisionRef.current;
+          summaryRead = ++outboxSummaryReadRef.current;
+          [outbox, summary] = await Promise.all([
+            listTextExchanges(),
+            getTextOutboxSummary().catch((error) => {
+              if (summaryRead < outboxSummaryAppliedRef.current && outboxLatestSummaryRef.current) {
+                return outboxLatestSummaryRef.current;
+              }
+              throw error;
+            }),
+          ]);
+          if (cancelled) return;
+        } while (revision !== outboxViewChangeRevisionRef.current);
         if (cancelled) return;
         if (cachedTimeline.length) mergeHistoryIntoState(cachedTimeline);
 
-        const optimistic: ChatMessage[] = outbox.map((entry) => ({
-          id: entry.clientMessageId,
-          client_message_id: entry.clientMessageId,
-          backend_turn_id: entry.userTurnId,
-          text: entry.requestBody.text,
-          time: new Date(entry.createdAtMs).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
-          timestamp: entry.createdAtMs / 1000,
-          sender: "user",
-          feedback: null,
-          meta: {
-            exchange_status: entry.errorCode && entry.attempts > 0
-              && (entry.state === "queued" || entry.state === "queued_by_user")
-              ? "retryable_failure"
-              : entry.exchangeStatus ?? entry.state,
-            durable_outbox: true,
-          },
-        }));
+        const optimistic = outbox.map(optimisticOutboxMessage);
         if (optimistic.length) {
           const outboxByClientId = new Map(
             optimistic.map((message) => [message.client_message_id, message]),
@@ -678,7 +731,11 @@ const Chat = () => {
             return mergeMessagesIdempotent(overlaid, optimistic);
           });
         }
-        setOutboxSummary(summary);
+        if (summaryRead >= outboxSummaryAppliedRef.current) {
+          outboxSummaryAppliedRef.current = summaryRead;
+          outboxLatestSummaryRef.current = summary;
+          setOutboxSummary(summary);
+        }
 
         const durableCursor = await getTimelineCursor(DEFAULT_CONVERSATION_ID);
         lastFetchTurnIdRef.current = durableCursor;
@@ -958,8 +1015,9 @@ const Chat = () => {
       if (result.kind === "reply" || result.kind === "replay" || result.kind === "silence") {
         if (result.response?.avatar_job_id && result.response.assistant_turn_id != null) {
           const assistantTurnId = String(result.response.assistant_turn_id);
+          const epoch = outboxViewEpochRef.current;
           pollAndFetchAvatarVideo(result.response.avatar_job_id).then((videoDataUrl) => {
-            if (!videoDataUrl) return;
+            if (!videoDataUrl || !outboxViewMountedRef.current || outboxViewEpochRef.current !== epoch) return;
             setMessages((previous) =>
               previous.map((message) =>
                 message.backend_turn_id === assistantTurnId
@@ -989,10 +1047,18 @@ const Chat = () => {
   }, [mapBackendMsg, scrollToBottom]);
 
   const handleManualDefer = useCallback((clientMessageId: string) => {
+              const epoch = outboxViewEpochRef.current;
               void deferTextExchangeManually(
                 clientMessageId,
                 MANUAL_OUTBOX_CONFIRMATION,
               ).then(() => {
+                if (!outboxViewMountedRef.current || outboxViewEpochRef.current !== epoch) {
+                  window.dispatchEvent(new CustomEvent("kael-outbox-view-change", {
+                    detail: { kind: "deferred", clientMessageId },
+                  }));
+                  window.dispatchEvent(new CustomEvent("kael-outbox-retry"));
+                  return;
+                }
                 outboxScheduleRevisionRef.current += 1;
                 outboxScheduleAppliedRef.current = outboxScheduleRevisionRef.current;
                 if (outboxRetryTimerRef.current) {
@@ -1012,21 +1078,24 @@ const Chat = () => {
                     : message
                 ));
               }).catch((error) => {
-                setProcessingNotice({ kind: "terminal_failure", clientMessageId, errorCode: "manual_defer_failed" });
+                if (outboxViewMountedRef.current && outboxViewEpochRef.current === epoch) {
+                  setProcessingNotice({ kind: "terminal_failure", clientMessageId, errorCode: "manual_defer_failed" });
+                }
               });
   }, []);
 
   const scheduleNextOutboxDrain = useCallback(async () => {
+    if (!outboxViewMountedRef.current) return;
     const revision = ++outboxScheduleRevisionRef.current;
     let nextAttemptAt: number | null;
     try {
       nextAttemptAt = await nextTextOutboxAttemptAt();
     } catch (error) {
-      if (revision < outboxScheduleAppliedRef.current) return;
+      if (!outboxViewMountedRef.current || revision < outboxScheduleAppliedRef.current) return;
       outboxScheduleAppliedRef.current = revision;
       throw error;
     }
-    if (revision < outboxScheduleAppliedRef.current) return;
+    if (!outboxViewMountedRef.current || revision < outboxScheduleAppliedRef.current) return;
     outboxScheduleAppliedRef.current = revision;
     if (outboxRetryTimerRef.current) {
       clearTimeout(outboxRetryTimerRef.current);
@@ -1042,25 +1111,59 @@ const Chat = () => {
     outboxRetryTimerRef.current = timer;
   }, []);
 
+  const applyOutboxResultsOnce = useCallback((results: TextOutboxDrainResult[]) => {
+    for (const result of results) {
+      if (projectedOutboxResultsRef.current.has(result)) continue;
+      applyOutboxResults([result]);
+      projectedOutboxResultsRef.current.add(result);
+    }
+  }, [applyOutboxResults]);
+
+  useEffect(() => {
+    const epoch = ++outboxViewEpochRef.current;
+    outboxViewMountedRef.current = true;
+    return () => {
+      if (outboxViewEpochRef.current === epoch) {
+        outboxViewMountedRef.current = false;
+        outboxViewEpochRef.current += 1;
+      }
+    };
+  }, []);
+
   useEffect(() => subscribeCommittedTextOutboxResults((result) => {
-    applyOutboxResults([result]);
-  }), [applyOutboxResults]);
+    applyOutboxResultsOnce([result]);
+  }), [applyOutboxResultsOnce]);
   const refreshOutboxSummary = useCallback(async () => {
-    const summary = await getTextOutboxSummary();
-    setOutboxSummary(summary);
-    return summary;
+    const epoch = outboxViewEpochRef.current;
+    const summaryRead = ++outboxSummaryReadRef.current;
+    let summary: TextOutboxSummary;
+    try {
+      summary = await getTextOutboxSummary();
+    } catch (error) {
+      if (!outboxViewMountedRef.current || outboxViewEpochRef.current !== epoch || summaryRead < outboxSummaryAppliedRef.current) return;
+      outboxSummaryAppliedRef.current = summaryRead;
+      throw error;
+    }
+    if (outboxViewMountedRef.current && outboxViewEpochRef.current === epoch && summaryRead >= outboxSummaryAppliedRef.current) {
+      outboxSummaryAppliedRef.current = summaryRead;
+      outboxLatestSummaryRef.current = summary;
+      setOutboxSummary(summary);
+    }
   }, []);
 
   const runTextOutboxDrain = useCallback(async (trigger: TextOutboxDrainTrigger = "automatic"): Promise<TextOutboxDrainResult[]> => {
-    if (!continuityReady || lifecycleState !== "online") return [];
+    if (!outboxViewMountedRef.current || !continuityReady || lifecycleState !== "online") return [];
+    const epoch = outboxViewEpochRef.current;
     try {
       const results = await drainTextOutbox({ trigger });
-      applyOutboxResults(results.filter((result) =>
-        result.kind !== "reply" && result.kind !== "replay" && result.kind !== "silence"));
+      if (outboxViewEpochRef.current !== epoch) return results;
+      applyOutboxResultsOnce(results);
       await refreshOutboxSummary();
+      if (outboxViewEpochRef.current !== epoch) return results;
       await scheduleNextOutboxDrain();
       return results;
     } catch (error) {
+      if (outboxViewEpochRef.current !== epoch) throw error;
       // Transport failures are classified and retained by drainTextOutbox.
       // Reaching this branch means the local durable continuity contract itself
       // failed; stop new sends until a fresh boot can recover IndexedDB.
@@ -1071,20 +1174,28 @@ const Chat = () => {
       setProcessingNotice((current) => ({ ...current, kind: "unconfirmed" }));
       throw error;
     }
-  }, [continuityReady, lifecycleState, applyOutboxResults, refreshOutboxSummary, scheduleNextOutboxDrain]);
+  }, [continuityReady, lifecycleState, applyOutboxResultsOnce, refreshOutboxSummary, scheduleNextOutboxDrain]);
 
   // Boot/online and explicit retry triggers all converge on the same module-level
   // single-flight FIFO drain. No lifecycle event can start a parallel text send.
   useEffect(() => {
     const online = continuityReady && lifecycleState === "online";
-    const reconnected = online && !outboxOnlineRef.current;
-    outboxOnlineRef.current = online;
+    if (lifecycleState === "online" && outboxOnlineRef.current === false) {
+      outboxReconnectPendingRef.current = true;
+    }
+    if (lifecycleState === "online") outboxOnlineRef.current = true;
+    else if (["offline", "offline_network", "backend_unreachable"].includes(lifecycleState)
+      && outboxOnlineRef.current !== null) outboxOnlineRef.current = false;
     if (!online) return;
+    const reconnected = outboxReconnectPendingRef.current;
+    outboxReconnectPendingRef.current = false;
     const retry = () => { runTextOutboxDrain().catch(() => {}); };
     window.addEventListener("kael-outbox-retry", retry);
     runTextOutboxDrain(reconnected ? "reconnect" : "automatic").catch(() => {});
     if (timelineReady) fetchAndAppendPending().catch(() => {});
-    return () => window.removeEventListener("kael-outbox-retry", retry);
+    return () => {
+      window.removeEventListener("kael-outbox-retry", retry);
+    };
   }, [continuityReady, timelineReady, lifecycleState, runTextOutboxDrain, fetchAndAppendPending]);
 
   useEffect(() => () => {
@@ -1133,10 +1244,11 @@ const Chat = () => {
       void recoverTimeline().catch(() => {});
     };
 
-    const handleReconnect = () => {
+    const handleReconnect = (event: Event) => {
       // Catch up on any messages missed while disconnected
       void recoverTimeline().catch(() => {});
-      runTextOutboxDrain("reconnect").catch(() => {});
+      const reconnected = (event as CustomEvent<{reconnected?: boolean}>).detail?.reconnected === true;
+      runTextOutboxDrain(reconnected ? "reconnect" : "automatic").catch(() => {});
     };
 
     const handleServerRestarted = (evt: Event) => {
@@ -1178,12 +1290,13 @@ const Chat = () => {
 
   const handleSend = useCallback(
     async (text: string) => {
-      if (!continuityReady) {
+      if (!outboxViewMountedRef.current || !continuityReady) {
         toast.error(continuityError ?? "Archivio durevole chat non ancora pronto");
         return false;
       }
 
       const quotedSnapshot = quotedMessagePayload;
+      const outboxViewEpoch = outboxViewEpochRef.current;
       const editOperationAtSend = editOperationRef.current;
       const editedMessageId = editOperationAtSend.messageId;
       let exchange;
@@ -1197,8 +1310,19 @@ const Chat = () => {
           quotedMessage: quotedSnapshot,
         });
       } catch {
-        toast.error("Messaggio non inviato: impossibile salvarlo nell'outbox durevole");
+        if (outboxViewMountedRef.current && outboxViewEpochRef.current === outboxViewEpoch) {
+          toast.error("Messaggio non inviato: impossibile salvarlo nell'outbox durevole");
+        }
         return false;
+      }
+
+      // A newly mounted view recovers this durable envelope from the outbox.
+      if (!outboxViewMountedRef.current || outboxViewEpochRef.current !== outboxViewEpoch) {
+        window.dispatchEvent(new CustomEvent("kael-outbox-view-change", {
+          detail: { kind: "enqueued", clientMessageId: exchange.clientMessageId, entry: exchange },
+        }));
+        window.dispatchEvent(new CustomEvent("kael-outbox-retry"));
+        return true;
       }
 
       // Nothing after this point may make a committed envelope look unsent.
@@ -1242,6 +1366,7 @@ const Chat = () => {
       }
       // Transport continues independently of the accepted draft.
       void runTextOutboxDrain().then(async (results) => {
+        if (!outboxViewMountedRef.current || outboxViewEpochRef.current !== outboxViewEpoch) return;
         const ownResult = results.find((result) => result.clientMessageId === clientMsgId);
         if (!ownResult) setProcessingNotice((current) => current?.clientMessageId === clientMsgId
           ? { ...current, kind: "unconfirmed" } : current);
@@ -1260,6 +1385,7 @@ const Chat = () => {
               exchangeId: `external:${clientMsgId}`,
               sessionId,
             });
+            if (!outboxViewMountedRef.current || outboxViewEpochRef.current !== outboxViewEpoch) return;
             const receivedAt = external.observation.provenance.received_at;
 
             const agentMsg: ChatMessage = {
@@ -1286,6 +1412,7 @@ const Chat = () => {
           }
         }
       }).catch(() => {
+        if (!outboxViewMountedRef.current || outboxViewEpochRef.current !== outboxViewEpoch) return;
         setProcessingNotice((current) => current?.clientMessageId === clientMsgId
           ? { ...current, kind: "unconfirmed" } : current);
         // The durable path reported the failure. The committed envelope is
@@ -1701,6 +1828,9 @@ const Chat = () => {
   }, []);
 
   const handleManualOutboxRetry = useCallback(async (clientMessageId: string) => {
+    const epoch = outboxViewEpochRef.current;
+    const isCurrentView = () => outboxViewMountedRef.current && outboxViewEpochRef.current === epoch;
+    if (!isCurrentView()) return;
     const entry = outboxSummary.attention.find((item) => item.clientMessageId === clientMessageId);
     if (!entry) return;
     if (!window.confirm("Vuoi riprovare lo stesso invio?")) return;
@@ -1711,17 +1841,25 @@ const Chat = () => {
         clientMessageId,
         MANUAL_OUTBOX_CONFIRMATION,
       );
+      if (!isCurrentView()) {
+        window.dispatchEvent(new CustomEvent("kael-outbox-retry"));
+        return;
+      }
       await refreshOutboxSummary();
+      if (!isCurrentView()) return;
       await runTextOutboxDrain("explicit_retry");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Retry manuale non riuscito");
+      if (isCurrentView()) toast.error(error instanceof Error ? error.message : "Retry manuale non riuscito");
     } finally {
-      await refreshOutboxSummary().catch(() => {});
-      setOutboxActionBusy(null);
+      if (isCurrentView()) await refreshOutboxSummary().catch(() => {});
+      if (isCurrentView()) setOutboxActionBusy(null);
     }
   }, [outboxSummary.attention, refreshOutboxSummary, runTextOutboxDrain]);
 
   const handleManualOutboxRemove = useCallback(async (clientMessageId: string) => {
+    const epoch = outboxViewEpochRef.current;
+    const isCurrentView = () => outboxViewMountedRef.current && outboxViewEpochRef.current === epoch;
+    if (!isCurrentView()) return;
     const entry = outboxSummary.attention.find((item) => item.clientMessageId === clientMessageId);
     if (!entry) return;
     if (!window.confirm(
@@ -1734,18 +1872,26 @@ const Chat = () => {
         clientMessageId,
         MANUAL_OUTBOX_CONFIRMATION,
       );
+      if (!isCurrentView()) {
+        window.dispatchEvent(new CustomEvent("kael-outbox-view-change", {
+          detail: { kind: "removed", clientMessageId, keepCommitted: Boolean(entry.userTurnId) },
+        }));
+        window.dispatchEvent(new CustomEvent("kael-outbox-retry"));
+        return;
+      }
       setMessages((previous) => previous.filter((message) =>
         message.client_message_id !== clientMessageId
         || Boolean(message.backend_turn_id || entry.userTurnId)
       ));
       await refreshOutboxSummary();
+      if (!isCurrentView()) return;
       await runTextOutboxDrain();
-      fetchAndAppendPending().catch(() => {});
+      if (isCurrentView()) fetchAndAppendPending().catch(() => {});
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Rimozione manuale non riuscita");
+      if (isCurrentView()) toast.error(error instanceof Error ? error.message : "Rimozione manuale non riuscita");
     } finally {
-      await refreshOutboxSummary().catch(() => {});
-      setOutboxActionBusy(null);
+      if (isCurrentView()) await refreshOutboxSummary().catch(() => {});
+      if (isCurrentView()) setOutboxActionBusy(null);
     }
   }, [
     fetchAndAppendPending,

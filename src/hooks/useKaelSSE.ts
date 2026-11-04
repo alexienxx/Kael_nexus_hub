@@ -68,6 +68,7 @@ export function useKaelSSE(enabled: boolean): void {
   const connectSeqRef = useRef(0);
   const enabledRef = useRef(enabled);
   const mountedRef = useRef(true);
+  const hasConnectedRef = useRef(false);
   enabledRef.current = enabled;
 
   useEffect(() => {
@@ -124,7 +125,9 @@ export function useKaelSSE(enabled: boolean): void {
         es.addEventListener("connected", () => {
           console.log("[KaelSSE] Stream connected");
           backoffRef.current = 1000; // reset backoff
-          window.dispatchEvent(new CustomEvent("kael-sse-connected"));
+          const reconnected = hasConnectedRef.current;
+          hasConnectedRef.current = true;
+          window.dispatchEvent(new CustomEvent("kael-sse-connected", { detail: { reconnected } }));
         });
 
         // Existing authenticated stream; never derive typing from a submitted POST.
