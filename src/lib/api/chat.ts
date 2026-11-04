@@ -204,7 +204,8 @@ export async function sendDurableTextEnvelope(
       signal: controller.signal,
     });
     const text = await response.text();
-    const retryAfter = Number(response.headers.get("Retry-After") ?? "");
+    const retryAfterHeader = response.headers.get("Retry-After")?.trim();
+    const retryAfter = retryAfterHeader ? Number(retryAfterHeader) : NaN;
     const parsed = parseChatResponseText(text);
     return {
       status: response.status,

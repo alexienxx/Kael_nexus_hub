@@ -71,6 +71,7 @@ import {
   drainTextOutbox,
   outboxDeliveryStatus,
   nextTextOutboxAttemptAt,
+  subscribeCommittedTextOutboxResults,
   type TextOutboxDrainResult,
   type TextOutboxDrainTrigger,
 } from "@/lib/chat/textOutbox";
@@ -192,6 +193,8 @@ const Chat = () => {
   const historyRecoveryRef = useRef(createChatRecoveryTask());
   const pendingRecoveryRef = useRef(createChatRecoveryTask());
   const outboxRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const outboxScheduleRevisionRef = useRef(0);
+  const outboxScheduleAppliedRef = useRef(0);
   const outboxOnlineRef = useRef(false);
   const continuityInitializedRef = useRef(false);
   const lastRestartMergeBootIdRef = useRef<string | null>(null);
@@ -990,6 +993,8 @@ const Chat = () => {
                 clientMessageId,
                 MANUAL_OUTBOX_CONFIRMATION,
               ).then(() => {
+                outboxScheduleRevisionRef.current += 1;
+                outboxScheduleAppliedRef.current = outboxScheduleRevisionRef.current;
                 if (outboxRetryTimerRef.current) {
                   clearTimeout(outboxRetryTimerRef.current);
                   outboxRetryTimerRef.current = null;
@@ -1012,18 +1017,34 @@ const Chat = () => {
   }, []);
 
   const scheduleNextOutboxDrain = useCallback(async () => {
+    const revision = ++outboxScheduleRevisionRef.current;
+    let nextAttemptAt: number | null;
+    try {
+      nextAttemptAt = await nextTextOutboxAttemptAt();
+    } catch (error) {
+      if (revision < outboxScheduleAppliedRef.current) return;
+      outboxScheduleAppliedRef.current = revision;
+      throw error;
+    }
+    if (revision < outboxScheduleAppliedRef.current) return;
+    outboxScheduleAppliedRef.current = revision;
     if (outboxRetryTimerRef.current) {
       clearTimeout(outboxRetryTimerRef.current);
       outboxRetryTimerRef.current = null;
     }
-    const nextAttemptAt = await nextTextOutboxAttemptAt();
     if (nextAttemptAt === null) return;
     const delay = Math.max(250, Math.min(30_000, nextAttemptAt - Date.now()));
-    outboxRetryTimerRef.current = setTimeout(() => {
+    const timer = setTimeout(() => {
+      if (outboxRetryTimerRef.current !== timer) return;
       outboxRetryTimerRef.current = null;
       window.dispatchEvent(new CustomEvent("kael-outbox-retry"));
     }, delay);
+    outboxRetryTimerRef.current = timer;
   }, []);
+
+  useEffect(() => subscribeCommittedTextOutboxResults((result) => {
+    applyOutboxResults([result]);
+  }), [applyOutboxResults]);
   const refreshOutboxSummary = useCallback(async () => {
     const summary = await getTextOutboxSummary();
     setOutboxSummary(summary);
@@ -1034,7 +1055,8 @@ const Chat = () => {
     if (!continuityReady || lifecycleState !== "online") return [];
     try {
       const results = await drainTextOutbox({ trigger });
-      applyOutboxResults(results);
+      applyOutboxResults(results.filter((result) =>
+        result.kind !== "reply" && result.kind !== "replay" && result.kind !== "silence"));
       await refreshOutboxSummary();
       await scheduleNextOutboxDrain();
       return results;
@@ -1066,6 +1088,8 @@ const Chat = () => {
   }, [continuityReady, timelineReady, lifecycleState, runTextOutboxDrain, fetchAndAppendPending]);
 
   useEffect(() => () => {
+    outboxScheduleRevisionRef.current += 1;
+    outboxScheduleAppliedRef.current = outboxScheduleRevisionRef.current;
     if (outboxRetryTimerRef.current) clearTimeout(outboxRetryTimerRef.current);
   }, []);
 

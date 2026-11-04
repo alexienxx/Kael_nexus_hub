@@ -95,6 +95,21 @@ const COMPAT_RECOVERY_ERROR_CODES = new Set(["exchange_recovery_required"]);
 const COMPAT_REPLAY_ERROR_CODES = new Set(["duplicate_exchange"]);
 
 let activeDrain: Promise<TextOutboxDrainResult[]> | null = null;
+const committedResultListeners = new Set<(result: TextOutboxDrainResult) => void>();
+
+/** Observe each durable result without waiting for later FIFO exchanges. */
+export function subscribeCommittedTextOutboxResults(listener: (result: TextOutboxDrainResult) => void): () => void {
+  committedResultListeners.add(listener);
+  return () => { committedResultListeners.delete(listener); };
+}
+
+function publishCommittedResult(result: TextOutboxDrainResult): void {
+  for (const listener of committedResultListeners) {
+    try { listener(result); } catch (error) {
+      console.error("[Chat] Could not project a committed outbox result", error);
+    }
+  }
+}
 interface PendingDrain {
   options: TextOutboxDrainOptions;
   deferredRevisions: Promise<Map<string, number>>;
@@ -117,7 +132,9 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function retryDelay(attempts: number, serverRetryAfterSeconds?: number): number {
   if (Number.isFinite(serverRetryAfterSeconds) && Number(serverRetryAfterSeconds) >= 0) {
-    return Math.min(MAX_RETRY_MS, Math.max(MIN_RETRY_MS, Number(serverRetryAfterSeconds) * 1_000));
+    // Preserve a longer server-requested delay; the scheduler can wake early
+    // to recheck, but the FIFO head remains deferred until this deadline.
+    return Math.min(Number.MAX_SAFE_INTEGER / 2, Math.max(MIN_RETRY_MS, Number(serverRetryAfterSeconds) * 1_000));
   }
   return Math.min(MAX_RETRY_MS, MIN_RETRY_MS * 2 ** Math.min(5, Math.max(0, attempts - 1)));
 }
@@ -463,7 +480,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
     } catch {
       const exhausted = sending.attempts >= MAX_AUTOMATIC_ATTEMPTS;
       const delay = retryDelay(sending.attempts);
-      const nextAttemptAtMs = currentTime + delay;
+      const nextAttemptAtMs = nowMs() + delay;
       await patchTextExchange(sending.clientMessageId, {
         state: exhausted ? "terminal_failed" : wasQueuedByUser ? "queued_by_user" : "queued",
         nextAttemptAtMs: exhausted ? 0 : nextAttemptAtMs,
@@ -528,19 +545,21 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
       await options.faultInjector?.("after_wal_commit", sending);
       await options.faultInjector?.("before_delete", sending);
       await deleteTextExchange(sending.clientMessageId);
-      results.push({
+      const result: TextOutboxDrainResult = {
         clientMessageId: sending.clientMessageId,
         kind: classified.kind,
         response,
         timelineMessages: messages,
-      });
+      };
+      results.push(result);
+      publishCommittedResult(result);
       continue;
     }
 
     if (classified.kind === "in_progress" || classified.kind === "retryable_failure") {
       const exhausted = sending.attempts >= MAX_AUTOMATIC_ATTEMPTS;
       const delay = retryDelay(sending.attempts, transportResult.retryAfterSeconds);
-      const nextAttemptAtMs = currentTime + delay;
+      const nextAttemptAtMs = nowMs() + delay;
       await patchTextExchange(sending.clientMessageId, {
         state: exhausted
           ? "terminal_failed"
