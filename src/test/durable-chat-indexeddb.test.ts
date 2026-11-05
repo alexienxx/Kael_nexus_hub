@@ -204,6 +204,8 @@ describe("durable chat IndexedDB contract (diagnostic; not live acceptance)", ()
   it.each([
     ["cognition_outcome_requires_recovery", false],
     ["deliberation_unavailable", true],
+    ["assistant_commit_failed", true],
+    ["assistant_commit_ack_unknown", false],
   ] as const)("orders later work behind recovery receipt %s", async (errorCode, finished) => {
     const a = "10000000-0000-4000-8000-000000000020";
     const b = "10000000-0000-4000-8000-000000000021";

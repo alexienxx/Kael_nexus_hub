@@ -365,14 +365,14 @@ export async function listTextExchanges(): Promise<DurableTextExchange[]> {
 }
 
 // These first-party worker exit codes come from RuntimeBoundaryUnavailable and
-// the router's failed brain/expression branches. Generic recovery (e.g. an
+// the router's failed brain, expression and reconciled commit branches. Generic recovery (e.g. an
 // expired lease) does not establish that the original worker returned.
 const STOPPED_COGNITION_ERRORS = new Set([
   "input_sanitizer_unavailable", "safety_pregate_unavailable", "state_plane_unavailable",
   "identity_engine_unavailable", "integrity_gate_unavailable", "world_state_unavailable",
   "deliberation_unavailable", "cognitive_interpretation_unavailable", "expression_unavailable",
   "orchestration_unavailable", "brain_execution_failed", "expression_prompt_budget_exceeded",
-  "expression_generation_failed",
+  "expression_generation_failed", "assistant_commit_failed",
 ]);
 
 function isFinishedCognitionFailure(entry: DurableTextExchange): boolean {
