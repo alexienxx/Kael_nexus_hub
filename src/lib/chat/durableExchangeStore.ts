@@ -366,6 +366,28 @@ export async function listTextExchanges(): Promise<DurableTextExchange[]> {
     .sort((left, right) => left.createdAtMs - right.createdAtMs || left.clientMessageId.localeCompare(right.clientMessageId));
 }
 
+// These first-party worker exit codes come from RuntimeBoundaryUnavailable and
+// the router's failed brain/expression branches. Generic recovery (e.g. an
+// expired lease) does not establish that the original worker returned.
+const STOPPED_COGNITION_ERRORS = new Set([
+  "input_sanitizer_unavailable", "safety_pregate_unavailable", "state_plane_unavailable",
+  "identity_engine_unavailable", "integrity_gate_unavailable", "world_state_unavailable",
+  "deliberation_unavailable", "cognitive_interpretation_unavailable", "expression_unavailable",
+  "orchestration_unavailable", "brain_execution_failed", "expression_prompt_budget_exceeded",
+  "expression_generation_failed",
+]);
+
+function isFinishedCognitionFailure(entry: DurableTextExchange): boolean {
+  return entry.state === "recovery_required" && entry.exchangeStatus === "recovery_required"
+    && STOPPED_COGNITION_ERRORS.has(entry.errorCode ?? "") && Boolean(entry.exchangeId)
+    && /^[1-9]\d*$/.test(entry.userTurnId ?? "") && !entry.assistantTurnId
+    && (entry.outcomeKind === undefined || entry.outcomeKind === "failure");
+}
+
+export function nextOrderedTextExchange(entries: DurableTextExchange[]): DurableTextExchange | undefined {
+  return entries.find((entry) => !isFinishedCognitionFailure(entry));
+}
+
 export async function getTextOutboxSummary(): Promise<TextOutboxSummary> {
   const entries = await listTextExchanges();
   const attention = entries.filter((entry) =>
@@ -376,7 +398,7 @@ export async function getTextOutboxSummary(): Promise<TextOutboxSummary> {
   return {
     total: entries.length,
     capacity: MAX_TEXT_OUTBOX_ENTRIES,
-    blocked: attention.length > 0,
+    blocked: attention.some((entry) => !isFinishedCognitionFailure(entry)),
     attention,
   };
 }
@@ -432,6 +454,17 @@ export async function markTextExchangeSending(clientMessageId: string, nowMs = D
     await transactionDone(transaction);
     if (claim) return null;
     throw new Error("Durable chat exchange is not eligible for dispatch");
+  }
+  if (claim) {
+    // An older retained failure can be manually requeued after the drain reads it.
+    // The index orders equal timestamps by primary key, as in listTextExchanges.
+    const ordered = await requestResult(store.index("by_created").getAll(
+      IDBKeyRange.upperBound(entry.createdAtMs),
+    )) as DurableTextExchange[];
+    if (nextOrderedTextExchange(ordered)?.clientMessageId !== clientMessageId) {
+      await transactionDone(transaction);
+      return null;
+    }
   }
   entry.state = "sending";
   entry.attempts = Number(entry.attempts || 0) + 1;

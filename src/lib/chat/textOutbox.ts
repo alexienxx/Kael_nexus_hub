@@ -9,6 +9,7 @@ import {
   ingestTimelinePage,
   listTextExchanges,
   markTextExchangeSending,
+  nextOrderedTextExchange,
   patchTextExchange,
   verifyTextExchange,
   type DurableTextExchange,
@@ -435,9 +436,9 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
     for (const id of deferredRevisions.keys()) {
       if (!deferredIds.has(id)) deferredRevisions.delete(id);
     }
-    // Strict FIFO: an unresolved A is an ordering barrier for B. The user must
-    // explicitly retry or remove A before a later cognitive turn is dispatched.
-    const entry = entries[0];
+    // Keep unresolved turns ordered. A retained, finished cognition failure is never
+    // dispatched again unless its owner explicitly retries it.
+    const entry = nextOrderedTextExchange(entries);
     if (!entry) break;
     if (entry.state === "queued_by_user" && deferredRevisions.get(entry.clientMessageId) !== entry.updatedAtMs) break;
     if (
@@ -654,7 +655,7 @@ export function drainTextOutbox(options: TextOutboxDrainOptions = {}): Promise<T
 
 export async function nextTextOutboxAttemptAt(): Promise<number | null> {
   const entries = await listTextExchanges();
-  const head = entries[0];
+  const head = nextOrderedTextExchange(entries);
   if (
     !head ||
     (head.state === "queued_by_user" && releasedDeferredRevisions.get(head.clientMessageId) !== head.updatedAtMs) ||

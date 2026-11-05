@@ -201,7 +201,10 @@ describe("durable chat IndexedDB contract (diagnostic; not live acceptance)", ()
     }
   });
 
-  it("keeps B queued behind recovery-required A until A is explicitly resolved", async () => {
+  it.each([
+    ["cognition_outcome_requires_recovery", false],
+    ["deliberation_unavailable", true],
+  ] as const)("orders later work behind recovery receipt %s", async (errorCode, finished) => {
     const a = "10000000-0000-4000-8000-000000000020";
     const b = "10000000-0000-4000-8000-000000000021";
     await enqueue(a, "A", new Date("2026-09-04T10:00:00.000Z"));
@@ -220,7 +223,7 @@ describe("durable chat IndexedDB contract (diagnostic; not live acceptance)", ()
             outcome_kind: "failure",
             user_turn_id: 101,
             assistant_turn_id: null,
-            error: { code: "cognition_outcome_requires_recovery", retryable: false },
+            error: { code: errorCode, retryable: false },
           },
         } satisfies ChatHttpResult;
       }
@@ -231,9 +234,23 @@ describe("durable chat IndexedDB contract (diagnostic; not live acceptance)", ()
       });
     });
 
-    expect((await drainTextOutbox({ transport }))[0]).toMatchObject({
+    const first = await drainTextOutbox({ transport, maxDispatches: 1 });
+    expect(first[0]).toMatchObject({
       kind: "recovery_required", receivedUserTurnId: "101",
     });
+    if (finished) {
+      expect(await nextTextOutboxAttemptAt()).toBe(0);
+      expect(await drainTextOutbox({ transport })).toEqual([
+        expect.objectContaining({ clientMessageId: b, kind: "reply" }),
+      ]);
+      expect(await getTextOutboxSummary()).toMatchObject({
+        blocked: false, total: 1, attention: [expect.objectContaining({ clientMessageId: a, attempts: 1 })],
+      });
+      expect(await nextTextOutboxAttemptAt()).toBeNull();
+      expect(transport).toHaveBeenCalledTimes(2);
+      return;
+    }
+    expect(await nextTextOutboxAttemptAt()).toBeNull();
     expect(await drainTextOutbox({ transport })).toEqual([]);
     expect(transport).toHaveBeenCalledTimes(1);
     expect(await getTextOutboxSummary()).toEqual(expect.objectContaining({
