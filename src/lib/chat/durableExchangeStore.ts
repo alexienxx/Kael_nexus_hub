@@ -359,11 +359,9 @@ export async function verifyTextExchange(entry: DurableTextExchange): Promise<bo
 export async function listTextExchanges(): Promise<DurableTextExchange[]> {
   const db = await openDatabase();
   const transaction = db.transaction(OUTBOX_STORE, "readonly");
-  const entries = await requestResult(transaction.objectStore(OUTBOX_STORE).getAll()) as DurableTextExchange[];
+  const entries = await requestResult(transaction.objectStore(OUTBOX_STORE).index("by_created").getAll()) as DurableTextExchange[];
   await transactionDone(transaction);
-  return entries
-    .map(cloneExchange)
-    .sort((left, right) => left.createdAtMs - right.createdAtMs || left.clientMessageId.localeCompare(right.clientMessageId));
+  return entries.map(cloneExchange);
 }
 
 // These first-party worker exit codes come from RuntimeBoundaryUnavailable and

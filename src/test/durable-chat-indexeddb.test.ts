@@ -234,15 +234,14 @@ describe("durable chat IndexedDB contract (diagnostic; not live acceptance)", ()
       });
     });
 
-    const first = await drainTextOutbox({ transport, maxDispatches: 1 });
+    const first = await drainTextOutbox({ transport });
     expect(first[0]).toMatchObject({
       kind: "recovery_required", receivedUserTurnId: "101",
     });
     if (finished) {
-      expect(await nextTextOutboxAttemptAt()).toBe(0);
-      expect(await drainTextOutbox({ transport })).toEqual([
-        expect.objectContaining({ clientMessageId: b, kind: "reply" }),
-      ]);
+      expect(first).toHaveLength(2);
+      expect(first[1]).toMatchObject({ clientMessageId: b, kind: "reply" });
+      expect(await drainTextOutbox({ transport })).toEqual([]);
       expect(await getTextOutboxSummary()).toMatchObject({
         blocked: false, total: 1, attention: [expect.objectContaining({ clientMessageId: a, attempts: 1 })],
       });
