@@ -35,6 +35,7 @@ export interface TextOutboxDrainResult {
   kind: ChatOutcomeClassification | "transport_deferred" | "integrity_failure";
   response?: ChatResponse;
   timelineMessages?: Record<string, unknown>[];
+  receivedUserTurnId?: string;
   nextAttemptAtMs?: number;
   errorCode?: string;
 }
@@ -585,7 +586,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
       break;
     }
 
-    await patchTextExchange(sending.clientMessageId, {
+    const persisted = await patchTextExchange(sending.clientMessageId, {
       state: classified.kind === "authentication_required"
         ? "authentication_required"
         : classified.kind === "recovery_required"
@@ -598,6 +599,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
     recordDurableResult({
       clientMessageId: sending.clientMessageId,
       kind: classified.kind,
+      ...(classified.kind === "recovery_required" ? { receivedUserTurnId: persisted.userTurnId } : {}),
       response,
       errorCode: classified.errorCode,
     });

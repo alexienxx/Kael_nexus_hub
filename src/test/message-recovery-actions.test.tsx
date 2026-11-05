@@ -25,9 +25,16 @@ describe("recovery actions on the actual message components", () => {
     expect(screen.queryByText("messaggio non consegnato")).toBeNull();
   });
 
-  it("retains a failed receipt indication without restoring verbose delivery notes", () => {
+  it("shows a received user turn even when recovery actions are available", () => {
+    render(<ThemeProvider><MessageBubble message={{ ...message, backend_turn_id: "5414" }}
+      onRetrySend={() => undefined} /></ThemeProvider>);
+    expect(screen.getByText("Messaggio ricevuto. Elaborazione interrotta.")).toBeVisible();
+    expect(screen.queryByText("messaggio non consegnato")).toBeNull();
+  });
+
+  it("keeps a legacy recovery barrier without claiming confirmed receipt", () => {
     render(<ThemeProvider><MessageBubble message={message} /></ThemeProvider>);
-    expect(screen.getByText("messaggio non consegnato")).toBeVisible();
+    expect(screen.getByText("Risposta da recuperare.")).toBeVisible();
     expect(screen.queryByText(/Codice:|Consegnato|Outbox chat:/)).toBeNull();
   });
 

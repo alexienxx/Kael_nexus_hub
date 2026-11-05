@@ -117,10 +117,17 @@ const MessageBubble = ({
   const { theme, kaelAvatarSrc } = useTheme();
   const isUser = message.sender === "user";
   const isExternalAgent = message.sender === "external_agent";
+  const exchangeStatus = String(message.meta?.exchange_status ?? "").toLowerCase();
   const sendNeedsAttention = isUser && (Boolean(onRetrySend || onCancelSend) || [
     "recovery_required", "authentication_required", "terminal_failed", "terminal_failure", "integrity_failure", "abandoned",
     "transport_deferred", "retryable_failure",
-  ].includes(String(message.meta?.exchange_status ?? "").toLowerCase()));
+  ].includes(exchangeStatus));
+  let deliveryNote = "messaggio non consegnato";
+  if (exchangeStatus === "recovery_required") {
+    deliveryNote = message.backend_turn_id && /^[1-9]\d*$/.test(message.backend_turn_id)
+      ? "Messaggio ricevuto. Elaborazione interrotta."
+      : "Risposta da recuperare.";
+  }
 
   const getSenderInfo = () => {
     if (isUser) return { name: null, avatar: null };
@@ -391,8 +398,8 @@ const MessageBubble = ({
 
           {sendNeedsAttention && <p
             className="mt-1 text-right text-[10px] text-amber-300"
-            title="Tieni premuto sul messaggio per le opzioni di invio."
-          >messaggio non consegnato</p>}
+            title={onRetrySend || onCancelSend ? "Tieni premuto sul messaggio per le opzioni di invio." : undefined}
+          >{deliveryNote}</p>}
           {isUser && messageReaction && (
             <div className="mt-1 flex justify-end" data-reaction-id={messageReaction.operation_id}>
               <span className="rounded-full border border-foreground/15 bg-background/80 px-2 py-0.5 text-base"

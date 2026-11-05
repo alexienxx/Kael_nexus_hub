@@ -117,6 +117,10 @@ const DEFAULT_CONVERSATION_ID = "kael-main";
 const CHAT_CURSOR_STORAGE_KEY = "kael-chat-turn-cursor-v1";
 
 function optimisticOutboxMessage(entry: DurableTextExchange): ChatMessage {
+  // A retained barrier is the classifier's decision. A raw response can
+  // contain contradictory fields, so it cannot override that decision on reload.
+  const isBarrier = ["recovery_required", "terminal_failed", "authentication_required"].includes(entry.state);
+  const status = isBarrier ? entry.state : entry.exchangeStatus ?? entry.state;
   return {
     id: entry.clientMessageId, client_message_id: entry.clientMessageId,
     backend_turn_id: entry.userTurnId, text: entry.requestBody.text,
@@ -124,7 +128,7 @@ function optimisticOutboxMessage(entry: DurableTextExchange): ChatMessage {
     timestamp: entry.createdAtMs / 1000, sender: "user", feedback: null,
     meta: { exchange_status: entry.errorCode && entry.attempts > 0
       && (entry.state === "queued" || entry.state === "queued_by_user")
-      ? "retryable_failure" : entry.exchangeStatus ?? entry.state, durable_outbox: true },
+      ? "retryable_failure" : status, durable_outbox: true },
   };
 }
 
@@ -1025,6 +1029,7 @@ const Chat = () => {
         message.sender === "user" && message.client_message_id === result.clientMessageId
           ? {
               ...message,
+              ...(result.receivedUserTurnId ? { backend_turn_id: result.receivedUserTurnId } : {}),
               meta: {
                 ...(message.meta ?? {}),
                 exchange_status: visibleExchangeStatus,

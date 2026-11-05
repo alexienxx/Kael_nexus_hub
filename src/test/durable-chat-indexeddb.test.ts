@@ -231,7 +231,9 @@ describe("durable chat IndexedDB contract (diagnostic; not live acceptance)", ()
       });
     });
 
-    expect((await drainTextOutbox({ transport }))[0].kind).toBe("recovery_required");
+    expect((await drainTextOutbox({ transport }))[0]).toMatchObject({
+      kind: "recovery_required", receivedUserTurnId: "101",
+    });
     expect(await drainTextOutbox({ transport })).toEqual([]);
     expect(transport).toHaveBeenCalledTimes(1);
     expect(await getTextOutboxSummary()).toEqual(expect.objectContaining({
@@ -335,7 +337,8 @@ describe("durable chat IndexedDB contract (diagnostic; not live acceptance)", ()
       user_turn_id: 301,
       assistant_turn_id: 302,
     }));
-    const resumed = await drainTextOutbox({ transport: online });
+    expect(await drainTextOutbox({ transport: online })).toEqual([]);
+    const resumed = await drainTextOutbox({ transport: online, trigger: "reconnect", nowMs: () => deferred.updatedAtMs + 1 });
 
     expect(resumed).toEqual([
       expect.objectContaining({ clientMessageId: id, kind: "reply" }),
