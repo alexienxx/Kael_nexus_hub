@@ -28,6 +28,7 @@ export type ChatOutcomeClassification =
 export interface ClassifiedChatOutcome {
   kind: ChatOutcomeClassification;
   errorCode?: string;
+  canonicalFailureCode?: string;
   retryAfterMs?: number;
 }
 
@@ -39,6 +40,7 @@ export interface TextOutboxDrainResult {
   receivedUserTurnId?: string;
   nextAttemptAtMs?: number;
   errorCode?: string;
+  canonicalFailureCode?: string;
 }
 
 /** Never re-promote an untrusted response after classification/correlation
@@ -208,9 +210,22 @@ export function classifyChatOutcome(result: ChatHttpResult): ClassifiedChatOutco
     if (hasReply || hasAssistantTurn || outcomeKind === "reply" || outcomeKind === "silence") {
       return { kind: "terminal_failure", errorCode: "incoherent_recovery_receipt" };
     }
+    const topCause = body.failure_code;
+    const nestedCause = detail.failure_code;
+    if (topCause != null && nestedCause != null && topCause !== nestedCause) {
+      return { kind: "terminal_failure", errorCode: "receipt_failure_code_conflict" };
+    }
+    const cause = topCause ?? nestedCause;
+    if (cause != null && (typeof cause !== "string" || !cause.length || cause.length > 160 || cause !== cause.trim())) {
+      return { kind: "terminal_failure", errorCode: "receipt_failure_code_invalid" };
+    }
     return {
       kind: "recovery_required",
       errorCode: errorCode ?? "cognition_outcome_requires_recovery",
+      // Only an explicit recovery receipt carries this owner field. A generic
+      // error alongside processing/lease uncertainty cannot establish a stop.
+      ...(exchangeStatus === "recovery_required" && typeof cause === "string"
+        ? { canonicalFailureCode: cause } : {}),
     };
   }
 
@@ -316,7 +331,7 @@ function sessionsCorrelate(requestSessionId: string, responseSessionId: string):
   return requestSessionId.toLowerCase() === "mobile_kael" && responseSessionId === "default";
 }
 
-function validateReceiptCorrelation(
+export function validateReceiptCorrelation(
   entry: DurableTextExchange,
   response: ChatResponse,
   kind: "reply" | "replay" | "silence" | "in_progress" | "recovery_required",
@@ -407,9 +422,11 @@ function timelineMessagesForOutcome(
   return [userMessage, assistantMessage];
 }
 
-function receiptPatch(response: ChatResponse) {
+export function receiptPatch(response: ChatResponse, canonicalFailureCode?: string) {
   const receipt = receiptView(response);
-  return Object.fromEntries(
+  // Absence clears a previous attempt's cause; it cannot qualify a newer
+  // unknown receipt with stale evidence from an earlier attempt.
+  return { ...Object.fromEntries(
     Object.entries({
       exchangeId: receipt.exchangeId,
       exchangeStatus: receipt.exchangeStatus,
@@ -417,7 +434,7 @@ function receiptPatch(response: ChatResponse) {
       userTurnId: asString(receipt.userTurnId),
       assistantTurnId: asString(receipt.assistantTurnId),
     }).filter(([, value]) => value !== undefined),
-  );
+  ), canonicalFailureCode };
 }
 
 async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<string, number>): Promise<TextOutboxDrainResult[]> {
@@ -595,7 +612,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
           : "terminal_failed",
       nextAttemptAtMs: 0,
       errorCode: classified.errorCode,
-      ...receiptPatch(response),
+      ...receiptPatch(response, classified.kind === "recovery_required" ? classified.canonicalFailureCode : undefined),
     }, nowMs());
     recordDurableResult({
       clientMessageId: sending.clientMessageId,
@@ -603,6 +620,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
       ...(classified.kind === "recovery_required" ? { receivedUserTurnId: persisted.userTurnId } : {}),
       response,
       errorCode: classified.errorCode,
+      ...(classified.canonicalFailureCode ? { canonicalFailureCode: classified.canonicalFailureCode } : {}),
     });
   }
 

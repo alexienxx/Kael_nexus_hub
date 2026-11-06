@@ -44,6 +44,8 @@ export interface ChatResponse {
   exchange_id?: string;
   exchange_status?: string;
   outcome_kind?: string;
+  /** Exact persisted exchange cause; transport error.code remains separate. */
+  failure_code?: string;
   idempotent_replay?: boolean;
   error?: {
     code?: string;

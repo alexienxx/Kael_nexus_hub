@@ -61,6 +61,8 @@ export interface DurableTextExchange {
   userTurnId?: string;
   assistantTurnId?: string;
   errorCode?: string;
+  /** Canonical receipt cause, distinct from a generic replay/transport code. */
+  canonicalFailureCode?: string;
 }
 
 export interface DurableInboxBatch {
@@ -113,6 +115,7 @@ export interface TextExchangePatch {
   userTurnId?: string;
   assistantTurnId?: string;
   errorCode?: string;
+  canonicalFailureCode?: string;
 }
 
 let databasePromise: Promise<IDBDatabase> | null = null;
@@ -377,7 +380,7 @@ const STOPPED_COGNITION_ERRORS = new Set([
 
 function isFinishedCognitionFailure(entry: DurableTextExchange): boolean {
   return entry.state === "recovery_required" && entry.exchangeStatus === "recovery_required"
-    && STOPPED_COGNITION_ERRORS.has(entry.errorCode ?? "") && Boolean(entry.exchangeId)
+    && STOPPED_COGNITION_ERRORS.has(entry.canonicalFailureCode ?? entry.errorCode ?? "") && Boolean(entry.exchangeId)
     && /^[1-9]\d*$/.test(entry.userTurnId ?? "") && !entry.assistantTurnId
     && (entry.outcomeKind === undefined || entry.outcomeKind === "failure");
 }
@@ -550,6 +553,7 @@ export async function retryTextExchangeManually(
   entry.nextAttemptAtMs = 0;
   entry.updatedAtMs = nowMs;
   delete entry.errorCode;
+  delete entry.canonicalFailureCode;
   store.put(entry);
   await transactionDone(transaction);
   return cloneExchange(entry);
