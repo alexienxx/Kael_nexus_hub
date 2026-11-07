@@ -12,9 +12,42 @@ const message: ChatMessage = {
   client_message_id: "declared-ui-request",
   meta: { exchange_status: "recovery_required" },
 };
+
+const cachedProcessing: ChatMessage = { ...message, backend_turn_id: "741",
+  meta: { exchange_status: "processing", exchange_id: "exchange:declared-receipt" } };
 afterEach(cleanup);
 
 describe("recovery actions on the actual message components", () => {
+  it("preserves confirmed receipt when a cached processing row is reloaded", () => {
+    const before = JSON.stringify(cachedProcessing);
+    render(<ThemeProvider><MessageBubble message={cachedProcessing}
+      onRetrySend={() => undefined} /></ThemeProvider>);
+    expect(screen.getByText("Messaggio ricevuto.")).toBeVisible();
+    expect(screen.queryByText("messaggio non consegnato")).toBeNull();
+    expect(screen.queryByText("Messaggio ricevuto. Elaborazione interrotta.")).toBeNull();
+    expect(JSON.stringify(cachedProcessing)).toBe(before);
+  });
+
+  it.each([undefined, "0", "-1", "receipt-only"])(
+    "does not claim received processing without a positive canonical user turn: %s", (turnId) => {
+      render(<ThemeProvider><MessageBubble message={{ ...cachedProcessing, backend_turn_id: turnId }}
+        onRetrySend={() => undefined} /></ThemeProvider>);
+      expect(screen.queryByText("Messaggio ricevuto.")).toBeNull();
+      expect(screen.getByText("messaggio non consegnato")).toBeVisible();
+    },
+  );
+
+  it("does not call newer processing interrupted because an earlier view showed recovery", () => {
+    const view = render(<ThemeProvider><MessageBubble message={{ ...cachedProcessing,
+      meta: { ...cachedProcessing.meta, exchange_status: "recovery_required" } }}
+      onRetrySend={() => undefined} /></ThemeProvider>);
+    expect(screen.getByText("Messaggio ricevuto. Elaborazione interrotta.")).toBeVisible();
+    view.rerender(<ThemeProvider><MessageBubble message={cachedProcessing}
+      onRetrySend={() => undefined} /></ThemeProvider>);
+    expect(screen.getByText("Messaggio ricevuto.")).toBeVisible();
+    expect(screen.queryByText("Messaggio ricevuto. Elaborazione interrotta.")).toBeNull();
+  });
+
   it.each(["transport_deferred", "retryable_failure"])("keeps the undelivered indication during %s", (status) => {
     render(<ThemeProvider><MessageBubble message={{ ...message, meta: { exchange_status: status } }} /></ThemeProvider>);
     expect(screen.getByText("messaggio non consegnato")).toBeVisible();

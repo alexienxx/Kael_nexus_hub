@@ -127,6 +127,10 @@ const MessageBubble = ({
     deliveryNote = message.backend_turn_id && /^[1-9]\d*$/.test(message.backend_turn_id)
       ? "Messaggio ricevuto. Elaborazione interrotta."
       : "Risposta da recuperare.";
+  } else if (["processing", "in_progress"].includes(exchangeStatus)
+    && message.backend_turn_id && /^[1-9]\d*$/.test(message.backend_turn_id)) {
+    // A committed USER turn confirms receipt, not which processing attempt is current.
+    deliveryNote = "Messaggio ricevuto.";
   }
 
   const getSenderInfo = () => {
