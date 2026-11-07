@@ -114,6 +114,19 @@ function publishCommittedResult(result: TextOutboxDrainResult): void {
     }
   }
 }
+
+/** The existing view-change channel observes a committed local dispatch, not delivery. */
+export function publishTextOutboxSending(entry: DurableTextExchange): void {
+  if (entry.state !== "sending" || typeof window === "undefined") return;
+  try {
+    window.dispatchEvent(new CustomEvent("kael-outbox-view-change", {
+      detail: { kind: "sending", clientMessageId: entry.clientMessageId, entry },
+    }));
+  } catch (error) {
+    // Presentation must never interrupt the already committed transport attempt.
+    console.error("[Chat] Could not project committed outbox dispatch", error);
+  }
+}
 interface PendingDrain {
   options: TextOutboxDrainOptions;
   deferredRevisions: Promise<Map<string, number>>;
@@ -496,6 +509,7 @@ async function runDrain(options: TextOutboxDrainOptions, deferredRevisions: Map<
     // barrier, not a storage failure, and must never send the stale snapshot.
     if (!sending) break;
     deferredRevisions.delete(entry.clientMessageId);
+    publishTextOutboxSending(sending);
     await options.faultInjector?.("after_mark_sending", sending);
     let transportResult: ChatHttpResult;
     try {

@@ -20,7 +20,11 @@ import ChatProcessingNotice from "@/components/chat/ChatProcessingNotice";
 import { createChatRecoveryTask } from "@/lib/chat/recoveryTask";
 import {
   applyChatProcessingOutcome,
+  applyTextOutboxSendingMessage,
+  applyTextOutboxSendingNotice,
+  chatProcessingNoticeFromOutbox,
   reconcileChatProcessingMessages,
+  textOutboxMessageStatus,
   type ChatProcessingState,
 } from "@/lib/chat/processingNotice";
 import ImageViewer from "@/components/media/ImageViewer";
@@ -119,29 +123,18 @@ const CHAT_CURSOR_STORAGE_KEY = "kael-chat-turn-cursor-v1";
 function optimisticOutboxMessage(entry: DurableTextExchange): ChatMessage {
   // A retained barrier is the classifier's decision. A raw response can
   // contain contradictory fields, so it cannot override that decision on reload.
-  const isBarrier = ["recovery_required", "terminal_failed", "authentication_required"].includes(entry.state);
-  const status = isBarrier ? entry.state : entry.exchangeStatus ?? entry.state;
   return {
     id: entry.clientMessageId, client_message_id: entry.clientMessageId,
     backend_turn_id: entry.userTurnId, text: entry.requestBody.text,
     time: new Date(entry.createdAtMs).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }),
     timestamp: entry.createdAtMs / 1000, sender: "user", feedback: null,
-    meta: { exchange_status: entry.errorCode && entry.attempts > 0
-      && (entry.state === "queued" || entry.state === "queued_by_user")
-      ? "retryable_failure" : status, durable_outbox: true },
+    meta: { exchange_status: textOutboxMessageStatus(entry), durable_outbox: true },
   };
 }
 
 function processingNoticeFromOutbox(entry: DurableTextExchange): ChatProcessingState | null {
   if (entry.timelineKey !== DEFAULT_CONVERSATION_ID) return null;
-  if (entry.state === "in_progress") {
-    // This state is persisted only after a classified, correlated server receipt.
-    return { kind: "in_progress", clientMessageId: entry.clientMessageId };
-  }
-  if (entry.state === "queued" || entry.state === "sending") {
-    return { kind: "waiting", clientMessageId: entry.clientMessageId };
-  }
-  return null;
+  return chatProcessingNoticeFromOutbox(entry);
 }
 
 function persistTurnCursor(cursor: number): void {
@@ -681,6 +674,11 @@ const Chat = () => {
           || (current.clientMessageId !== restoredNotice.clientMessageId
             && (current.kind === "silence" || current.kind === "unconfirmed"))
           ? restoredNotice : current);
+      } else if (detail.kind === "sending" && detail.entry?.clientMessageId === detail.clientMessageId
+        && detail.entry.timelineKey === DEFAULT_CONVERSATION_ID && detail.entry.state === "sending") {
+        const entry = detail.entry;
+        setMessages((previous) => previous.map((message) => applyTextOutboxSendingMessage(message, entry)));
+        setProcessingNotice((current) => applyTextOutboxSendingNotice(current, entry));
       } else if (detail.kind === "removed") {
         setMessages((previous) => previous.filter((message) =>
           message.client_message_id !== detail.clientMessageId || Boolean(message.backend_turn_id || detail.keepCommitted)));
